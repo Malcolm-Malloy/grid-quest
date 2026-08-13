@@ -1,0 +1,44 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="PackedScene" path="res://player.tscn" id="1"]
+[ext_resource type="Script" path="res://grid_background.gd" id="2"]
+[ext_resource type="Script" path="res://obstacles.gd" id="3"]
+[ext_resource type="Script" path="res://camera_follow.gd" id="4"]
+[ext_resource type="Script" path="res://shadow_manager.gd" id="5"]
+[ext_resource type="Script" path="res://room_light.gd" id="6"]
+[ext_resource type="Script" path="res://floor_manager.gd" id="7"]
+[ext_resource type="Script" path="res://floor_highlight_mask.gd" id="8"]
+
+[node name="Main" type="Node2D"]
+
+[node name="World" type="Node2D" parent="."]
+scale = Vector2(1, 0.7)
+y_sort_enabled = true
+
+[node name="GridBackground" type="Node2D" parent="World"]
+z_index = -10
+script = ExtResource("2")
+
+[node name="ShadowGroup" type="Node2D" parent="World"]
+z_index = -5
+script = ExtResource("5")
+
+[node name="Obstacles" type="Node2D" parent="World"]
+script = ExtResource("3")
+
+[node name="Player" parent="World" instance=ExtResource("1")]
+position = Vector2(272, 400)
+
+[node name="RoomLight" type="Node2D" parent="World"]
+z_index = -8
+script = ExtResource("6")
+
+[node name="FloorManager" type="Node2D" parent="World"]
+script = ExtResource("7")
+
+[node name="FloorHighlightMask" type="Node2D" parent="World"]
+script = ExtResource("8")
+
+[node name="Camera2D" type="Camera2D" parent="."]
+zoom = Vector2(2, 2)
+script = ExtResource("4")

@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Godot 4 engine cache / exports
+.godot/
+/android/
+export_presets.cfg
+
+# Personal notes drop-box, never commit
+My Notes/
+
+# Dev screenshots and capture / scratch artifacts
+Screenshots/
+_*.png
+_*.png.import
