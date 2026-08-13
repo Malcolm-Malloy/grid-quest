@@ -32,6 +32,24 @@ note revises an earlier plan, the newest intent wins.
   the same MapIO atomic-write + versioning path.
 - Whole-game saves, so the player can eventually collect items that persist.
 
+## Ground layer (quarter-tile, decided 2026-08-13, not built yet)
+Decouple the ground/floor into its own layer, independent of rooms and obstacles, and store
+material per 16px quarter (a cell is four independently-set quarters). The engine already works
+at this grain (`room_light.wall_ring_quads`, highlight `HALF = 16`), so it is a natural fit.
+Decided design:
+- **Storage:** `FloorManager` moves from per-room `_styles` (rep_cell to style) to a per-quarter
+  grid (16px quarter coord to material). Room-fill stays as a convenience (set every quarter in a
+  flooded room), so nothing built so far breaks.
+- **Rendering (hard edges for now):** each quarter draws its material sampled by world position
+  via `GridBackground.tiled_src`; `grid_background` and `shadow_manager` already draw quarter
+  fills for the wall ring, so this extends that.
+- **Editing:** the Ground menu paints material at room, cell, or quarter level.
+- **Save:** `MapIO` bumps to version 2 with a migration that reads v1 per-room styles into
+  quarters.
+- **Future phases:** (a) auto-matching, so placing a material next to another auto-forms the
+  boundary quarters; (b) "better edging", transition/corner sprites derived from neighbour
+  quarters instead of the hard 16px seam.
+
 ## Coloured floors
 - Per-texture colour tinting of the floor textures (for example, recolour the tiles orange).
   Starts as a few presets, with a full colour picker later.
