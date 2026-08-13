@@ -20,7 +20,16 @@ note revises an earlier plan, the newest intent wins.
   small blob if the tucked-under look is too subtle.)
 
 ## Saving
-- Saved maps loadable from a menu, with save states for both maps and the character.
+- **Map save/load (done 2026-08-13).** `MapIO` autoload serializes only the source of truth
+  (grid size, spawn, walls, doors, per-room floor styles) to `user://maps/<name>.json`
+  (versioned, atomic write); everything derived (shadows, lighting, wall/gate meshes, floor
+  fills, highlight, door states) is recomputed on load. Loadable from a minimal in-game menu
+  (M key: name field + Save, list of maps with Load/Delete). On launch the game auto-reloads
+  the last saved/loaded map (`user://last_map.txt`); the capture harness disables this unless
+  `GQ_AUTOLOAD=1`. To add a saveable property, edit `MapIO.serialize` + `_apply` in one place
+  and bump `version` if the change is breaking.
+- Character save (live position, facing, inventory) as a separate JSON section/file reusing
+  the same MapIO atomic-write + versioning path.
 - Whole-game saves, so the player can eventually collect items that persist.
 
 ## Coloured floors

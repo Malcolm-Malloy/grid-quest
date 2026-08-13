@@ -1,13 +1,14 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=10 format=3]
 
-[ext_resource type="PackedScene" path="res://player.tscn" id="1"]
-[ext_resource type="Script" path="res://grid_background.gd" id="2"]
-[ext_resource type="Script" path="res://obstacles.gd" id="3"]
-[ext_resource type="Script" path="res://camera_follow.gd" id="4"]
-[ext_resource type="Script" path="res://shadow_manager.gd" id="5"]
-[ext_resource type="Script" path="res://room_light.gd" id="6"]
-[ext_resource type="Script" path="res://floor_manager.gd" id="7"]
-[ext_resource type="Script" path="res://floor_highlight_mask.gd" id="8"]
+[ext_resource type="PackedScene" path="res://player/player.tscn" id="1"]
+[ext_resource type="Script" path="res://world/grid_background.gd" id="2"]
+[ext_resource type="Script" path="res://world/obstacles.gd" id="3"]
+[ext_resource type="Script" path="res://world/camera_follow.gd" id="4"]
+[ext_resource type="Script" path="res://world/shadow_manager.gd" id="5"]
+[ext_resource type="Script" path="res://world/room_light.gd" id="6"]
+[ext_resource type="Script" path="res://floors/floor_manager.gd" id="7"]
+[ext_resource type="Script" path="res://floors/floor_highlight_mask.gd" id="8"]
+[ext_resource type="Script" path="res://ui/save_load_menu.gd" id="9"]
 
 [node name="Main" type="Node2D"]
 
@@ -42,3 +43,6 @@ script = ExtResource("8")
 [node name="Camera2D" type="Camera2D" parent="."]
 zoom = Vector2(2, 2)
 script = ExtResource("4")
+
+[node name="SaveLoadMenu" type="CanvasLayer" parent="."]
+script = ExtResource("9")
