@@ -3,6 +3,7 @@ extends Node2D
 const CELL_SIZE := 32
 const WALL_HEIGHT := 7
 const CAP_HEIGHT := WALL_HEIGHT + 4 # thickness used for a horizontal wall's top face
+const FACE_SHADE := 0.62 # the front face is in shadow, so its colour is darkened by this
 
 var run_length: int = 1
 var align_offset_x: float = 0.0 # shifts the thin strip to hug a tile edge, for joining a corner
@@ -13,17 +14,48 @@ var align_offset_x: float = 0.0 # shifts the thin strip to hug a tile edge, for 
 var seg_width: float = 0.0
 var seg_x_start: float = 0.0
 
+# one Color per covered cell (top to bottom); a tint multiplied over the stone. Missing or short
+# entries default to white (natural stone). Set by Obstacles from its wall_colors store.
+var cell_colors: Array = []
+
 var face_texture := preload("res://world/stone_face.png")
 var cap_texture := preload("res://world/stone_cap.png")
 
 func _ready() -> void:
 	texture_filter = TEXTURE_FILTER_NEAREST
+	texture_repeat = TEXTURE_REPEAT_ENABLED # per-cell slices region-sample a tiled texture
 	visibility_layer |= FloorHighlightMask.MASK_BIT # occlude the floor-highlight mask
 	add_to_group("walls") # so a map reload can free every spawned wall in one sweep
 	queue_redraw()
 	# NOTE: walls no longer cast their own shadow. The whole structure's shadow is
 	# built once by obstacles.gd after the map loads (see Obstacles.spawn_shadows),
 	# so it reads as one continuous cast instead of per-piece polygons.
+
+# the run's covered cells, top to bottom. Its position is the bottom cell's centre and it
+# extends up `run_length` cells (single-cell for horizontal pieces and corners).
+func cells() -> Array:
+	var col := int(round((position.x - CELL_SIZE / 2.0) / CELL_SIZE))
+	var bottom_row := int(round((position.y - CELL_SIZE / 2.0) / CELL_SIZE))
+	var out: Array = []
+	for i in run_length:
+		out.append(Vector2i(col, bottom_row - run_length + 1 + i))
+	return out
+
+# index of `cell` within the run, 0 = top. -1 if this run does not cover it.
+func _cell_index(cell: Vector2i) -> int:
+	var col := int(round((position.x - CELL_SIZE / 2.0) / CELL_SIZE))
+	if cell.x != col:
+		return -1
+	var bottom_row := int(round((position.y - CELL_SIZE / 2.0) / CELL_SIZE))
+	var i := cell.y - (bottom_row - run_length + 1)
+	return i if i >= 0 and i < run_length else -1
+
+# true if this segment stands on `cell` (used by the ground editor's obstacle fade).
+func covers_cell(cell: Vector2i) -> bool:
+	return _cell_index(cell) != -1
+
+func _cell_color(i: int) -> Color:
+	return cell_colors[i] if i >= 0 and i < cell_colors.size() else Color.WHITE
 
 # horizontal extent of the drawn body as [x_start, width], honouring an explicit
 # corner override when one is set
@@ -33,23 +65,66 @@ func get_x_extent() -> Array:
 	var width := CAP_HEIGHT if run_length > 1 else CELL_SIZE
 	return [-width / 2.0 + align_offset_x, float(width)]
 
-func _draw() -> void:
-	var face_height := CELL_SIZE - 4
+# the cap slice + (bottom cell only) face rect for `cell`, in WORLD-LOCAL coords (position +
+# local). Used by the wall highlight to trace the exact wall silhouette.
+func piece_rects(cell: Vector2i) -> Array:
+	var i := _cell_index(cell)
+	if i == -1:
+		return []
+	var g := _geometry()
+	var x_start: float = g[0]
+	var width: float = g[1]
+	var top_edge: float = g[2]
+	var cap_top: float = g[3]
+	var cap_bottom: float = g[4]
+	var face_height: float = g[5]
+	var slice_top: float = cap_top if i == 0 else top_edge + i * CELL_SIZE
+	var slice_bottom: float = cap_bottom if i == run_length - 1 else top_edge + (i + 1) * CELL_SIZE
+	var out: Array = []
+	if slice_bottom > slice_top:
+		out.append(Rect2(position.x + x_start, position.y + slice_top, width, slice_bottom - slice_top))
+	if i == run_length - 1:
+		out.append(Rect2(position.x + x_start, position.y + cap_bottom, width, face_height))
+	return out
+
+# shared geometry (local coords, node origin = bottom-cell centre):
+# [x_start, width, top_edge, cap_top, cap_bottom, face_height]
+func _geometry() -> Array:
 	var bottom_edge := CELL_SIZE / 2.0
+	var face_height := float(CELL_SIZE - 4)
 	var top_edge := bottom_edge - run_length * CELL_SIZE
-
-	# a run extending away from camera is seen edge-on, so it should read as a thin
-	# wall of the same thickness as a horizontal wall's cap, not a full tile wide
 	var extent := get_x_extent()
-	var x_start: float = extent[0]
-	var width: float = extent[1]
+	return [extent[0], extent[1], top_edge, top_edge - WALL_HEIGHT, bottom_edge - face_height, face_height]
 
-	var cap_top := top_edge - WALL_HEIGHT
-	var cap_bottom := bottom_edge - face_height
+func _draw() -> void:
+	var g := _geometry()
+	var x_start: float = g[0]
+	var width: float = g[1]
+	var top_edge: float = g[2]
+	var cap_top: float = g[3]
+	var cap_bottom: float = g[4]
+	var face_height: float = g[5]
+	# the cap and face each tile from a fixed origin, so slices line up seamlessly AND match the
+	# pre-colour single-rect phase (an uncoloured/white wall looks identical to before).
+	var cap_origin := Vector2(x_start, cap_top)
+	var face_origin := Vector2(x_start, cap_bottom)
 
-	# front face is in shadow (sun lights the top/cap, not this side), so tint it darker
-	var face_rect := Rect2(Vector2(x_start, bottom_edge - face_height), Vector2(width, face_height))
-	draw_texture_rect(face_texture, face_rect, true, Color(0.62, 0.62, 0.62, 1.0))
+	# cap: one slice per cell, so each cell can carry its own colour
+	for i in run_length:
+		var slice_top: float = cap_top if i == 0 else top_edge + i * CELL_SIZE
+		var slice_bottom: float = cap_bottom if i == run_length - 1 else top_edge + (i + 1) * CELL_SIZE
+		if slice_bottom > slice_top:
+			_stamp(cap_texture, Rect2(x_start, slice_top, width, slice_bottom - slice_top), cap_origin, _cell_color(i))
 
-	var cap_rect := Rect2(Vector2(x_start, cap_top), Vector2(width, cap_bottom - cap_top))
-	draw_texture_rect(cap_texture, cap_rect, true)
+	# front face: only the bottom cell shows one (the run is seen edge-on), tinted darker
+	var fc := _cell_color(run_length - 1)
+	_stamp(face_texture, Rect2(x_start, cap_bottom, width, face_height), face_origin,
+			Color(fc.r * FACE_SHADE, fc.g * FACE_SHADE, fc.b * FACE_SHADE, 1.0))
+
+# draw `tex` into `dst` sampling it tiled from `origin`, tinted by `color`. Tiling by a fixed
+# origin (not per-slice) keeps neighbouring slices continuous; texture_repeat handles the wrap.
+func _stamp(tex: Texture2D, dst: Rect2, origin: Vector2, color: Color) -> void:
+	var tw := float(tex.get_width())
+	var th := float(tex.get_height())
+	var src := Rect2(fposmod(dst.position.x - origin.x, tw), fposmod(dst.position.y - origin.y, th), dst.size.x, dst.size.y)
+	draw_texture_rect_region(tex, dst, src, color)

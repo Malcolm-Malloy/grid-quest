@@ -13,6 +13,7 @@ extends Node2D
 
 const ALPHA := 0.55
 const CELL := 32
+const HALF := 16 # a floor quarter; the door-open floor restamp works per quarter
 
 var shadow_color := Color(0.05, 0.08, 0.05, ALPHA)
 var ground_texture := preload("res://world/ground_grass.png") # to stamp interiors clean
@@ -58,12 +59,12 @@ func _draw() -> void:
 		var grid: Color = fm.grid_color() if fm else Color(1, 1, 1, 0.12)
 		for c in rl.enclosed_floor_cells():
 			var r := Rect2(c.x * CELL, c.y * CELL, CELL, CELL)
-			# erase the wall-shadow fill with the cell's real floor (grass or a styled floor)
-			var tex = fm.cell_texture(c) if fm else null
-			if tex:
-				draw_texture_rect_region(tex, r, GridBackground.tiled_src(r))
-			else:
-				draw_texture_rect_region(ground_texture, r, r)
+			# erase the wall-shadow fill with the cell's real floor, quarter by quarter so
+			# quarter-level painting survives (the whole-cell stamp used to grass mixed cells)
+			_stamp_floor(fm, c.x * 2, c.y * 2)
+			_stamp_floor(fm, c.x * 2 + 1, c.y * 2)
+			_stamp_floor(fm, c.x * 2, c.y * 2 + 1)
+			_stamp_floor(fm, c.x * 2 + 1, c.y * 2 + 1)
 			# a room joined to the outdoor by an open door stays bright; the rest shade
 			if not lit.has(c):
 				draw_rect(r, shadow_color)
@@ -73,15 +74,22 @@ func _draw() -> void:
 				# every interior line exactly once)
 				draw_line(r.position, r.position + Vector2(CELL, 0), grid, 1.0, true)
 				draw_line(r.position, r.position + Vector2(0, CELL), grid, 1.0, true)
-		# also wipe the wall shadows off the interior wall/corner tiles of lit rooms, so
-		# their walls read clean like indoors (door cells and outdoor sides keep theirs)
+		# wipe the wall shadows off the interior wall/corner tiles of lit rooms so they read
+		# clean like indoors, restamping each quarter with the ground under it (a uniform room's
+		# wall-ring fill, or a quarter painted under the wall) instead of blanket grass
 		for r in rl.lit_wall_stamps():
-			draw_texture_rect_region(ground_texture, r, r)
-		# a styled floor fills the whole room: re-stamp its room-facing wall quadrants with
-		# its texture (just cleaned to grass above), but only while that room is lit
-		if fm:
-			for f in fm.lit_quad_fills(lit):
-				draw_texture_rect_region(f[1], f[0], GridBackground.tiled_src(f[0]))
+			_stamp_floor(fm, floori(r.position.x / HALF), floori(r.position.y / HALF))
+
+# stamp one 16px floor quarter (coords in quarter units) with its real material, matching the
+# indoor base_fills: fm.floor_tex_at_quad gives a painted quarter or a uniform room's wall-ring
+# fill, and null falls back to the grass base.
+func _stamp_floor(fm, qx: int, qy: int) -> void:
+	var r := Rect2(qx * HALF, qy * HALF, HALF, HALF)
+	var tex = fm.floor_tex_at_quad(Vector2i(qx, qy)) if fm else null
+	if tex:
+		draw_texture_rect_region(tex, r, GridBackground.tiled_src(r))
+	else:
+		draw_texture_rect_region(ground_texture, r, r)
 
 # true if a global-space point falls inside a drawn shadow piece (player tint test).
 # Empty in room mode, so the player is never tinted while a room is lit.
