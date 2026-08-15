@@ -15,7 +15,8 @@ class_name FloorHighlightMask
 const MASK_BIT := 1 << 19
 
 var _mask_vp: SubViewport
-var _key: Node2D
+var _key: Node2D      # floor key, below the walls (they occlude it, tracing visible floor)
+var _wall_key: Node2D # wall key, above the walls (highlights the wall geometry itself)
 var _overlay: CanvasLayer
 var _mat: ShaderMaterial
 var _active := false
@@ -47,6 +48,14 @@ func _ready() -> void:
 	_key.z_index = -4 # below the walls, so they occlude it exactly like the real floor
 	get_parent().add_child.call_deferred(_key)
 
+	# the wall highlight key: same magenta-key script, but ABOVE the walls so they do not occlude
+	# their own highlight (we are highlighting the walls, not the floor they stand on)
+	_wall_key = Node2D.new()
+	_wall_key.set_script(load("res://floors/floor_mask_key.gd"))
+	_wall_key.visibility_layer = MASK_BIT
+	_wall_key.z_index = 60 # above walls (and the z=1 vertical gates)
+	get_parent().add_child.call_deferred(_wall_key)
+
 	_overlay = CanvasLayer.new()
 	_overlay.layer = 90
 	_overlay.visible = false
@@ -67,6 +76,22 @@ func show_floor(cells: Dictionary, quads: Array) -> void:
 		call_deferred("show_floor", cells, quads) # key is added deferred on the first frame
 		return
 	_key.set_shape(cells, quads)
+	if _wall_key and _wall_key.is_inside_tree():
+		_wall_key.set_shape({}, []) # floor and wall highlights are mutually exclusive
+	_activate()
+
+# show the wall highlight for a set of wall-piece rects (World-local coords). Only the wall
+# geometry lights up; ground and shadows are absent from the mask viewport, so they are excluded.
+func show_walls(rects: Array) -> void:
+	if _wall_key == null or not _wall_key.is_inside_tree():
+		call_deferred("show_walls", rects)
+		return
+	_wall_key.set_shape({}, rects)
+	if _key and _key.is_inside_tree():
+		_key.set_shape({}, [])
+	_activate()
+
+func _activate() -> void:
 	_active = true
 	_mask_vp.canvas_transform = get_viewport().canvas_transform
 	_mask_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
@@ -80,6 +105,8 @@ func hide_floor() -> void:
 		_mask_vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	if _key and _key.is_inside_tree():
 		_key.set_shape({}, [])
+	if _wall_key and _wall_key.is_inside_tree():
+		_wall_key.set_shape({}, [])
 
 func _process(_delta: float) -> void:
 	if not _active:

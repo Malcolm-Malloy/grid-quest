@@ -37,6 +37,9 @@ var blocked_cells: Array[Vector2i] = [
 var wall_segment_script: Script
 var gate_script: Script
 
+# per-cell wall colour (tint over the stone). Only non-white cells are stored; MapIO persists it.
+var wall_colors := {} # Vector2i cell -> Color
+
 func _ready() -> void:
 	add_to_group("obstacles") # so MapIO can find the world root to save/rebuild
 	wall_segment_script = load("res://world/wall_segment.gd")
@@ -117,6 +120,9 @@ func build_world() -> void:
 		spawn_segment(cell, run_length, 0.0)
 
 	spawn_shadows()
+	# colour the freshly spawned walls once they are actually in the tree (they were added
+	# deferred above, so this deferred call runs after them)
+	_apply_wall_colors.call_deferred()
 
 # Builds the whole structure's shadow, once, after the map is known. Rather than one
 # polygon per cell (which overlap and read as layered pieces), it casts ONE shadow
@@ -214,3 +220,107 @@ func make_segment(cell: Vector2i, run_length: int) -> Node2D:
 
 func is_blocked(cell: Vector2i) -> bool:
 	return blocked_cells.has(cell)
+
+# --- wall colouring (per-cell tint over the stone) ---
+
+func get_wall_color(cell: Vector2i) -> Color:
+	return wall_colors.get(cell, Color.WHITE)
+
+# colour one wall cell (white resets it to natural stone)
+func set_wall_color(cell: Vector2i, color: Color) -> void:
+	if color == Color.WHITE:
+		wall_colors.erase(cell)
+	else:
+		wall_colors[cell] = color
+	_apply_wall_colors()
+
+# colour every wall of the building `cell` belongs to
+func color_building(cell: Vector2i, color: Color) -> void:
+	_color_cells(building_cells(cell), color)
+
+# colour the connected straight wall run(s) through `cell` (the horizontal + vertical arms)
+func color_line(cell: Vector2i, color: Color) -> void:
+	_color_cells(line_cells(cell), color)
+
+func _color_cells(cells: Dictionary, color: Color) -> void:
+	for c in cells:
+		if color == Color.WHITE:
+			wall_colors.erase(c)
+		else:
+			wall_colors[c] = color
+	_apply_wall_colors()
+
+# the connected straight wall run(s) through `cell`: extend along the row and along the column
+# while cells are walls, stopping at any gap (a doorway breaks the run). At a junction this is
+# the whole cross of straight arms meeting there.
+func line_cells(start: Vector2i) -> Dictionary:
+	var out := {}
+	if not blocked_cells.has(start):
+		return out
+	var walls := {}
+	for c in blocked_cells:
+		walls[c] = true
+	out[start] = true
+	for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		var c: Vector2i = start + step
+		while walls.has(c):
+			out[c] = true
+			c += step
+	return out
+
+# the wall cells forming one building: flood-fill over orthogonally-adjacent walls, bridging a
+# single door/gate gap in a wall line (so a wall broken by a doorway is still one building).
+func building_cells(start: Vector2i) -> Dictionary:
+	var out := {}
+	if not blocked_cells.has(start):
+		return out
+	var walls := {}
+	for c in blocked_cells:
+		walls[c] = true
+	var doors := {}
+	for g in gate_cells:
+		doors[g["cell"]] = true
+	var dirs := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+	out[start] = true
+	var q: Array = [start]
+	while not q.is_empty():
+		var c: Vector2i = q.pop_back()
+		for d in dirs:
+			var n: Vector2i = c + d
+			var target: Vector2i
+			var hit := false
+			if walls.has(n):
+				target = n
+				hit = true
+			elif doors.has(n) and walls.has(n + d):
+				target = n + d # bridge the one-cell door gap to the wall beyond
+				hit = true
+			if hit and not out.has(target):
+				out[target] = true
+				q.append(target)
+	return out
+
+# every wall piece rect (cap slice + face) of the given wall cells, for the highlight
+func wall_piece_rects(cells: Dictionary) -> Array:
+	var out: Array = []
+	for w in get_tree().get_nodes_in_group("walls"):
+		for c in w.cells():
+			if cells.has(c):
+				out.append_array(w.piece_rects(c))
+	return out
+
+# push wall_colors onto the spawned wall segments so they redraw with their tints
+func _apply_wall_colors() -> void:
+	for w in get_tree().get_nodes_in_group("walls"):
+		var cols: Array = []
+		for c in w.cells():
+			cols.append(get_wall_color(c))
+		w.cell_colors = cols
+		w.queue_redraw()
+
+# replace all wall colours from a saved list of [cx, cy, r, g, b] (used by MapIO on load)
+func apply_wall_colors(list: Array) -> void:
+	wall_colors.clear()
+	for a in list:
+		wall_colors[Vector2i(int(a[0]), int(a[1]))] = Color(a[2], a[3], a[4])
+	_apply_wall_colors()
