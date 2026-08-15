@@ -1,14 +1,14 @@
 extends Node
 
 # Autoload singleton: the one place that turns the live level into JSON and back. It stores
-# ONLY the source of truth (grid size, spawn, walls, doors, per-room floor styles). Everything
+# ONLY the source of truth (grid size, spawn, walls, doors, per-quarter floor materials). Everything
 # derived (wall/gate meshes, shadows, room lighting, floor fills, the highlight, door open
 # state) is recomputed on load, so saves stay small and always consistent.
 #
 # Maps live in user://maps/<name>.json (persistent, writable, cross-platform). Writes are
 # atomic (temp file, then rename) so a crash mid-save can't corrupt an existing map.
 
-const VERSION := 1
+const VERSION := 3 # v3: adds per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
 const DIR := "user://maps"
 const LAST_FILE := "user://last_map.txt" # remembers the map to reload on next launch
 
@@ -44,9 +44,16 @@ func serialize() -> Dictionary:
 	var doors: Array = []
 	for d in obs.gate_cells:
 		doors.append({"cell": [d["cell"].x, d["cell"].y], "orientation": d["orientation"]})
-	var floors: Array = []
-	for rep in fm._styles:
-		floors.append({"cell": [rep.x, rep.y], "style": fm._styles[rep]})
+	# floors are stored per 16px quarter: a flat list of [qx, qy, material]. Sparse by design
+	# (only painted quarters are written), so save size scales with painted area, not map area.
+	var quads: Array = []
+	for q in fm._quad_mat:
+		quads.append([q.x, q.y, fm._quad_mat[q]])
+	# per-cell wall colours as [cx, cy, r, g, b]; sparse (only non-white cells are stored)
+	var wall_colors: Array = []
+	for c in obs.wall_colors:
+		var col: Color = obs.wall_colors[c]
+		wall_colors.append([c.x, c.y, col.r, col.g, col.b])
 
 	return {
 		"version": VERSION,
@@ -54,7 +61,8 @@ func serialize() -> Dictionary:
 		"spawn": {"x": player.position.x, "y": player.position.y},
 		"walls": walls,
 		"doors": doors,
-		"floors": floors,
+		"quads": quads,
+		"wall_colors": wall_colors,
 	}
 
 # --- apply a parsed dict back onto the live level, in dependency order ---
@@ -83,11 +91,25 @@ func _apply(data: Dictionary) -> void:
 	# 3. lighting (depends on walls/doors)
 	rl.rebuild()
 
-	# 4. floor styles (depends on rooms existing)
-	var floors: Array = []
-	for f in data.get("floors", []):
-		floors.append({"cell": Vector2i(int(f["cell"][0]), int(f["cell"][1])), "style": f["style"]})
-	fm.apply_floors(floors)
+	# 4. floors (depends on rooms existing). v2 stores quarters directly; v1 stored per-room
+	# styles, migrated here by flood-filling each room's cells into their quarters.
+	if int(data.get("version", 1)) >= 2:
+		var quads: Array = []
+		for a in data.get("quads", []):
+			quads.append([int(a[0]), int(a[1]), String(a[2])])
+		fm.apply_quads(quads)
+	else:
+		var floors: Array = []
+		for f in data.get("floors", []):
+			floors.append({"cell": Vector2i(int(f["cell"][0]), int(f["cell"][1])), "style": f["style"]})
+		fm.apply_floors(floors)
+
+	# 4b. wall colours (walls exist after apply_map; build_world's deferred _apply_wall_colors
+	# paints the freshly spawned segments once they are in the tree)
+	var wcols: Array = []
+	for a in data.get("wall_colors", []):
+		wcols.append([int(a[0]), int(a[1]), float(a[2]), float(a[3]), float(a[4])])
+	obs.apply_wall_colors(wcols)
 
 	# 5. player spawn
 	var spawn: Dictionary = data.get("spawn", {"x": player.position.x, "y": player.position.y})
