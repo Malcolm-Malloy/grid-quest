@@ -2,10 +2,9 @@ extends CharacterBody2D
 
 const CELL_SIZE := 32
 const MOVE_SPEED := 6.0 # cells per second
-const GRID_WIDTH := 20
-const GRID_HEIGHT := 14
-const MIN_POSITION := Vector2(CELL_SIZE / 2.0, CELL_SIZE / 2.0)
-const MAX_POSITION := Vector2((GRID_WIDTH - 1) * CELL_SIZE + CELL_SIZE / 2.0, (GRID_HEIGHT - 1) * CELL_SIZE + CELL_SIZE / 2.0)
+# Movement bounds come from GridBackground (the single source of grid size), not local
+# consts, so the walkable range always matches the current map's edge even after a resize
+# or map load. See grid_bg.min_walkable_position() / max_walkable_position().
 
 const IN_SHADOW_TINT := Color(0.65, 0.65, 0.65, 1.0)
 
@@ -30,6 +29,7 @@ var in_shadow := false
 var shadow_scale := 1.0 # 1 outdoors; shrinks to a third indoors (softer indoor light)
 
 @onready var obstacles := get_node("../Obstacles")
+@onready var grid_bg := get_node("../GridBackground")
 @onready var room_light := get_node_or_null("../RoomLight")
 @onready var sprite := $Sprite2D
 @onready var shadow_sprite := $Shadow
@@ -139,7 +139,9 @@ func _physics_process(delta: float) -> void:
 				update_sprite()
 
 			var new_target := position + input_dir * CELL_SIZE
-			var in_bounds := new_target.x >= MIN_POSITION.x and new_target.x <= MAX_POSITION.x and new_target.y >= MIN_POSITION.y and new_target.y <= MAX_POSITION.y
+			var min_pos: Vector2 = grid_bg.min_walkable_position()
+			var max_pos: Vector2 = grid_bg.max_walkable_position()
+			var in_bounds := new_target.x >= min_pos.x and new_target.x <= max_pos.x and new_target.y >= min_pos.y and new_target.y <= max_pos.y
 			if in_bounds:
 				var cell := Vector2i(floori(new_target.x / CELL_SIZE), floori(new_target.y / CELL_SIZE))
 				if not obstacles.is_blocked(cell):

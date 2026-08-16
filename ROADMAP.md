@@ -10,33 +10,95 @@ Living backlog of planned features. Items land here from `My Notes/Notes` (the d
 notes describe) and from in-session requests. Nothing here is built until picked up. Where a
 note revises an earlier plan, the newest intent wins.
 
-## Development order (set 2026-08-13)
-Priority sequence agreed with the user. Ordered by dependency: the ground layer and the
-right-click menu are co-dependent hubs (build storage first, then the menu against it), and
-inventory/pickups gate locked doors. Numbers are sequence, not strict phases; polish items are
-deferrable.
-0. **Architecture review (do first, see Architecture review section).** A read pass over the
-   whole codebase to set the data-model and coordinate conventions before the ground-layer
-   refactor bakes them in. Best done immediately before step 1, since step 1 is the biggest
-   structural change anyway; worth a light revisit after step 1 lands. Token-heavy (needs broad
-   reading), so run it in a fresh window with budget, one subsystem at a time.
-1. **Ground layer: storage + hard-edge render + save v2 migration. DONE 2026-08-15.** Biggest
-   architectural risk and cheapest to migrate now while few maps exist. Headless-testable via
-   save/load, no UI needed yet. Foundation for 2 to 4. See "Ground layer" section for the
-   as-built notes.
-2. **Right-click menu (Block/Ground modes).** The authoring surface for the ground layer,
-   colours, and later lock authoring. Block mode only means something once per-block ground
-   from step 1 exists, so it follows the storage work.
-3. **Coloured floors (tinting, presets then picker).** Small high-visibility win; plugs into
-   the menu's Colour options and needs the layer plus menu to target where colour lands.
-4. **Ground layer phase 2: auto-matching + better edging.** Polish on the working layer; hard
-   16px seams are acceptable until then.
-5. **Character save (position, facing, inventory) + whole-game saves.** Reuses the MapIO
+## Development order (editor-first, re-sequenced 2026-08-16)
+Re-prioritised with the user around one goal: **make the editor able to build real maps as soon as
+possible, so level design can start now.** Everything the user needs to lay out and shape a map
+comes first (Phase A); persistence and the game pillar follow once maps can be authored. Numbers are
+sequence within a phase, not strict gates; polish items are deferrable. The 2026-08-13 dependency
+order (ground storage, then menu, then floors, then saves, then items, then locked doors) is
+preserved inside the phases, just re-grouped so map-authoring surfaces lead.
+
+**Phase A: make maps buildable (editor authoring, do first).**
+*Foundation (build early, before piling on tools):* **undo/redo history** (full multi-step, see the
+"Undo / redo" section) and the **left tool strip** the modes live on. Every authoring tool below
+wraps its edits in an undo entry as it is added, so history is never retrofitted.
+0. **Architecture review (do first, see Architecture review section).** Read pass to set data-model
+   and coordinate conventions before more is baked in. Steps 1 to 8 partly done (see findings
+   inline); revisit the room-topology extraction (Q2) before roofs, minimap, and paddock-override
+   pile on. Run in a fresh window, one subsystem at a time (token-heavy).
+1. **Ground layer storage plus save v2. DONE 2026-08-15.** Foundation for everything below; see
+   "Ground layer" and the As-built notes.
+2. **Show the map edge (hide out-of-range ground) and a bigger default map. DONE 2026-08-16.** The
+   runtime edge-editing tool (add/remove cells) is still item 3. Ground now draws clipped to the grid
+   rect and beyond it is an inactive-cell void (grey tiles with a subtle "+", not black), the default
+   map is 48x32, and grid dims are unified onto GridBackground. See the As-built note under "Map
+   extent and edge editing".
+3. **Add and remove cells at the map edge. ROW/COLUMN grain DONE 2026-08-16; single-cell + green
+   highlight pending.** The whole-row/column grain is built (`MapEdit.grow/shrink`, see the As-built
+   note under "Map extent and edge editing"). The single-cell grain and the green "will-be-added"
+   highlight are deferred: a lone jagged cell needs a per-cell existence model the rectangular map
+   lacks (tie to Architecture review Q1/Q2). Live UX (the tool strip that triggers grow/shrink, plus
+   the green highlight) is still the next step; interim control is IJKL keys + the GQ_RESIZE hook.
+4. **Right-click menu (renamed modes plus coloured highlights). Tool strip modes DONE 2026-08-16.**
+   The persistent left tool strip has the Map Size (edge grow/shrink) control, the green/red edge
+   band, and now the **Tools radio group**: Magic Wand / Cell Selector / Fine Details / Erase, with
+   W/C/F/E shortcuts (recenter moved off F to **Home** so F is Fine Details). The **Magic Wand**
+   click-to-grow selection (floor patch -> whole room; wall run -> whole building) with a **marching-
+   ants** overlay and **selection-fill** (pick a material/colour to fill the whole selection) are
+   built. The editor camera (pan/zoom/fit, Home to recenter) is DONE. Still to do: the *contextual*
+   terrain/wall/door material menus and the rest of the coloured-highlight palette (orange/purple/
+   blue/yellow). See "Authoring surface", "Right-click menu overhaul" and "Coloured highlight
+   system" as-built notes.
+5. **Terrain placement UX (select, then hover-preview, then click-to-drop). DONE 2026-08-16.**
+   Selecting a terrain no longer auto-places; it arms a brush that shows a lifted preview sprite over
+   the hovered cell and drops with an animation on click. Highlights clear when the cursor leaves the
+   screen. See "Terrain placement UX" (spec + As-built).
+6. **Add and remove walls in Cell Mode, plus wall-removal outside reclassification.** Editing
+   perimeter walls reclassifies an opened room as outdoors (lighting, shadows including the player
+   shadow, later creature reactions); ground is untouched. See "Wall editing and outside
+   reclassification".
+7. **Coloured floors plus terrain and wall pattern and material options.** Tinting (presets, then
+   picker) plus pattern variants (carpet, grass, tile, wood patterns) and wall/fence materials
+   (wood, slate, stone). See "Coloured floors", "Terrain patterns and material variants".
+8. **Ground layer phase 2: auto-matching plus better edging.** Polish; hard 16px seams acceptable
+   until then.
+
+**Phase B: persistence (needed to save the maps you build, then to play them).**
+9. **Character save (position, facing, inventory) plus whole-game saves.** Reuses the MapIO
    atomic-write path. Inventory must persist before keys can.
-6. **Item / pickup system.** Prerequisite for keys (keys are editor-placed pickups); see the
-   Items and pickups section.
-7. **Locked doors and keys.** Terminal dependency: needs the door menu (2), inventory (5), and
-   pickups (6).
+10. **Item and pickup system.** Prerequisite for keys (keys are editor-placed pickups); see "Items
+    and pickups".
+11. **Locked doors and keys.** Terminal dependency: needs the door menu (4), inventory (9), and
+    pickups (10).
+
+**Phase C: game pillar (creature-collector RPG).** Not gated on Phase A or B but authored against
+them: creatures, capture, absorb, domesticate, resource-gated building (same system as the editor),
+builds, karma, and so on. See the creature and gameplay sections. Build after the editor can produce
+the maps these systems play in.
+
+### Phase A, consolidated (all 2026-08-16 editor decisions in build order)
+The many editor decisions logged 2026-08-16 group into a coherent Phase A. Rough dependency order:
+1. **Foundations first:** the **Play/Edit toggle** (mode flag driving camera+input+UI), the
+   **free editor camera** (pan clamped to map+margin, wheel zoom), **undo/redo** (deep-but-capped,
+   one-entry-per-gesture), and the **left tool strip** (grouped: Select / Paint / Objects / Edit).
+   Every tool below records undo as it is added.
+2. **Make the map readable and sizable:** show the **map edge** (void/black), **remove unwalkable
+   ground**, bump default to **48x32** (unify the duplicated grid dims), then **edge-cell add/remove**
+   (delete-contents-with-cell, copy-neighbour fill, green highlight).
+3. **Core authoring tools:** **Cell Selector / Fine Details** paint with the **terrain drop-preview
+   UX**, the **coloured highlight palette** (orange ground / red erase / purple walls / green add /
+   blue doors / yellow shadow), the **Erase** tool (topmost-first, per the **cell-occupancy** and
+   **passability** models), the **Eyedropper**, and **directional placement** (auto + R).
+4. **Selection + power tools:** **Magic Wand** (click-to-grow, marching-ants) and **Box-select**,
+   with **add/subtract** modifiers and **selection-fill**; then **Move** (keeps id), **copy/paste**
+   (cross-map clipboard, rotate+flip), the **properties inspector**, the **status bar**, and
+   **wall/door authoring** (roster + door authored state).
+5. **Persistence + library:** **autosave+warn**, **New Map** flow, **map thumbnails**, **folders/
+   categories**, and **export/import** for sharing.
+6. **Multi-tile object footprints** and **coloured floors / patterns / material variants** slot in as
+   the object and material rosters grow.
+This is a re-grouping for coherence, not new scope; each item has its own section with the full
+decision and build notes.
 
 ## Architecture review (step 0, scope set 2026-08-13, not yet run)
 A grounded read pass to decide how the code should be structured now that the mechanics are
@@ -182,6 +244,10 @@ questions to answer, roughly in dependency order:
   a floor sets `visibility_layer |= FloorHighlightMask.MASK_BIT` in its `_ready`. Confirmed
   behaviour: the highlight rings the player too (carpet under the player is not visible), and
   the player stays tagged as an occluder like everything else.
+  - **Recolour to orange (decided 2026-08-16).** This terrain highlight moves from red to **orange**,
+    because red is being reassigned to erase/destructive actions (see Coloured highlight system).
+    Only the output colour in `floor_outline.gdshader` changes; the mask mechanism stays. The system
+    name "Red highlight system" is now just a code label, not the on-screen colour.
 - **Indoor character shadow.** Indoors the shadow's cast distance shrinks while its
   silhouette stays welded to the character, so it no longer detaches at the bottom-left and
   top-right corners. (Fixed 2026-08-13; eyeball live, and it can be made a more visible
@@ -224,6 +290,87 @@ Storage refactor landed exactly per the execution spec below. What changed:
 ### Authoring surface (quarter painting, 2026-08-15)
 The step-2 editing surface over the quarter store is now built in `FloorManager`, so floors can be
 painted at room, cell or quarter grain:
+
+**Modes + Magic Wand as-built (2026-08-16): DONE.** The scope system was replaced by a `Mode` enum
+(`WAND`, `CELL`, `FINE`, `ERASE`) driven by the tool strip's Tools radio group, not the popup:
+- **Cell Selector / Fine Details** paint one cell / one quarter on click and drag (the old Cell /
+  Quarter scopes). **Erase** writes grass over the cell on click and drag.
+- **Magic Wand** is a click-to-grow *selection*, stored as `_sel_kind`/`_sel_quads`/`_sel_cells`/
+  `_sel_level`. A floor click floods the connected same-material quarters bounded to the room
+  (`_patch_quads`, level 1); a repeat click inside grows to the whole room including its wall ring
+  (`_room_quads`, level 2). A wall click selects the run (`obs.line_cells`, level 1); a repeat grows
+  to the whole building (`obs.building_cells`, level 2). Esc or clicking a new spot resets.
+- **Marching-ants overlay** (`floors/selection_overlay.gd`, a Node2D child of FloorManager at
+  z 1000): a translucent wash over the selected quarters/walls plus an animated dashed boundary,
+  keyed to world coords so dashes stay continuous. Verified via the new `GQ_WAND` capture hook (a
+  hollow dashed ring around the room; the engine reports patch = 36 quads growing to room = 64
+  quads; wall run = 9 cells growing to building = 40 cells).
+- **Selection-fill**: with a selection active, picking a floor material or wall colour from the
+  popup fills the *whole selection* (`_fill_floor_selection` / `_fill_wall_selection`) as one undo
+  entry. With no selection, a floor material fills the clicked room and a wall colour the clicked
+  building (Wand mode), or paints/colours the clicked cell (Cell/Fine). The selection persists
+  across mode switches and after a fill, so it is a reusable target.
+- **Caveats and still-deferred items (each its own roadmap section):** Erase only clears *floor*
+  material for now; wall/object removal (the topmost-first cell-occupancy model) is not built. The
+  wand's ants trace wall *cells* (32px), not per-wall-piece geometry. Outdoors (no enclosed room) a
+  floor patch is just the clicked cell. Whole-map (a 3rd grow level), additive/subtractive Shift/Alt
+  modifiers, box-select, and copy/paste are not built. The popup lost its Scope radios but is not
+  yet *contextually* filtered (floor-only vs wall-only submenus). Selection-fill is verified by code
+  inspection (the popup can't fire headlessly); the wand engine and ants are verified headlessly.
+- **Rename and expand the scopes (decided 2026-08-16, apply at build).** The scope system becomes
+  three modes, ordered coarse to fine. The old "Selector Mode" and "Room Mode" ideas are merged into
+  a single **Magic Wand**, on the user's call, because the two behaviours are the same tool at
+  different scopes and one click usually does the obvious thing:
+  - **Magic Wand (merges the earlier Selector + Room ideas, decided 2026-08-16).** A single
+    click-to-grow selection tool:
+    - **1st click on a floor quarter:** selects the **connected same-material patch** (e.g. just the
+      touching carpet quarters).
+    - **2nd click on that same selection:** grows to the **whole room floor** (all materials,
+      wall-bounded). Optional 3rd step: whole connected map, only if it proves useful.
+    - **On a wall:** 1st click selects that wall run; 2nd click selects the **whole building's
+      connected walls**.
+    - **Seamless because:** in a room of one material the same-material patch already equals the
+      whole room, so one click grabs the floor as expected; the grow-on-repeat only matters in a
+      genuinely mixed room. The selection outline visibly grows each click so the scope is always
+      shown. Esc / right-click / clicking a new spot resets.
+    - **Why click-to-grow over a Photoshop-style Contiguous checkbox:** a hidden toggle is not
+      discoverable; repeated-click growth shows the scope and needs no chrome. Materials are discrete
+      so no tolerance slider is needed ("same material" is an exact match).
+    - **Build note:** step 1 (patch) is a connected-component flood over `_quad_mat` seeded at the
+      clicked quarter, matching the seed material, bounded to the room's cells. Step 2 (whole room)
+      unions the room's cells regardless of material via the room-topology flood
+      (`room_light.room_floor_cells`). The wall version floods connected wall segments
+      (`wall_segment.covers_cell` / run adjacency). Track a small "current selection + scope level"
+      state so a repeat click knows to grow.
+  - **Cell Selector** (was Cell Mode / Cell scope): a single 32px cell.
+  - **Fine Details** (was Fine Detail Mode / Quarter scope): a single 16px quarter.
+  The internal `_scope` enum: replace Room/Whole with a Magic-Wand selection state (holding the
+  current selection and its grow level); keep Cell and Quarter. Labels the user sees: **Magic Wand**,
+  **Cell Selector**, **Fine Details**.
+- **Move the mode picker out of the right-click menu into a persistent editor toolbar (decided
+  2026-08-16).** The three modes stop living in the right-click popup and become an always-visible
+  radio group of icon buttons on a dedicated tool strip; the active tool is highlighted. This frees
+  the right-click menu to be purely contextual (act on the thing under the cursor) while the strip
+  owns mode selection, the split standard editors use. Ties directly to "Optimise the right menu and
+  UI practices". Icon direction (confirmed with the user 2026-08-16):
+  - **Magic Wand:** the classic diagonal wand with a sparkle/star at the tip (Photoshop-style
+    smart-select icon).
+  - **Cell Selector:** a **fully filled square, the same outer size as the Fine Details 2x2 block**
+    (i.e. a solid whole cell). Refined with the user 2026-08-16: it is filled, not an outline, and
+    sized to match the four-quarter block so the pair compares directly.
+  - **Fine Details:** the **same-size square divided into 2x2 quarters with one quarter filled**,
+    literally showing "edit one quarter of a cell". Because Cell Selector is the same-size square
+    filled whole, the two icons read as a matched pair at identical footprint: **whole cell filled
+    vs one quarter filled**, a clear granularity comparison. Chosen over a paintbrush because a
+    paintbrush reads as generic "paint" and conveys no granularity. Reserve a paintbrush icon for a
+    possible future freehand-paint tool.
+  - The three share one monochrome style and equal size; only the active button is highlighted.
+  - Future tools join the same strip (edge-cell add/remove, wall, door, erase). Edge-cell tool icon
+    idea: a square with a green "+" on its outer edge, matching the green "will-be-added" highlight.
+  - **Placement decided 2026-08-16: a LEFT vertical tool strip**, with the material/colour palette
+    staying on the right. This is the classic image/tilemap-editor split (Photoshop, Aseprite,
+    Tiled): tools left, palette right, canvas in the middle, so neither side crowds. See the
+    toolbar-layout note under "Optimise the right menu and UI practices".
 - **Active brush + scope.** `_brush` (material, `""` = grass eraser) and `_scope` (`Room` / `Cell` /
   `Quarter`, an enum). Scope defaults to `Room`, so the pre-existing right-click-fill behaviour is
   unchanged.
@@ -328,12 +475,19 @@ inventory needs to persist. Proposed design:
   collectibles/coins, consumables, quest/unique objects, and more over time. So the model must
   support beyond keys from the start: stackable non-key items with a shown count, and consumables
   with a use-action/effect. Build only keys now, but do not bake in key-only assumptions.
-- **Interaction: button-press pickup (user choice, changed from the auto-pickup default).** The
-  player stands on the pickup's cell and presses an action key to collect it; one pickup per cell.
-  This pulls in a new dependency not present today: a player interact/action input, and likely a
-  small prompt shown while standing on a collectable. Confirmed this is **one general interact
-  button** (context decides the target), reused later for doors, NPCs, chests, and switches, so
-  plan the input and prompt as a shared convention, not a pickup-only key.
+- **Interaction: split by item type (refined 2026-08-16, supersedes the blanket button-press
+  decision).** Pickup trigger now depends on the item:
+  - **Stackable items auto-collect on step.** Walk onto the cell and the item is picked up
+    automatically (coins, collectibles, consumables, and other stackables). No button press; this
+    keeps looting fast and Diablo-like for the common case.
+  - **Key / unique items require a deliberate interaction, clicking on the item.** These are not
+    grabbed by walking over them; the player clicks the item to take it. This prevents accidental
+    pickup of important, one-of-a-kind objects and reads as "this matters".
+  - Earlier this section recorded a single general interact button for all pickups; that is now
+    reserved for the key/unique case (and still shared later with doors, NPCs, chests, switches),
+    while stackables need no input at all. Open question for build time: whether the key/unique
+    "click" is a mouse click on the sprite or the same general interact button while standing on
+    the cell. Resolve when the interact input is built.
 - **Inventory model (the real structural call).** Keys force two entry kinds, so inventory
   supports both: **stackable** (Coloured keys as `{colour: count}`, carry several, consume one per
   lock) and **unique instances** (each Unique key its own entry carrying `name` + `door_id`, never
@@ -349,6 +503,49 @@ inventory needs to persist. Proposed design:
 - **Rendering.** The pickup sprite sits on a floor, so per the standing convention it sets
   `visibility_layer |= FloorHighlightMask.MASK_BIT` and y-sorts like other ground objects
   ([[grid-quest-floor-highlight-mask]], [[grid-quest-asset-perspective-model]]).
+
+### Item rarity and rarity highlight (logged 2026-08-16)
+Items carry a **rarity tier**, shown as a coloured **outline around the item with no fill** (an
+outer line only, Diablo-style item colour coding). The line reads the rarity at a glance while the
+item is on the ground and, later, in the inventory. The rarity ramp goes low to high.
+
+- **User's original ramp (as first given):** white (common), then green, blue, purple, gold. This
+  is the familiar WoW / modern-ARPG ramp (common, uncommon, rare, epic, legendary). Now extended by
+  the decided ramp below.
+- **Same system for minion rarity.** The user wants the same colour coding reused for minion /
+  creature rarity, so build the rarity tier as one shared enum + palette that both items and
+  creatures reference, not two parallel systems. Ties into [[grid-quest-game-vision]] (creature
+  collection) and the Creature Diary collection log.
+
+**Decided ramp (user adopted all suggestions 2026-08-16):** six tiers, low to high, monotonic in
+"specialness", each visually distinct:
+1. **Grey** (junk / poor)
+2. **White** (common)
+3. **Green** (uncommon)
+4. **Blue** (rare)
+5. **Purple** (epic)
+6. **Orange-gold** (legendary)
+
+Rationale and render rules, all adopted:
+- **Grey junk tier added below white.** Useful once there is vendor-trash or low-value loot: grey
+  lets the eye skip it instantly. Defined in the shared enum from the start.
+- **Top tier is orange-gold, not pure gold.** A thin pure-gold/yellow outline goes muddy and washes
+  out on light or sandy floors. Push it warm and bright (orange-gold) so "legendary" reads clearly
+  and stays punchy on more backgrounds.
+- **Contrast guarantee on any floor (render requirement).** Because the highlight is a fill-less
+  outline, white and gold can disappear over pale Coloured-floor tiles (see the Coloured floors
+  section). Every rarity outline gets a subtle dark inner edge or 1px drop-shadow so the colour
+  stays legible on any ground colour. This is a render detail layered on top of the palette, not a
+  palette change.
+- **Accessibility second cue (required).** Green / blue / purple are the classic red-green and
+  blue-purple confusion zone for colourblind players, so rarity must never be colour-only. Pair each
+  tier with a non-colour cue: outline **thickness** stepping up with rarity, and/or a small rarity
+  pip/gem on the item. Plan this into the outline shader / item render from the start.
+
+**Distinct from the editor highlight palette.** This rarity outline is a *gameplay* render on the
+item/creature itself and must not be confused with the editor action-highlight colours (red=erase,
+orange=ground, green=add, and so on) under the Coloured highlight system; they share some hue names
+but serve unrelated purposes.
 
 ## Locked doors and keys (decided 2026-08-13, not built yet)
 A lock renders on the **front layer of a closed door, in every orientation** (exact pixel offsets
@@ -377,7 +574,25 @@ Open scope this pulls in:
 
 ## Coloured floors
 - Per-texture colour tinting of the floor textures (for example, recolour the tiles orange).
-  Starts as a few presets, with a full colour picker later.
+  Starts as presets, with a full colour picker later.
+
+### Colour palette: 16 swatches, half material-aware (decided 2026-08-16)
+The preset palette is **16 swatches in two groups of 8**:
+- **8 realistic, material-aware swatches** that **change based on the material/terrain being
+  coloured**, so they always make sense for it (use common sense per material):
+  - **Wood:** a range of wood tones (light oak, pine, walnut, dark stain, etc.).
+  - **Metal:** steel, silver, gold, bronze, platinum (plus e.g. iron, copper).
+  - **Grass:** natural greens and yellows (fresh green through olive to dry yellow).
+  - **Stone/slate:** a grey palette (light grey through slate to near-black).
+  - ...and sensible sets for other materials (carpet, sand, snow, etc.).
+- **8 arbitrary "fun" swatches** that are **fixed regardless of material**: the current colour set
+  (red, orange, yellow, green, blue, purple) rounded out to 8 (e.g. + brown, grey/black or
+  pink/cyan). These are the non-realistic recolours.
+- The two groups sit together (e.g. a realistic row + a fun row). The **full colour picker** still
+  comes later for anything specific.
+- Build note: the realistic group is driven by a **per-material swatch table** (material -> its 8
+  contextual colours); selecting a material/terrain swaps that row. The fun group is a constant. This
+  pairs with "Terrain patterns and material variants" (pattern axis) and the material tiers.
 
 ## Coloured walls (per-cell wall colouring) BUILT 2026-08-16 (spec below, as executed)
 Recolour individual wall pieces (a tint over the stone). Built exactly per the spec below in a fresh
@@ -510,14 +725,55 @@ Follow-ups (2026-08-16, from live testing):
   overhaul).
 
 ## Right-click menu overhaul
+
+**Tool strip as-built (2026-08-16): modes DONE.** The persistent left tool strip
+(`ui/tool_strip.gd`, a CanvasLayer added to `main.tscn`) now holds two sections. The **Tools** radio
+group (Magic Wand / Cell Selector / Fine Details / Erase, W/C/F/E shortcuts) owns mode selection,
+which has moved off the right-click popup; it calls `FloorManager.set_mode`. The **Map Size**
+control below it is a Top/Bottom/Left/Right row each with a `+` (grow) and `−` (shrink) button wired
+to `MapEdit.grow/shrink`, plus a "Recenter (Home)" button (recenter moved off F so F is Fine
+Details). Hovering a Map Size button previews the affected row/column via `EdgeHighlight` (green for
+add, red for remove). The material/colour *menus* are still the right-click popup (Floor materials +
+Wall colours + Grid), not yet on the strip and not yet contextually filtered. Explicit per-edge
+buttons were used (not mouse-to-edge) so edge editing works before the pointer-driven UX, and they
+stay useful for off-screen edges even with the new editor camera. See the Coloured highlight system
+as-built note for the green/red band and the Authoring surface note for the modes and Magic Wand.
+
 The menu gains a **Block / Ground** mode toggle (bottom option) that decides which options
-are shown. The Grid Lines toggle stays near the bottom, default **OFF**.
+are shown. The Grid Lines toggle stays near the bottom, default **OFF** (confirmed 2026-08-16). The
+grid is **hidden in Play mode regardless** of the toggle (it is editor UI; see the Play / Edit
+toggle). Note: with the tool strip, mode selection has moved out of this menu; the Grid toggle can
+live on the toolbar/top bar rather than the right-click popup.
 
 - **Block mode** (ON by default): the red highlight covers the single block under the
   cursor, so the user edits just that one block. A block edit overrides any colour set by
   Ground mode.
 - **Ground mode**: the red highlight outlines the whole floor (current room-shape
   behaviour) and edits the whole room's floor. It also lets the user select the outdoor area.
+
+**Contextual right-click menu (HIGH PRIORITY, spec clarified 2026-08-16).** The menu must show
+**only the sections relevant to what was clicked**, not every section at once:
+- **Right-click a floor cell → floor sections only, as TWO separate sections (confirmed
+  2026-08-16):** a **Floor Colours** submenu and a **Floor Textures** submenu (the existing floor
+  materials: Grass / Wood / Concrete / Tile / Carpet), kept distinct rather than merged into one
+  "Floor" list. "Floor Colours" is the tint from the unbuilt **Coloured floors** feature, so it
+  ships when tinting does.
+- **Right-click a wall (or door) cell → wall sections only:** **Wall Colours** (existing tint), and
+  wall materials later (wood / slate / stone, per "Terrain patterns and material variants").
+- Scope and Grid stay available regardless (they are tool settings, not target sections).
+- **Implementation sketch:** at right-click, detect whether the cell is a wall/door (`obs`
+  blocked/gate sets) or floor, then build/enable only that target's submenus. Today the menu is
+  built once in `_ready` with both "Floor" and "Wall Colour" submenus always shown; move to
+  building (or enabling/hiding) submenus per click. **Do NOT static-rename** the submenus to bare
+  object names, a first attempt did ("Wall Colour" → "Wall") and the user rejected it; the section
+  headings stay descriptive ("Wall Colour", "Floor Colour", "Floor Textures"), they just appear only
+  when relevant. Larger job with a verify cycle: best done in a fresh session, and "Floor Colours"
+  wants the Coloured-floors tint built alongside it. More broadly, menu/option names should reflect the current target so nothing
+reads as the wrong object. The user calls this **renaming pass high priority**. Depends on a notion
+of the selected target (Block vs Ground / floor vs wall), which the Block/Ground toggle above and the
+tool strip provide; wire the submenu label (and any other target-named options) to that. Note floor
+*colour tinting* itself is the unbuilt "Coloured floors" feature, so the near-term rename fix can
+start by making the existing label context-correct even before floor tinting ships.
 
 Option behaviour:
 - **Colour (Block).** Terrain colour of the single block. A few colours to start, colour
@@ -537,7 +793,8 @@ Option behaviour:
             Colour:  Red, Green, Blue, Yellow, Orange, Purple
         Build
             Create Wall / Edit Wall
-                Type:   Stone Wall, Brick Wall, Wood Fence, Metal Bars
+                Type:   Hedge, Wood Fence, Slate Wall, Stone Wall, Brick Wall, Metal Bars, Chainlink
+                        (canonical roster, decided 2026-08-16; see Resource costs and material tiers)
                 Colour: Red, Green, Blue, Yellow, Orange, Purple
             Create Door / Edit Door
                 Type:
@@ -612,6 +869,57 @@ The player can play many ways; the central sacrifice is per beast:
   wall work; ties to play mode vs editor mode.
 - **Resource gathering:** cut trees for wood, mine stone, mine slate from rivers, and other
   resources.
+- **Resource costs and material tiers (logged 2026-08-16, roster settled 2026-08-16).** Each
+  wall/fence and eventually each ground type has strengths and weaknesses, so the player must gather
+  the right material and build a containment area suited to a given minion. The **canonical wall
+  roster is the superset** (user chose to keep Brick and Metal Bars from the old menu alongside the
+  material-tier list), ordered roughly weak to strong:
+  - **Hedge:** 5 Seeds = 1 Hedge. Weakest; can burn.
+  - **Wood Fence:** 5 Wood = 1 Wood Fence.
+  - **Slate Wall:** 5 River Slate = 1 Slate Wall (stacked slate; tougher than wood, easier to knock
+    down than stone).
+  - **Stone Wall:** 5 Quarry Stone = 1 Stone Wall.
+  - **Brick Wall:** 5 Clay = 1 Brick Wall (decided 2026-08-16). **Clay** is a gatherable resource
+    (e.g. dug from riverbanks/pits). Strength **~Stone tier**: a strong wall that is a cosmetic /
+    side-grade peer of Stone rather than exceeding it; fits the house/town look.
+  - **Metal Bars:** 5 Iron = 1 Metal Bars (decided 2026-08-16). **Iron** is mined ore. Strength
+    **above Stone**, the toughest of the normal (non-industrial) ladder. Trait: **see-through**, so
+    it is ideal for cages/paddocks where you want to watch the contained beast.
+  - **Chainlink:** industrial/"Tradie" tier (see build below), paired with a concrete floor. Future:
+    chainlink can be magically electrified, so an electric attack on the fence does half damage to
+    anyone on adjacent blocks; a steel floor conducts electricity the same way.
+- **Full strength ladder (decided 2026-08-16):** Hedge < Wood Fence < Slate Wall < Brick Wall approx=
+  Stone Wall < Metal Bars, with Chainlink as the separate industrial/Tradie tier. Materials: Seeds
+  (Hedge), Wood (Wood Fence), River Slate (Slate), Clay (Brick), Quarry Stone (Stone), Iron (Metal
+  Bars). All base costs are 5 units = 1 structure (before Builder Bear discounts). Ground types will
+  later get their own strengths/weaknesses too (logged, not yet specced).
+- **Builder Bear minion (logged 2026-08-16, building-cost buff).** A minion that reduces build
+  costs as it levels, and (special ability) can be ordered to build:
+  - L1: 4 of each material per structure. L2: 3. L3: 2. L4: 1 (1 Wood = 1 Wooden Fence, etc.).
+  - **Special ability (level 5, see the level-5 loyalty rule below):** 1 material = 2 structures.
+  - **Ordered building:** the user marks target cells; the minion walks to a free adjacent cell,
+    faces the target, and places the obstacle with the same hovering drop effect as editor placement
+    (see "Terrain placement UX"). Needs a pathing/planning system that (a) detects a cell that cannot
+    be built because it has no free adjacent stand-from cell, and (b) when building several adjacent
+    obstacles (e.g. a wall in a line), builds the ones that could get boxed in first: if placing A
+    would block the minion from reaching a stand-from cell for B, build B first.
+  - Absorbing Builder Bear's power gives the **player** the same build ability first-hand.
+- **Level-5 "loyalty" ability rule (logged 2026-08-16).** Every minion has a special ability that
+  unlocks like a level 5. It can only be levelled to when the **character is level 4** and the minion
+  is set as the player's companion; lore-wise the minion offers its most prized ability to show
+  undying loyalty. Intended pacing: the early game is deliberately hard (scarce resources, building
+  containment for starter minions); later, a Builder Bear or absorbing its power feels like an earned
+  quality-of-life upgrade.
+- **Minion rarity tiers gate power level (logged 2026-08-16).** Minions of the same type come in
+  tiers that cap how high they upgrade: Basic = L1, Uncommon = L2, Rare = L3, Legendary = L4,
+  Mythical = L5 (special ability). When the player absorbs a power it starts at level 1 and can only
+  reach the level of the minion it was absorbed from, so rarer absorbed minions unlock higher
+  self-power. Ties to the absorb-vs-domesticate fork and materia-style leveling.
+- **"Tradie" build (logged 2026-08-16, playstyle).** A Minecraft-like build where the player wants
+  all-building buffs; the world morphs toward skyscrapers and a construction-site look. Minions
+  unique to this style need industrial barriers (concrete + chainlink) to contain them. Ties to
+  World-morphing maps and Playstyle builds; add there as a candidate build alongside the existing
+  six.
 
 ### Base defense (wild-monster threat loop)
 - Wild monsters can **roam into the player's land and damage structures and fences**. A wild
@@ -758,18 +1066,726 @@ where each lands. Universal rule: **every graphic follows the top/front perspect
     editor unless a paddock is needed sooner for testing.
 
 ## Near-term fixes (logged 2026-08-15)
-- **Hide the out-of-range ground texture so the map edge is visible.** Right now the ground fills
-  past the walkable area (cells outside movement range still draw terrain), so the player cannot
-  see where the map ends. Stop drawing (or visibly differentiate, e.g. void/darken) ground on cells
-  outside the walkable/movement range so the edge reads clearly. Small, high-visibility. Touches the
-  floor/ground fill (`floor_manager` / `grid_background`) and the notion of "walkable range";
-  confirm at build whether that range is the grid bounds or a per-map movement extent. The user
-  phrased this as "firstly", so it is the first thing to pick up when returning to hands-on work.
+- **Hide the out-of-range ground texture so the map edge is visible. DONE 2026-08-16.** Ground now
+  draws clipped to the grid rect (`grid_background._draw` uses `draw_texture_rect(..., tile=true)`
+  over `grid_width*CELL_SIZE` by `grid_height*CELL_SIZE`) and the clear color is black, so beyond the
+  edge is void. Resolved the open "walkable range" question: walkable range IS the grid bounds (the
+  player already clamps to grid dims and `floor_manager.in_bounds` checks the same), so there is no
+  separate per-map movement extent. See the As-built note under "Map extent and edge editing".
 - **Fix the way wall caps are made.** (User-requested 2026-08-16.) Revisit how the wall cap is
   constructed in `wall_segment._draw`: today the cap is a thin continuous top surface and a front
   face is drawn only on a run's bottom cell. Surfaced during the coloured-walls work (the cap is now
   drawn as per-cell slices), which put the cap model under scrutiny. Exact desired change to be
   defined at build time.
+- **BUG: colour menu mislabelled "Wall Colour" for a floor (logged 2026-08-16).** Floor styling sat
+  under "Floor" while wall styling sat under "Wall Colour", so colouring a floor felt miscalled. The
+  correct fix is the **contextual right-click menu** under "Right-click menu overhaul" (only the
+  clicked target's sections show), not a static relabel. (A first attempt renamed the submenu to
+  "Wall"; the user rejected that and it was reverted to "Wall Colour".)
+- **BUG: growing the map north stretches a building's shadow upward (logged 2026-08-16, screenshot
+  taken).** Adding rows of new terrain to the north (`MapEdit.grow("top")`) makes a building's cast
+  shadow extend up into the new rows, which is unwanted. Likely cause: after the top-grow shifts
+  every store +1 in y and rebuilds, `shadow_manager` re-projects the wall/building shadow onto the
+  freshly added northern floor cells (they are now valid ground above the building) instead of
+  keeping the shadow's original length. Investigate the shadow cast length / clipping in
+  `shadow_manager` against the resize path; confirm against the user's screenshot in `Screenshots/`.
+
+## Map extent and edge editing (logged 2026-08-16, Phase A priority)
+The user wants to start designing levels now, so map size and edges become editable in the editor.
+
+**As-built (2026-08-16): default size, edge visibility, and dim unification DONE.** The runtime
+edge add/remove tool below is NOT built yet (still the next item). What was done:
+- `GridBackground` is now the single source of grid size (`grid_width`/`grid_height`, default 48x32).
+  It exposes `min_walkable_position()` / `max_walkable_position()`. `player.gd` lost its duplicate
+  `GRID_WIDTH`/`GRID_HEIGHT`/`MIN_POSITION`/`MAX_POSITION` and reads bounds from GridBackground via a
+  new `../GridBackground` ref, so a loaded or resized map moves the walkable edge automatically.
+  `map_io` and `floor_manager` already read from GridBackground, so no change was needed there.
+- `grid_background._draw` clips the ground to the grid rect and tiles it
+  (`draw_texture_rect(ground_texture, Rect2(0,0,w,h), true)`, with `texture_repeat` enabled in
+  `_ready` so grids bigger than the 1280x960 texture still fill). Beyond the grid draws nothing.
+- `project.godot` sets `environment/defaults/default_clear_color=Color(0,0,0,1)` so the void beyond
+  the edge is black. Verified via the capture harness: grass inside the grid, pure black outside.
+- Not done here: "remove unwalkable ground" as a separate concept collapsed into the above, since
+  walkable range equals the grid bounds (no per-map movement extent exists). Trimming a specific
+  in-grid cell is the edge remove-cell tool (next item), not a separate unwalkable-ground pass.
+- **Bigger default map now: 48x32 cells (decided 2026-08-16, up from 20x14).** Enlarge the starting
+  map so there is room to design real levels before the edge-editing tools land. Quick win, but note
+  a code detail: the dimensions live in **two places today** (`grid_background.gd` `grid_width/height`
+  vars = 20/14, and `player.gd` `GRID_WIDTH/GRID_HEIGHT` consts = 20/14 that also drive
+  `MAX_POSITION`). Unify these to a single source before/while bumping the size, otherwise the player
+  movement bounds and the grid disagree. This same unification is a prerequisite for the edge-cell
+  add/remove tool (which mutates the size at runtime).
+- **Remove unwalkable ground (high priority, user-flagged).** Ground currently draws past the
+  walkable area, hiding where the map ends. Stop drawing ground the character cannot walk on so the
+  edge reads clearly. Overlaps the "hide out-of-range ground" near-term fix; treat them as one job.
+  - **Beyond the edge = inactive-cell tiles (decided + BUILT 2026-08-16, supersedes the earlier
+    "empty black" decision).** Pure black read as a jarring hole, so the void is now a field of
+    **inactive cells**: grey tiles (`VOID_FILL` dark neutral grey, not `#000`), each with a faint
+    cell border and a **subtle darker-grey "+"** in the middle, so the outside reads as "buildable
+    void / not active yet" rather than a black cutoff. Built in `world/grid_background.gd`
+    (`_draw_void`): tiled on the cell grid, clipped to the visible viewport via
+    `_visible_local_rect` (maps the screen corners back to local), redrawn on camera pan/zoom
+    (`_process` watches the canvas transform), skips in-grid cells (the ground covers them), and
+    caps at `VOID_MAX_CELLS` so a far zoom-out can't stall. The "+" vertical arm is lengthened to
+    offset World's 0.7 y-scale so it reads square. The green add-band still shows where the map can
+    grow into this void.
+    - **Later polish:** a themed out-of-bounds look (water / fog / clouds) remains a future option;
+      the inactive-cell field is the shipped near-term look. Could also diverge by Play/Edit mode
+      later (e.g. hide the tiles in Play), once the toggle lands.
+- **Add and remove edge cells.** Its own edge tool with two grains (adding cells is not a selection
+  of existing material, so it does not live under the Magic Wand):
+  - **Single:** add or remove an individual cell on the edge of the map.
+  - **Row / column:** add or remove an entire edge row or column at once.
+  - The candidate cells to be added show a **green** highlight (green marks "will be added", per the
+    coloured highlight system below).
+  - **Removing a non-empty cell (decided 2026-08-16): delete its contents with it.** Removing a cell
+    (or row/column) also removes whatever is on it (terrain paint, walls, doors, placed objects) in
+    **one action**, no confirm prompt. Fast and predictable, and because it is a single undo entry,
+    Ctrl+Z restores the cell and everything that was on it together (pairs with undo/redo).
+  - **New cell terrain (decided 2026-08-16): copy the adjacent edge cell.** A freshly added cell
+    inherits the terrain material of the cell it was added next to, so extending a grass field stays
+    grass and a stone path stays stone with no repaint. For a whole row/column, each new cell copies
+    its own neighbour along the edge. It copies terrain only, not walls/objects on the neighbour. Near
+    a mixed edge this can inherit a surprising material, so the copied fill is just a starting point
+    the user can repaint.
+- Touches grid bounds (`GridBackground.grid_width/height`), the floor/ground store (sparse quad
+  map already scales with painted area), and save (grid size is already serialized). Confirm whether
+  "walkable range" is the grid bounds or a separate per-map movement extent at build.
+
+**As-built (2026-08-16): ROW / COLUMN grain DONE. Single-cell grain deferred (needs a
+cell-existence model).** New autoload `MapEdit` (`systems/map_edit.gd`) with `grow(edge)` /
+`shrink(edge)` for edge in top/bottom/left/right.
+- **Design: a resize is a pure transform on the `MapIO.serialize()` dict, re-applied through a new
+  public `MapIO.apply_serialized(data)` (thin wrapper over `_apply`).** Reusing the load/rebuild
+  path means every coordinate store moves in lockstep with one piece of code: walls, doors, wall
+  colours, per-16px-quarter floors, the player spawn, and grid size. The before/after dicts also
+  drop straight into undo/redo later.
+- **Origin shift handled.** Growing at top/left shifts every store +1 cell along that axis (quarters
+  +2, spawn +CELL px) so the new band takes index 0; bottom/right just extend, no shift. Verified:
+  grow:left moved walls [6,3]->[7,3], spawn.x 272->304, grid 48->49, and grow:left then shrink:left
+  round-trips byte-identical.
+- **Remove deletes contents in the same action.** `_shift` clips every store to the new bounds, so
+  the removed row/column and everything on it (paint, walls, doors) drop in the one pass. Verified:
+  shrink:top x4 deleted the 9-cell top wall row and set height 32->28.
+- **New band copies the neighbour's terrain (terrain only).** `_copy_edge_terrain` fills the fresh
+  row/column's quarters from the cell one step inward; grass neighbours copy nothing (grass is the
+  absence of a quarter). Verified: painting the left column wood then grow:left made the new column
+  wood.
+- **Player stays valid.** Spawn is clamped into the new walkable range after a shift, so removing the
+  band the player stood on lands it on a real cell, not the void.
+- **Single-cell grain deferred, and why (finding).** The map is a solid rectangle today
+  (`grid_width x grid_height`, every cell present, ground drawn for the whole rect). A lone jagged
+  edge cell has nowhere to live: there is no per-cell existence set. Adding one is the "shared
+  tile-entity / cell-existence model" question in the Architecture review (Q1/Q2); do that first,
+  then single-cell add/remove and the green will-be-added highlight are a small follow-on.
+- **Interim control (scaffolding, replace with the tool strip + green highlight).** IJKL keys (Shift
+  = grow that edge, Ctrl/Cmd = shrink that edge); capture-harness `GQ_RESIZE="grow:left;shrink:top"`
+  for headless checks; and `dev/test_resize.tscn` (a fast headless logic tester, prints serialize
+  before/after, has a `GQ_PAINTEDGE` hook). None of this is the real UX, which is still pending.
+
+**Hover-to-add UX + non-square commitment (decided 2026-08-16).** The user chose hover-over-the-
+target as the edge-add interaction instead of buttons (now feasible because the editor camera can
+reach the edges), with the grain set by the active mode:
+- **Magic Wand / Line mode: add a whole row/column.** Hover just outside an edge highlights that
+  row/column green; click grows it.
+- **Cell mode: add a single cell.** Hover one empty perimeter spot, highlight one cell, click adds
+  just that cell. **This is what enables NON-SQUARE (jagged) maps, which the user has committed to.**
+- **Non-square maps need a cell-existence model (the real work, not the highlight).** Today the map
+  is a solid rectangle: `grid_background` draws ground as one filled rect, `player` walkability is
+  "inside the rectangle", `MapEdit` keeps it rectangular, and rooms/shadows/save all assume the full
+  rect. Plan (decided): store a sparse **`absent_cells` set** (holes), default empty. An empty set
+  IS today's rectangle, so existing maps and the fast render path keep working and old saves load
+  unchanged; a jagged map just lists its missing (or beyond-box) cells. Then ground rendering,
+  walkability, save, and the room/shadow edges stop assuming a rectangle. Ties to Architecture
+  review Q1/Q2 (shared tile-entity / cell-existence). This is the next dedicated task on this thread
+  (do on a fresh session; it touches many files).
+
+**As-built (2026-08-16): hover-add ROW/COLUMN UX DONE (rectangular).** `world/map_size_tool.gd`
+(`MapSizeTool` under World), toggled by the tool strip's "Hover-add" check. When on, hovering the
+BAND-deep (one cell) void strip just outside an edge shows the green add-band and a left-click calls
+`MapEdit.grow(edge)`. Uses `_input` (not `_unhandled_input`) so the void-click beats `floor_manager`,
+which consumes every left-click; tool-strip buttons are GUI input so they are handled earlier and
+never mistaken for a map click. The edge pick is a pure `edge_at(point, gw, gh)` (corners match
+nothing), unit-tested headlessly (GQ_TEST_EDGEAT). Single-cell grain + non-square deferred to the
+cell-existence model above; the − buttons still handle remove for now.
+- **Hover-add ON by default (decided 2026-08-16).** The "Hover-add" toggle now starts checked, so
+  edge grow-on-hover is the default authoring behaviour rather than opt-in. The toggle stays but is
+  slated to move into an **advanced options** section later, so most users never see it. Set via
+  `hover.button_pressed = true` in `ui/tool_strip.gd`.
+- **Green "+" in the middle of the add-band (built 2026-08-16).** The green add-band draws a small
+  green "+" glyph at the **true centre** of the band (`edge_highlight.gd`, `_draw_plus`), with a
+  dark backing stroke for legibility and the vertical arm lengthened to offset World's 0.7 y-scale
+  so it looks square on screen. Only the add-band gets it; the red remove-band reads as delete on
+  its own. (Note: an earlier attempt re-centred the "+" to the on-screen portion of the band; the
+  user reverted that, so it sits at the true middle regardless of what is scrolled off-screen.)
+
+## Undo / redo (editor history, decided 2026-08-16, Phase A foundation)
+
+**BUILT 2026-08-16 (foundation in place; new tools just call one commit()).** `EditHistory`
+(`systems/edit_history.gd`, autoload after MapIO/MapEdit) is the choke point. It is **snapshot-based**,
+riding the existing `MapIO.serialize()` / `apply_serialized()` rebuild path: it keeps a `_baseline`
+snapshot of the current committed state, `commit()` pushes the pre-action baseline onto the undo
+stack and adopts the new state, and `undo()` / `redo()` swap the baseline for a neighbouring snapshot
+and re-apply it (same proven path load and resize use, so everything derived, walls/doors/floors/
+lighting/shadows/colours, is reconstructed). Snapshots are cheap because the map dict is sparse; `CAP
+= 200` bounds the stack. The public API is one call, `EditHistory.commit("name")` after a mutation,
+so the diff-vs-snapshot representation can change internally later without touching call sites.
+- **Integration surface (the whole point of building it first):** a tool mutates the live map, then
+  calls `commit()`. Wired so far: **floor/quarter paint** (one stroke = one entry, committed on
+  left-button release in `floor_manager.gd`), **right-click menu paints** (floor + wall colour), and
+  **edge grow/shrink** (`MapEdit`). Every future tool (Magic Wand, Erase, wall/door, box-select,
+  move, paste) adds its own `commit()` at the point it writes.
+- **Keys:** Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redo (`_unhandled_key_input`).
+- **Baseline / reset:** `MapIO.load_map` calls `EditHistory.reset()` so a loaded map is a fresh
+  baseline with empty history; startup captures the default world after two frames. A no-op commit
+  (state unchanged) is skipped via snapshot-hash compare, so history never fills with empty steps. A
+  fresh edit after undo clears the redo trail.
+- **`changed(can_undo, can_redo)` signal** is emitted for a future toolbar to grey out the buttons;
+  no UI consumes it yet.
+- **Verified headlessly:** `dev/test_undo.tscn` paints + grows, then walks undo/redo and asserts the
+  live map (width + quad positions) returns to the right state at each step, plus the no-op-skip and
+  redo-clear rules.
+- **Player is exempt from history (done 2026-08-16).** A snapshot still includes the player position
+  (serialize stores it as spawn, needed for saving), but undo/redo re-applies with a new
+  `keep_player` flag on `MapIO.apply_serialized`, so history never teleports the player: they stay
+  where they stand. Verified in `dev/test_undo.tscn`.
+
+Original spec (kept for context):
+The user wants **full multi-step undo/redo** (Ctrl+Z / Ctrl+Y) across all editor edits: terrain
+paint, object placement, erase, wall/door edits, and edge-cell add/remove. Build this **early**, as a
+foundation, so every tool records its own history as it is added rather than being retrofitted after
+many tools exist.
+- **Mechanism.** Each editor action pushes a reversible entry (do + undo) onto a history stack; a
+  redo stack holds undone actions until a new edit clears it. Godot ships an `UndoRedo` (or
+  `EditorUndoRedoManager`-style) helper that fits this directly; evaluate using it vs a small custom
+  stack at build.
+- **Granularity.** One drag-paint stroke should be **one undo entry**, not one per quarter, so undo
+  reverses a whole stroke. Group the changed quarters/cells of a single gesture into one action.
+- **What to record.** Prefer recording the **minimal diff** (the quarters/cells changed and their
+  before/after material, the placed/erased object record, the grid-size delta for edge ops) over full
+  map snapshots, so history stays cheap. This aligns with the sparse `_quad_mat` store.
+- **Scope.** Editor-only (authoring). Does not need to persist across save/load in v1; a fresh
+  session starts with empty history. Revisit if persistent history is ever wanted.
+- **Depth: deep but capped (decided 2026-08-16).** Keep a large history (target ~200 actions) so you
+  can walk back a long way, but cap it so memory stays bounded in long sessions; oldest entries drop
+  off past the cap. Minimal-diff entries keep each cheap. Cap tunable at build.
+- **Slots into the tool strip era:** every tool (Magic Wand fills, Cell/Fine Details paint, Erase,
+  wall/door, edge-cell) wraps its mutation in a history entry at the point it writes.
+
+## Creature placement in the editor (decided 2026-08-16: all three)
+The editor supports **three ways to author creatures (monsters/animals)**, each for a different design
+need. Ties into the creature systems (Wild Monsters, capture/absorb, respawn) which are Phase C.
+- **Spawn point:** marks a spot where a creature of a chosen type spawns on entering the map / play
+  start, then roams per its AI. **Respawns on re-entry unless captured or absorbed** (per the
+  creature lifecycle). The default, reliable-single-roamer tool.
+- **Fixed instance:** one specific placed creature that stays exactly where authored until it acts.
+  For **scripted / boss / unique / quest** creatures that must be exactly here, not randomised.
+- **Spawn zone/region:** an **area (authored with box-select)** flagged to periodically spawn a
+  chosen type within it, for **populating wild areas**. More complex; can land after points/instances.
+- All three store a creature **type** plus placement data; the zone stores a region + spawn rules
+  (rate, cap). Capture/absorb state and respawn tracking live in character/game data (the Q4 save
+  split), not map data, so a captured creature does not respawn.
+- Build order suggestion: fixed instance and spawn point first (single-cell records), spawn zone
+  later (needs region storage + a spawn timer/cap).
+
+## Door authored state (editor, decided 2026-08-16)
+A placed door defaults to **closed** (the common enclosure case), and its **authored state is
+settable per door: closed / open / locked.**
+- The authored state is the door's state **on map load**.
+- **Locked** ties into the keys system: a locked door needs its Unique key (Architecture Q3 id/key
+  binding); authoring a door as locked is where a key gets bound.
+- Lives in the contextual right-click menu for a door (Edit Door), alongside type/colour.
+- Build note: doors already track open/closed at runtime; this adds a persisted **authored initial
+  state** to the door record, plus the locked flag + key binding when locked doors land.
+
+## Eyedropper (pick material, decided 2026-08-16)
+An eyedropper that grabs an existing cell's terrain material/colour and sets it as the active brush,
+so matching existing terrain needs no palette hunting.
+- **Tool-strip button** for it, **plus an Alt+click shortcut while a paint brush is active** (Cell
+  Selector / Fine Details) that picks the hovered cell's material and sets the brush.
+- **Modifier note:** Alt already means "subtract from selection" during selection tools. No clash
+  because the two are mutually exclusive by context: Alt = eyedropper only while a **paint** brush is
+  active; Alt = subtract only while a **selection** tool (wand/box) is active. The active tool
+  disambiguates. Document this clearly so the mental model stays simple.
+- Picks material/colour only, not walls/objects (a wall eyedropper could come later).
+
+## Map sharing: export / import (decided 2026-08-16)
+Friends will build maps too, so maps share as **self-contained files**:
+- **Export** a map to a shareable file (the existing `user://maps/<name>.json`, self-contained) to
+  send to a friend by any file-transfer method. No server needed.
+- **Import** drops a received map file into your library (into a chosen folder/category), with a
+  name-collision check (rename or overwrite).
+- Fits the current save format directly; the map JSON already holds everything (grid, terrain, walls,
+  doors + ids, objects, spawn). Character/game data stays separate (Q4 split), so a shared map carries
+  no personal save state.
+- Later polish: a friendlier package (e.g. embedding a thumbnail) and versioning tolerance so a map
+  from an older/newer build still imports (per-section versioning already planned).
+- Rejected for now: a shared/cloud-sync folder (needs conflict handling + external setup) and
+  files-only-no-UI (unfriendly for non-technical friends).
+
+## Map library organization (decided 2026-08-16: folders / categories)
+As many maps accumulate (yours plus friends' maps), the flat name list in the M-key menu grows into
+**folders / categories**:
+- Maps are grouped into folders or categories (e.g. by area, by author, by project) in the load/save
+  UI.
+- **Storage options (settle at build):** either real subdirectories under `user://maps/<folder>/`,
+  or a flat store with a `folder`/`category`/`tags` field per map that the UI groups by. The tag/field
+  approach is more flexible (a map can carry tags without moving files); subdirectories are simpler
+  on disk. Recommend a category field over hard directories so maps can be re-filed without moving
+  files.
+- Pairs well with a search/sort and per-map thumbnails for recognition (decided below).
+
+### Map thumbnails (decided 2026-08-16: auto on save)
+Each saved map stores a **small top-down snapshot captured on save**:
+- Shown in the load list and library folders; **travels with exported maps** so friends recognize an
+  imported map at a glance.
+- Cheap: render the map small once per save (reuse the capture path,
+  [[grid-quest-capture-harness]]). Store alongside the map (embedded or a sibling file).
+- Rejected: generate-on-demand (more work each list open, needs the map partially loaded) and no
+  thumbnails (harder to recognize maps as the library grows).
+- Accepted the extra UI overhead (folder management) over the simpler flat-list-with-search, per the
+  user's choice, because the map collection is expected to get large (multi-map game + shared maps).
+
+## New Map flow (decided 2026-08-16)
+**New Map always starts as a blank 48x32 grass canvas** (the default size), no size prompt and no
+templates. The edge-cell tools handle any resizing afterward, so there is nothing to decide up front.
+- Keeps map creation one click; consistency over configurability.
+- A blank map = 48x32 grass, no walls/objects, spawn marker at a sensible default cell (e.g. centre)
+  the user can move.
+- Templates (empty / walled room / small house) were considered and deferred: they need authoring
+  first and are not needed for the first pass.
+
+## Play / Edit toggle (decided 2026-08-16)
+A **toggle (button + hotkey)** flips the editor between two modes, a concrete lightweight first
+version of the logged play-mode vs editor-mode split (see Other logged ideas):
+- **Edit mode:** the tool strip and menus are live, the camera is free (pan/zoom), left-click
+  paints/places, the character does not walk. Authoring state.
+- **Play mode:** the editor UI hides, the camera follows the player, you **walk the character from
+  the spawn marker** to test the map. Play does not mutate map data (matches the Q4 map-data vs
+  character-data split: play would only touch character/game data).
+  - **Playtest start (decided 2026-08-16): spawn marker by default, plus "test from here".** Normal
+    Play starts the character at the spawn marker (true to real load). A **"playtest from here"**
+    option (a modifier on Play, or right-click a cell) drops the character at a chosen cell so a far
+    corner can be tested without walking there. Best of both.
+- **Flip back any time** to keep editing; fast iteration is the point (avoids a save-then-launch
+  round trip).
+- Resolves the conflict where a free camera and "left-click paints" cannot coexist with walking the
+  character; the mode decides which input scheme is active.
+- Build note: this formalises today's always-walkable behaviour into an explicit mode flag the
+  camera, input, and UI all read.
+
+## Naming: rooms, paddocks, and creature nicknames (logged 2026-08-16)
+Two related naming features from the notes:
+- **Rooms and paddocks can be named (editor).** A room/paddock (an enclosed region) can carry a
+  user-given **name**. Fits the room-topology service (Architecture Q2) as a per-room field keyed by
+  `rep_cell`, authored via the Floor/room right-click menu or the inspector, saved in map data.
+  Useful for labelling ("Frost Frog paddock"), future minimap labels, and paddock/base management.
+- **Loyal minions and animals can be nicknamed (gameplay).** Once a creature is **loyal** (max
+  domestication; a Loyal Minion or Loyal Animal, see the terminology glossary), the player can give
+  it a **nickname**. Nickname is character/game data (Q4 split), not map data. Ties to the Creature
+  Diary (nickname shown there) and companion UI. Deferred to the creature pillar (Phase C); logged so
+  it is not lost.
+
+## Player spawn marker (editor, decided 2026-08-16)
+Setting where the player starts on a map uses a **placeable spawn marker**, not the character's
+saved position:
+- A **"Set Spawn" tool** drops a spawn marker on a cell; drag it to move (like any placed object).
+  **One per map.**
+- **Visible in the editor, hidden in play.** On load the player starts on the marker's cell.
+- Decouples spawn from having to walk the character there, and works cleanly with the free editor
+  camera (you are not moving the player to author).
+- Build note: `MapIO` already serializes a spawn; this gives it an explicit editor affordance and a
+  visible marker rather than implicitly using the player's position.
+
+## Move tool (drag-move, keeps identity, decided 2026-08-16)
+Reposition an already-placed thing without delete-and-replace. **Magic-Wand-select** it (or a
+region), then **drag it to a new cell**; the hover/drop-preview shows the destination before release.
+- **A move keeps the object's durable id.** Moving a locked door keeps its `door_id`, so its Unique
+  key still resolves (per Architecture Q3). This is the "genuine editor move keeps the id" case the
+  save design already relies on.
+- **Contrast with delete-then-place**, which mints a **new** id, orphaning any key that referenced
+  the old one. That is the intended "rebuild = new id" behaviour, and it is why move must be a
+  distinct operation, not sugar over cut/paste.
+- Moving a **region** (multiple cells/objects) moves terrain + walls + objects together, each object
+  keeping its id. One undo entry per move.
+- Reuses the selection, drop-preview, and undo systems already specced; the new piece is the "move
+  op preserves id" path that the copy/paste and erase paths deliberately do not.
+
+## Editor camera: pan and zoom (decided 2026-08-16, Phase A)
+The 48x32 default map is larger than the screen, so the editor needs its own camera, **decoupled
+from the player while editing**:
+- **Pan:** middle-mouse drag (or hold Space and drag) moves the view around the map, independent of
+  the character.
+- **Zoom:** scroll wheel zooms in (for quarter-level Fine Details work) and out (to see the whole
+  level for layout). Clamp min/max zoom at build.
+- **Pan bounds (decided 2026-08-16): clamp to map + a small margin** of surrounding void, so you can
+  see and work at the edges (needed for the green add-cell tool into the void) but cannot drift into
+  infinite emptiness. Recenters gracefully. Margin size tunable at build.
+- **Decoupling:** in play the camera follows the player; in the editor it is free. This is a small
+  concrete instance of the future play-mode vs editor-mode split (see Other logged ideas): editing
+  uses a free camera, play uses the follow camera.
+- Build note: today the camera follows the player (`MAX_POSITION` / player-centered). Add an editor
+  camera state that takes over during authoring; confirm the current camera setup at build.
+
+**As-built (2026-08-16): DONE.** `camera_follow.gd` now has FOLLOW / FREE modes. Middle-mouse drag
+pans, the wheel zooms toward the cursor (clamped 0.4 to 5.0), and the centre is clamped to the map
+rect plus a 160px margin so the edges and the green add-band stay reachable but you cannot drift
+into the void. Any pan/zoom drops into FREE; **F or Home recentres on the player and returns to
+FOLLOW** (also a "Recenter (F)" button on the tool strip). A `fit_map()` frames the whole map (used
+by the capture harness). Space+drag not wired (middle-mouse only) since it collides with nothing;
+add later if wanted. This is the concrete free-vs-follow split the Play/Edit toggle will formalise.
+
+## Placing directional objects (orientation control, decided 2026-08-16)
+How the editor sets facing/run direction for directional things (doors, wall runs, future furniture
+per [[grid-quest-asset-perspective-model]]): **auto from context, with an R key to override.**
+- **Auto default.** The editor infers the obvious orientation from surroundings: a **wall run
+  follows the drag direction** (horizontal drag = E-W run, vertical = N-S), a **door faces through
+  the wall segment it is placed on**, furniture takes a sensible default facing. Covers the common
+  case with no extra input.
+- **Manual override: R cycles orientation** (N/E/S/W or the object's valid set) before/while
+  placing, for when the inferred facing is not what is wanted. Shown live in the hover preview so the
+  chosen facing is visible before the drop.
+- Ties into the existing orientation/front-back/y-sort conventions
+  ([[grid-quest-asset-perspective-model]]); the preview must render the currently chosen orientation.
+- Build note: gates already carry an orientation and walls already build as runs, so auto-inference
+  has existing data to read; R-override adds a per-placement orientation state to the armed brush.
+
+## Unsaved-work protection (decided 2026-08-16: autosave + warn)
+Both safety nets, since the user wants maximum protection:
+- **Dirty-flag warning.** Track whether the map has unsaved edits; on **load another map / new map /
+  quit** with unsaved changes, prompt **Save / Discard / Cancel**. Only appears when actually dirty.
+- **Autosave to a recovery file.** Write a **separate recovery file**, distinct from the real
+  `user://maps/<name>.json`, so a crash/close can be recovered without silently overwriting the
+  user's saved map. On next launch, if a recovery file is newer than the saved map, offer to restore
+  it. **Cadence (decided 2026-08-16): a short idle timer** (debounced, e.g. ~3s after you stop
+  editing) **plus a periodic fallback** (~2 min), so work is captured almost immediately without
+  writing on every paint/drag. Cheap on the atomic-write path.
+- **Keep the two concepts distinct to avoid confusion:** autosave protects against crashes into a
+  recovery slot; explicit Save (M menu) writes the real map file; the dirty warning guards explicit
+  navigation. Pairs with undo/redo for in-session recovery.
+- Build note: reuses the existing `MapIO` atomic-write path; adds a dirty flag (set on any edit,
+  cleared on explicit save) and a recovery-file slot + newer-than check on launch.
+
+## Box-select (rectangular area selection, decided 2026-08-16)
+A second selection tool alongside the Magic Wand: **drag a rectangle to select every cell inside it,
+regardless of material or room boundaries.**
+- **Wand = select by material/room** (connected same-material patch, whole room, wall structure);
+  **box = select by area** (an arbitrary rectangle of mixed contents). Two complementary ways to
+  build a selection.
+- Feeds the **same** downstream tools: copy/paste, move, and any edit applied to a selection. A
+  selection is a set of cells/quarters + the objects on them, however it was made.
+- Uses the marching-ants outline like the wand.
+- Lives as its own tool button on the left strip. Build note: a box selection is just a filled
+  rectangle of cells, simpler than the wand's floods; both produce the same selection object.
+
+### Applying edits to a selection (decided 2026-08-16)
+**With a selection active, picking a terrain/colour/material from the right palette fills the entire
+selection at once.** Wand-select a room, click Wood, and the whole room becomes wood; box-select a
+region, pick a colour, and it all recolours. This makes wand/box + palette act as a powerful **area
+bucket-fill**, the main payoff of having selections.
+- A selection is a **reusable target** for any edit: paint, colour, material swap, erase, plus
+  copy/move.
+- One fill = one undo entry over the whole selection.
+- If **no** selection is active, picking a material just arms the brush for the current mode
+  (Cell Selector / Fine Details), per the normal Terrain placement UX. Selection-fill is the override
+  when a selection exists.
+
+### Additive / subtractive selection (decided 2026-08-16)
+Selections compose with standard modifiers, working for **both** the Magic Wand and box-select:
+- **Plain click/drag:** replace the selection (new selection).
+- **Shift + click/drag:** **add** the new region to the current selection.
+- **Alt + click/drag:** **subtract** the region from the current selection.
+- You can mix tools within one selection (e.g. wand the carpet, Shift-box a corner, Alt-click out a
+  door). The result is one selection object fed to copy/paste/move/edit.
+- Build note: the selection is a mutable set of cells/quarters; add/subtract are set union/difference
+  over the tool's produced region. Marching-ants redraws on each change.
+
+## Copy, paste, and duplicate (editor, decided 2026-08-16)
+The user wants copy/paste and duplicate to speed up level design. It builds directly on two things
+already specced, so it is a natural fast-follow rather than new machinery:
+- **Select** a region or room with the **Magic Wand** (patch, whole room, or a wall structure), then
+  **Ctrl+C** copies the selection's contents: terrain quarters, walls, doors, and placed objects,
+  captured relative to the selection's origin.
+- **Ctrl+V / duplicate** arms a **paste brush** that shows the copied block as a **hover preview**
+  (reuse the Terrain placement UX drop-preview) and stamps it on click, with the drop animation.
+- Each paste is **one undo entry** (reuse undo/redo).
+- **Rotate + flip on paste/move (decided 2026-08-16): supported from the start.** A pasted or moved
+  region can be rotated (90-degree steps) and flipped (horizontal/vertical) before it drops. This is
+  a deliberate commitment that raises a real dependency:
+  - **Directional assets must re-orient correctly, not spin naively.** In the top/front perspective,
+    a wall run, a door facing, and angled furniture each have orientation-specific art. Rotating a
+    region must **remap each directional piece to its correct rotated/mirrored art** (a N-S wall
+    becomes E-W; a door facing east becomes facing south; etc.), via an **orientation-remap table**,
+    not an image rotation. Non-directional terrain quarters just move/rotate as data.
+  - **Therefore this depends on every asset having all its orientations** (see
+    [[grid-quest-modify-all-asset-states]], [[grid-quest-asset-perspective-model]]). Where a rotated
+    orientation's art is missing, that asset cannot be rotated yet. Practically: rotation lights up
+    per-asset as its full orientation set exists; terrain-only regions rotate immediately.
+  - Flip is often cheaper than rotate (many assets mirror cleanly), but still needs the mirrored
+    facing to be a real, correct state.
+  - Build the orientation-remap table as the single source for "orientation X rotated/flipped ->
+    orientation Y", reused by rotate, flip, and the R-key placement override.
+- **Also settle at build:** paste anchor/alignment to the grid, whether paste overwrites or merges
+  with what is already there (recommend overwrite within the pasted footprint), and pasting near/over
+  the map edge (clip, or auto-extend via the edge-cell logic).
+- **Cross-map clipboard (decided 2026-08-16).** The copied selection lives on a clipboard that
+  **survives loading another map**, so you can build a room/structure once and reuse it across
+  levels (a big win for a multi-map game). The clipboard **optionally persists to disk** so it can
+  even survive a restart. Pasting into a different map remaps/mints ids as needed (a pasted locked
+  door gets a fresh id, like any new placement) and clips or auto-extends at that map's edges.
+- **Timing:** after the core Phase A tools (needs the Magic Wand selection, placement drop-preview,
+  and undo all working first); a Phase A fast-follow, not the first pass.
+
+## Coloured highlight system (logged 2026-08-16, Phase A)
+
+**Partial as-built (2026-08-16): GREEN (add) and RED (remove) done for the Map Size tool.**
+`world/edge_highlight.gd` (an `EdgeHighlight` Node2D under World, drawn over the ground) fills the
+affected edge row/column: **green** for the will-be-added band (drawn just outside the edge, in the
+void) and **red** for the will-be-removed edge band. The tool strip drives it on button hover.
+Verified via the capture harness `GQ_EDGEBAND="left:add"` on a fitted map. **Marching-ants for the
+Magic Wand is now DONE** (`floors/selection_overlay.gd`; see the Authoring surface as-built note).
+Still to do: orange (ground recolour of the existing floor mask), purple (walls), blue/cyan (doors),
+and yellow (shadow). This edge band and the ants are plain `_draw`; the room/wall *hover* highlights
+stay on the FloorHighlightMask shader path, whose colour becomes a per-action parameter.
+
+Replace the single red hover highlight with a **colour-coded highlight** that tells the user what
+kind of action they are about to take. Final palette (all confirmed with the user 2026-08-16):
+- **Red: erase / remove** (destructive). Red now means "delete", the universal danger convention.
+  Drives the Erase mode below.
+- **Orange: ground / terrain edits.** The current red floor highlight is **recoloured to orange**
+  (the user swapped red onto erase, since red = destructive reads more naturally). Implementation:
+  change the highlight colour in `floor_outline.gdshader` / the FloorHighlightMask path (see the
+  "Red highlight system" note under In progress); the mask mechanism is unchanged, only the colour.
+- **Purple: walls.**
+- **Green: additive placement** (placing items, adding monsters, adding animals, adding non-wall
+  obstacles, and adding edge cells). Green means "adding something new". Confirmed 2026-08-16: **one
+  green for all adding**, not split per object type; the active tool/mode already says what is being
+  added, so the colour only needs to signal "add".
+- **Blue / cyan: doors** (a wall feature but a distinct action from a plain wall, so a distinct
+  colour reads better than reusing purple).
+- **Yellow: shadow / lighting toggle** (indoor vs outdoor), since it reads as "light".
+- **Build-time contrast check:** orange (ground) and yellow (shadow toggle) are adjacent hues;
+  verify they are distinguishable in-game, and nudge one if not.
+
+### Erase mode (tool, logged 2026-08-16)
+A dedicated **Erase mode** that deletes placed things: obstacles, monsters, items, and (per the wall
+editing work) walls and doors. Lives as a tool button on the left tool strip alongside Magic Wand /
+Cell Selector / Fine Details; its hover highlight is **red**.
+- **Click removes the topmost object only (decided 2026-08-16).** One click deletes the single top
+  thing on the hovered cell (e.g. a monster), the next click the thing under it (e.g. the wall), and
+  so on; **terrain paint is removed last, only when no placed object remains** on the cell. Precise
+  and predictable, click-again to keep clearing. The stacking order comes from the cell-occupancy
+  model below. Each removal is one undo entry.
+
+### Cell occupancy model (decided 2026-08-16)
+Defines what can share one cell, and therefore placement rules and the erase order. **Three layers,
+at most one of each per cell:**
+- **Terrain** (always present): the ground/quarter layer.
+- **Structure** (optional): one **wall OR one door** (a cell cannot hold both a wall and a door).
+- **Object** (optional): one placed item, monster, animal, or non-wall obstacle.
+- **Erase (topmost-first) order:** object -> structure -> terrain.
+- **Placement rule:** placing into an occupied layer replaces (or is blocked for) that layer's
+  current occupant; the other layers are untouched (e.g. dropping an item onto a floor cell that has
+  a wall is allowed, item + wall + terrain coexist). Exact replace-vs-block per layer settled at
+  build.
+- Rejected: free multi-object stacking (complicates collision/erase/save) and one-thing-per-cell
+  (too restrictive, could not put a monster on a floor). This clean layering also keeps the save
+  compact: terrain in the quad store, structures in the walls/doors records, objects in an objects
+  record, all cell-keyed.
+
+### Passability (decided 2026-08-16)
+Whether something blocks the player is a **per-type default with a per-object override**:
+- **Type defaults:** obstacle / table = **blocks**; item pickup / small decor = **passable**;
+  monster = **blocks while alive**; wall = blocks; door = blocks when closed, passable when open;
+  terrain = passable (except future impassable terrain like water).
+- **Per-object override:** any individual placed object can have its **"blocks movement" flag toggled**
+  in the editor, for level-specific exceptions (a one-off passable prop, a decorative monster).
+- Good defaults mean the flag is rarely touched; the override exists for the exceptions. Stored as a
+  per-object bool defaulting from type. Ties to the future impassable-terrain work (Water) which adds
+  a per-terrain passability flag on the terrain layer.
+
+### Multi-tile objects (footprint, decided 2026-08-16)
+Objects that span several cells (tables, large furniture) are **one object with a footprint of
+cells**, preserving the one-object-per-cell rule:
+- The object is a single record with a **footprint** (its set of covered cells + an anchor). **Each
+  covered cell's object-layer references that same object**, so a cell still holds at most one
+  object.
+- **Placement** checks every footprint cell's object-layer is free (structures/terrain per their own
+  layers) before allowing the drop; the hover preview shows the whole footprint and is blocked/red if
+  any cell is occupied.
+- **Erase / move / select** act on the **whole object** from any of its cells (one undo entry).
+  Passability applies **per covered cell** (a table blocks all its cells).
+- Rotation/flip of a multi-tile object rotates its footprint too (ties to the orientation-remap
+  work). Save stores the object once with its footprint, not once per cell.
+- This resolves the "one object per cell" model with the roadmap's multi-tile Tables entry;
+  single-cell objects are just a 1-cell footprint.
+- **Magic Wand selection outline (decided 2026-08-16): marching ants.** An animated dashed outline
+  (Photoshop/GIMP convention) around the current wand selection, distinct from the six solid action
+  colours because it reads as motion + dashes, not a fill. Works on the growing selection (patch,
+  then whole room, then walls). Colour of the dashes can be tuned at build for contrast.
+- Implementation note: today's highlight is a render-mask driven by `floor_outline.gdshader` (the
+  "Red highlight system"); the colour is a shader/mask parameter, so colour-per-action is a small
+  extension of that system rather than new geometry.
+
+## Terrain placement UX (select, hover-preview, drop, logged 2026-08-16, Phase A)
+How laying terrain should feel in the editor (the user calls this "Terrain Mode"):
+- **Select does not auto-place.** Choosing a terrain and colour from the right menu arms a brush; it
+  waits for the user to click the target cell. (Supersedes the current "picking a material paints
+  immediately" behaviour for this mode.)
+- **Hover preview.** Over a hovered cell, on top of the highlight and lifted a few pixels on the z
+  axis, show a **sprite of the chosen terrain** (the example given is a concrete tile) so the user
+  previews exactly what will land.
+- **Click to drop.** Clicking "Fill" / "Lay" plays a short **drop animation**: the hovering piece
+  falls into the cell from slightly above and settles. Applies to editor placement and, later, to a
+  Builder minion placing obstacles (same drop effect, see Builder Bear).
+- **Cursor leaves the screen: clear all highlights.** When the cursor moves off screen, every
+  highlight disappears.
+
+### As built (2026-08-16)
+Built exactly per the spec above. Touched: `floors/terrain_preview.gd` (new), `floors/floor_manager.gd`,
+`dev/capture.gd` (a `GQ_PREVIEW` verification hook).
+- **`floors/terrain_preview.gd` (new Node2D, child of FloorManager, z 1200 = above the paint cursor
+  at 1000).** Draws the armed material as a floating tile lifted `REST_LIFT`=6px over the target with
+  a translucent contact shadow, at `REST_ALPHA`=0.7. Sampled with `GridBackground.tiled_src`, the
+  same phase the real floor uses, so the preview shows the exact pixels that will land.
+  `play_drop(rect)` runs a ~0.11s tween falling from `DROP_LIFT`=16px to the ground while the alpha
+  fades, then returns to the resting hover; the floor paint commits underneath immediately, so the
+  drop just sells the placement.
+- **Arm, don't auto-place (`floor_manager._on_menu_id`).** Picking a floor material in Cell/Fine no
+  longer paints `_pending`; it only arms `_brush` and refreshes the hover so the lifted preview
+  appears (no undo entry, since nothing changed). Selection-fill and Wand-room-fill keep their
+  immediate commit. `_show_preview(rect)` shows the tile in Cell/Fine when a real material is armed
+  (Erase and the grass eraser show only the square cursor, no floating tile).
+- **Drop on click (`_paint(local, drop)`).** A fresh left-press passes `drop=true` and, when a real
+  material actually lands, calls `_preview.play_drop(rect)`. Drag-moves pass `drop=false` so a sweep
+  across the map doesn't spam the animation per cell (only the press animates).
+- **Cursor off window clears highlights.** `_ready` connects `get_window().mouse_exited/entered`;
+  on exit `_reset_highlight()` + `_restore_faded()` run and `_mouse_inside` gates `_update_hover` so
+  nothing lingers under an absent pointer; on re-entry the hover recomputes. `_reset_highlight` also
+  hides the preview now.
+- **Verified** headless: project boots clean with the changes; a diff of the `GQ_PREVIEW` frame vs a
+  baseline shows the lifted tile sitting above the red cell cursor with grass showing through the
+  bottom of the cell and a contact shadow (the tile reads as lifted, exactly as specced). The drop
+  tween reuses the same verified draw path. Not captured mid-drop (a sub-frame tween).
+
+## Wall editing and outside reclassification (logged 2026-08-16, Phase A + analysis)
+The user wants to add and remove wall pieces in Cell Mode. Removing a perimeter wall that exposes a
+room to the outside makes that room "become outside". **Analysis of what this affects (good news:
+mostly automatic given the current architecture).**
+- **Room topology / flood fill (automatic).** Indoor vs outdoor is already computed by the exterior
+  flood fill in `room_light` (`_build_exterior`, `enclosed_floor_cells`). Removing a perimeter wall
+  opens the enclosure, so on recompute the exterior flood reaches those cells and they become
+  exterior with no new classification logic. The main new work is re-running the flood on a wall
+  edit in the editor (it already re-runs on load via MapIO).
+- **Lighting (automatic).** The room stops being dimmed, so it "is no longer greyed out", exactly as
+  the user wants, falling straight out of the exterior reclassification.
+- **Shadows including the player shadow (automatic if keyed off exterior).** `shadow_manager`'s
+  indoor/outdoor split drives shadow behaviour; once the room is exterior, wall and player shadows
+  behave as outdoors. Verify the player-shadow indoor/outdoor switch reads the same exterior test.
+- **Ground tiles: unaffected (by design).** Floors are an independent AREA layer, so removing walls
+  does not change the ground, exactly as the user specified and consistent with
+  [[grid-quest-floors-fill-whole-room]]. No work needed.
+- **Creatures (future).** Creatures inside are alerted when the room opens and react by loyalty.
+  Logged for when creatures exist; ties to the creature sections.
+- **Roofs / paddock outdoor-override (future linkage).** This is the natural inverse of the paddock
+  outdoor-flag idea (a walled room forced outdoor). A roof only shows outside, so an opened room
+  should drop its roof. Both consume the same inside/outside service, so extracting room topology
+  (Architecture Q2) before these land is worth it.
+- Net: because indoor/outdoor is derived, not stored, "remove wall = becomes outside" is largely
+  free; the build work is recompute-on-wall-edit plus confirming the player-shadow switch.
+
+## Terrain patterns and material variants (logged 2026-08-16)
+Beyond colour, some terrain types get **pattern options that are separate from colour changes**.
+- **Terrain patterns:** e.g. different carpet patterns, short vs long grass, multiple tile and wood
+  styles to pick from. A pattern axis distinct from the colour axis.
+- **Wall and fence material variants:** the same style-swap idea applied to structures, switching a
+  wall or fence between **wood, slate, and rock/stone**.
+- **Splits later into two modes:** in **game mode** these are built from gathered resources; in
+  **level editor mode** (what we are building) they are placed freely. Ties to the resource-gated
+  building already noted under base building.
+- Menu impact: the right menu gains a pattern/material selector alongside colour. See "Optimise the
+  right menu" for keeping this from bloating the menu.
+
+## Optimise the right menu and UI practices (logged 2026-08-16)
+The user asked to analyse the right menu for optimisation and to research good UI practices as the
+menu grows (modes, colour, pattern, material, walls, doors, items, creatures). Working suggestions
+(to flesh out at build):
+- **Separate the axes.** Action (terrain / wall / door / erase), style (type/material), and colour
+  are independent choices. Presenting them as one deep nested tree bloats fast. Prefer a small
+  persistent toolbar for the current action + mode, and a properties strip for style/colour of the
+  armed brush, over ever-deeper submenus.
+- **Recently-used / favourites.** Surface the last few used terrains/materials so common placements
+  are one click, not a menu dive.
+- **Live preview everywhere** (already the pattern): hover previews on the cell, click commits.
+- **Keep destructive actions distinct** (erase colour-coded orange/hatched, not adjacent to Fill).
+- **Consistency:** one place for mode toggles (Object/Cell/Fine Detail), one for Grid lines, stable
+  positions so muscle memory forms.
+- Revisit against real UI references at build time; logged as a design task, not yet decided.
+
+### Tooltips on menu and tool options (logged 2026-08-16)
+The user wants **tooltips on menu options**, and each tooltip should **also show the option's
+keyboard shortcut**. Applies across the editor: tool-strip buttons (e.g. "Magic Wand (W)"), palette
+swatches, right-click menu entries, and toolbar actions ("Undo (Ctrl+Z)"). Reads the shortcut from
+the same hotkey map (see Editor hotkeys), so tooltip and binding never drift. Good UI practice and
+cheap; pairs with the rebindable-hotkeys idea (a rebind updates the tooltip automatically).
+
+### Editor hotkeys (decided 2026-08-16: letter mnemonics)
+Tool selection and actions get memorable letter shortcuts in Edit mode (the player does not move
+while editing, so letter keys are free):
+- **Tools:** W = Magic Wand, B = Box-select, C = Cell Selector, F = Fine Details, E = Erase,
+  I = Eyedropper, M = Move, D = Door, plus a key each for Wall and Set Spawn (assign at build).
+- **Actions:** Ctrl+Z / Ctrl+Y = undo / redo, Ctrl+C / Ctrl+V = copy / paste, R = rotate (Shift+R or
+  a flip key for flip), Esc = clear selection / cancel.
+- **Modifiers (already decided):** Shift = add to selection, Alt = subtract (or eyedropper while a
+  paint brush is active), Space+drag / MMB = pan, wheel = zoom.
+- Final letter assignments tunable at build; the scheme is mnemonic-first. Consider making them
+  rebindable later.
+
+### Editor layout (decided 2026-08-16)
+The editor moves to a standard three-zone layout, resolving the "move modes out of the right-click
+menu" work:
+- **Left: vertical tool strip.** A radio group of icon buttons for the selection modes (Magic Wand,
+  Cell Selector, Fine Details), the active tool highlighted. Future tools join here (edge-cell
+  add/remove, wall, door, erase). Icons per the mode-icon spec in the Authoring surface section.
+- **Right: material/colour palette + properties inspector.** The existing terrain/colour panel
+  (later gaining pattern and material selectors for the armed brush), plus a **properties/inspector
+  panel** (decided 2026-08-16) that shows the selected/edited object's settings and updates live:
+  a door's type/colour/state, a wall's type/colour, an object's blocks-movement toggle, a spawn
+  zone's type/rate/cap, a spawn point's type. Simple objects show a couple of fields, complex ones
+  (spawn zones) show more. The context-menu "Edit" action focuses the object here rather than deep
+  submenus. Docked on the right near the palette (share/stack the right column).
+- **Centre: the map canvas.**
+- **A thin status bar (decided 2026-08-16, bottom or top).** Shows live editing info: hovered cell
+  x,y, active tool, current selection size, map dimensions (WxH), and zoom %. Cheap and genuinely
+  helps precise placement and resizing on the 48x32 grid. Updates on hover/selection/zoom change.
+- **Right-click menu becomes purely contextual (contents decided 2026-08-16):** a short menu of
+  actions for the specific thing hovered, no mode-switching. By target:
+  - **Door:** Edit Door (type / colour / state closed-open-locked), Delete.
+  - **Wall:** Edit Wall (type / colour), Delete.
+  - **Creature (spawn point / instance / zone):** Edit (type, spawn settings), Delete.
+  - **Object (item / furniture / obstacle):** Edit (type, blocks-movement toggle), Delete.
+  - **Floor / room:** Set material / colour, Set Indoor / Outdoor (the paddock outdoor-override).
+  - **Empty cell:** minimal (e.g. quick-place recents), or nothing.
+  Kept short and target-specific; deeper editing still uses the tool strip + palette. Rejected a
+  Delete+Properties-only menu (too many trips to a separate panel) and dropping the menu entirely
+  (loses quick per-object actions).
+- **Top (later):** document actions (save/load, grid toggle, undo/redo) can live in a top bar as
+  they arrive; not required for the first pass.
+- **Tool strip is grouped with dividers (decided 2026-08-16).** As the strip has grown to ~10 tools,
+  cluster them into labelled groups separated by thin dividers, related tools together:
+  - **Select:** Magic Wand, Box-select.
+  - **Paint:** Cell Selector, Fine Details, Eyedropper.
+  - **Objects:** Build (wall / door), Set Spawn.
+  - **Edit:** Move, Erase, Edge-cell add/remove.
+  Scannable and extensible (new tools join the right group). Flat list and Photoshop-style flyouts
+  were considered and rejected (flat gets unscannable, flyouts bury tools a click deeper). Group
+  membership can be tuned at build; the grouping principle is the decision.
+
+## Instruction manual PDF (logged 2026-08-16, deliverable, not editor code)
+The user wants a **PDF instruction manual** describing all assets and mechanics, to share with
+friends so they can build maps, and to explain planned future features. A documentation deliverable
+(not part of the editor build); produce it once the editor feature set is stable enough to document.
+Good candidate for an Artifact/print-ready page when the time comes.
 
 ## Creature, animal, and ownership terminology (glossary, set 2026-08-15)
 Consolidated naming the user fixed in the notes, so every later section and the code use one
@@ -1019,6 +2035,42 @@ as a standing step in asset creation (alongside the top/front perspective rule
 [[grid-quest-asset-perspective-model]] and updating all states [[grid-quest-modify-all-asset-states]]):
 before generating art, propose how to lean the piece toward the dark, gritty, moody Diablo look. The
 art north star is **Diablo / Diablo 2**.
+
+## AI asset generation: prompt pack + style bible (QUEUED 2026-08-16, deliverable, not editor code)
+Produce written instructions so the game's art can be AI-generated consistently. Two outputs: a
+**style bible** (a fixed prompt prefix + rules every asset shares) and a **per-asset prompt pack**
+(one prompt each for the concrete asset list). This is a writing/deliverable task, best done in a
+fresh `/clear` session.
+
+- **Tooling: the user plans to run their OWN local AI (Stable Diffusion), and it can run slowly.**
+  This is the best fit: local SD is fully free, gives the most control, and is the ONLY option that
+  does **seamless tileable textures** (SD tiling mode) for the 128px floors. Favour a pixel-art
+  model/LoRA under ComfyUI or Fooocus. Slow generation is fine for a solo asset pipeline. Free
+  cloud fallbacks if ever needed: **PixelLab.ai** (transparent-background sprites + walk/idle
+  animation frames, the two things general AI is worst at), **Leonardo.ai** (texture generation),
+  ImageFX / DALL·E-3 for concepts only.
+- **Hard constraints the prompts must bake in:**
+  - **Perspective:** the documented top/front hybrid with front/back layers and y-sort depth
+    ([[grid-quest-asset-perspective-model]]); AI will not nail this, so expect hand fixup.
+  - **All states:** every orientation/state of an object gets made together
+    ([[grid-quest-modify-all-asset-states]]).
+  - **Diablo / Diablo 2 feel** on every piece (the standing rule above): dark, gritty, moody,
+    muted palette.
+  - **Dimensions/grid:** floors are seamless-tileable 128px; cells are 32px, quarters 16px. AI
+    output gets downscaled + cleaned in Aseprite / free Photopea and aligned to the grid.
+  - **Transparency:** sprites (creatures, items) need transparent backgrounds; use PixelLab (native)
+    or free bg-removal (rembg / Photopea / Clipdrop). Item art stays plain, the rarity outline
+    (grey/white/green/blue/purple/orange-gold) is drawn in CODE, not the art.
+- **Reusable style prefix (draft, refine in the build session):** "dark fantasy, Diablo-inspired,
+  top-down grid RPG, pixel-art, limited muted palette, even lighting, clean silhouettes, game asset".
+- **Asset list to write prompts for (first pass):** the 3 starter monsters (one ability each), the
+  Bridge Lizard, floor material variants (grass/wood/concrete/tile/carpet + more), wall materials
+  (wood/slate/stone), and item icons (keys first, then coins/consumables).
+- **Workflow per asset:** generate (local SD) -> remove/verify background -> downscale + clean in an
+  editor -> align to the 32px grid -> drop into the matching `res://` folder and wire it up.
+- **Honest expectation:** AI gets ~60-80% on textures and concepts, less on animated character
+  sprites (consistency across frames/orientations is the hard part). It is a starting point, not a
+  finished pipeline; budget hand-cleanup time.
 
 ## Inspirations (reference list, logged 2026-08-15)
 The user's stated touchstones, per system, to steer design/art decisions:

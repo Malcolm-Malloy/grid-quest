@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="PackedScene" path="res://player/player.tscn" id="1"]
 [ext_resource type="Script" path="res://world/grid_background.gd" id="2"]
@@ -9,6 +9,9 @@
 [ext_resource type="Script" path="res://floors/floor_manager.gd" id="7"]
 [ext_resource type="Script" path="res://floors/floor_highlight_mask.gd" id="8"]
 [ext_resource type="Script" path="res://ui/save_load_menu.gd" id="9"]
+[ext_resource type="Script" path="res://world/edge_highlight.gd" id="10"]
+[ext_resource type="Script" path="res://ui/tool_strip.gd" id="11"]
+[ext_resource type="Script" path="res://world/map_size_tool.gd" id="12"]
 
 [node name="Main" type="Node2D"]
 
@@ -40,9 +43,19 @@ script = ExtResource("7")
 [node name="FloorHighlightMask" type="Node2D" parent="World"]
 script = ExtResource("8")
 
+[node name="EdgeHighlight" type="Node2D" parent="World"]
+z_index = 900
+script = ExtResource("10")
+
+[node name="MapSizeTool" type="Node2D" parent="World"]
+script = ExtResource("12")
+
 [node name="Camera2D" type="Camera2D" parent="."]
 zoom = Vector2(2, 2)
 script = ExtResource("4")
 
 [node name="SaveLoadMenu" type="CanvasLayer" parent="."]
 script = ExtResource("9")
+
+[node name="ToolStrip" type="CanvasLayer" parent="."]
+script = ExtResource("11")
