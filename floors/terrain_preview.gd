@@ -13,7 +13,7 @@ extends Node2D
 
 const REST_LIFT := 6.0    # resting hover height above the cell (px)
 const DROP_LIFT := 16.0   # height the drop animation falls from
-const REST_ALPHA := 0.7   # a hovering preview is translucent, to read as not-yet-placed
+const REST_ALPHA := 1.0   # the hovering preview is solid (opaque); the lift + shadow read it as not-yet-placed
 const SHADOW := Color(0, 0, 0, 0.18) # contact shadow, so the lift reads
 
 var _tex: Texture2D        # armed material texture (null = nothing to preview)

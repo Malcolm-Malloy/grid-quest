@@ -431,6 +431,7 @@ func _update_hover() -> void:
 		_restore_faded()
 		return
 	_fade_obstacles_at(cell)
+	_cursor.set_erasing(_mode == Mode.ERASE) # green while adding terrain, red while erasing
 	if _mode == Mode.FINE:
 		var q := Vector2i(floori(local.x / HALF), floori(local.y / HALF))
 		var r := Rect2(q.x * HALF, q.y * HALF, HALF, HALF)
