@@ -153,10 +153,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		# left-click / left-drag paints with the active brush at the active scope
-		_painting = event.pressed
 		if event.pressed:
+			_painting = true
 			_paint(get_local_mouse_position())
 			get_viewport().set_input_as_handled()
+		elif _painting:
+			# stroke ended: the whole drag (or single click) is one undo step
+			_painting = false
+			EditHistory.commit("paint")
 	elif event is InputEventMouseMotion:
 		if _painting:
 			_paint(get_local_mouse_position())
@@ -171,6 +175,7 @@ func _on_menu_id(id: int) -> void:
 		_tool_kind = "wall"
 		_wall_color = WALL_COLORS[id - WALL_BASE_ID][1]
 		_paint(_pending)
+		EditHistory.commit("wall colour") # one menu paint = one undo step
 		_reset_highlight()
 		return
 	if id >= SCOPE_BASE_ID:
@@ -183,6 +188,7 @@ func _on_menu_id(id: int) -> void:
 	_tool_kind = "floor"
 	_brush = MENU[id][1]
 	_paint(_pending)
+	EditHistory.commit("paint") # one menu paint = one undo step
 	_reset_highlight()
 
 # hide every highlight so a fresh edit reads clearly; they return on the next mouse move

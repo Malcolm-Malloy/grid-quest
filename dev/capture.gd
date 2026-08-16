@@ -23,6 +23,20 @@ func _ready() -> void:
 	if load_name != "":
 		MapIO.load_map(load_name)
 
+	# GQ_RESIZE runs edge resizes on the loaded/default map before the grab, e.g.
+	# GQ_RESIZE="grow:left;grow:top;shrink:right" (semicolon-separated "op:edge" pairs).
+	# Lets the row/column edge editing be verified headlessly (no tool strip yet).
+	var resize := OS.get_environment("GQ_RESIZE")
+	if resize != "":
+		for op in resize.split(";", false):
+			var parts := op.split(":")
+			if parts.size() == 2:
+				if parts[0] == "grow":
+					MapEdit.grow(parts[1])
+				elif parts[0] == "shrink":
+					MapEdit.shrink(parts[1])
+		await get_tree().process_frame
+
 	var pos := OS.get_environment("GQ_POS")
 	if pos != "":
 		var parts := pos.split(",")
@@ -58,6 +72,19 @@ func _ready() -> void:
 		var fmg := main.get_node_or_null("World/FloorManager")
 		if fmg:
 			fmg.set_grid(true)
+
+	# GQ_EDGEBAND="edge:mode" previews the Map Size tool's band (edge top/bottom/left/right,
+	# mode add/remove) and frames the whole map, so the tool-strip highlight can be seen headlessly.
+	var band := OS.get_environment("GQ_EDGEBAND")
+	if band != "":
+		var bp := band.split(":")
+		if bp.size() == 2:
+			var eh := main.get_node_or_null("World/EdgeHighlight")
+			if eh:
+				eh.show_band(bp[0], bp[1])
+			var cam := main.get_node_or_null("Camera2D")
+			if cam and cam.has_method("fit_map"):
+				cam.fit_map()
 
 	# GQ_SAVE="name" writes the current level to user://maps/name.json (after the setup above)
 	var save_name := OS.get_environment("GQ_SAVE")

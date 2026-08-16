@@ -4,20 +4,51 @@ class_name GridBackground
 const CELL_SIZE := 32
 const FLOOR_TEX := 128 # floor textures are 128x128, tiled by world position
 
-# grid size (vars, not consts, so a loaded map can resize the grid)
-var grid_width := 20
-var grid_height := 14
+# grid size (vars, not consts, so a loaded map can resize the grid). This is the SINGLE
+# source of truth for map dimensions: map_io, floor_manager, and the player all read from
+# here rather than keeping their own copies. Default bumped to 48x32 (from 20x14) so real
+# levels can be laid out now (see ROADMAP "Map extent and edge editing").
+var grid_width := 48
+var grid_height := 32
 
 func set_grid_size(w: int, h: int) -> void:
 	grid_width = w
 	grid_height = h
 	queue_redraw()
 
+# Walkable bounds in world pixels, derived from the grid. The player clamps movement to
+# these so its range always matches the grid edge (beyond the grid is void, not walkable).
+func min_walkable_position() -> Vector2:
+	return Vector2(CELL_SIZE / 2.0, CELL_SIZE / 2.0)
+
+func max_walkable_position() -> Vector2:
+	return Vector2((grid_width - 1) * CELL_SIZE + CELL_SIZE / 2.0, (grid_height - 1) * CELL_SIZE + CELL_SIZE / 2.0)
+
 var ground_texture := preload("res://world/ground_grass.png")
+
+# Out-of-map void look: instead of a jarring pure-black cutoff, the area beyond the grid reads as
+# a field of INACTIVE cells (grey tiles, each with a subtle darker-grey "+"), so the edge says
+# "buildable void" rather than "hole" (ROADMAP "Beyond the edge"). Tiled on the cell grid and
+# clipped to the visible viewport so it always fills the screen without drawing the whole plane.
+const VOID_FILL := Color(0.16, 0.16, 0.18)   # dark neutral grey, softer than pure black
+const VOID_LINE := Color(0.0, 0.0, 0.0, 0.18) # faint cell separation so tiles read individually
+const VOID_PLUS := Color(0.24, 0.24, 0.27)   # subtle, slightly lighter "+" centred in each tile
+const VOID_PLUS_ARM := 4.0                    # half arm length in px (pre y-scale)
+const VOID_MAX_CELLS := 6000                  # safety cap so a far zoom-out can't draw forever
+
+var _last_view := Transform2D()
 
 func _ready() -> void:
 	texture_filter = TEXTURE_FILTER_NEAREST
+	texture_repeat = TEXTURE_REPEAT_ENABLED # so the ground tiles across grids bigger than the texture
 	queue_redraw()
+
+# redraw when the camera pans/zooms so the void tiles keep filling the visible area
+func _process(_delta: float) -> void:
+	var x := get_global_transform_with_canvas()
+	if x != _last_view:
+		_last_view = x
+		queue_redraw()
 
 # the source rect that makes a destination rect sample a 128x128 floor texture tiled by
 # world position, so neighbouring pieces line up into one continuous floor (shared by the
@@ -26,7 +57,14 @@ static func tiled_src(dst: Rect2) -> Rect2:
 	return Rect2(fposmod(dst.position.x, float(FLOOR_TEX)), fposmod(dst.position.y, float(FLOOR_TEX)), dst.size.x, dst.size.y)
 
 func _draw() -> void:
-	draw_texture(ground_texture, Vector2.ZERO)
+	# Beyond the grid: a field of inactive-cell tiles (see _draw_void), drawn first so the ground
+	# and floor fills paint over the in-grid part. This replaces the old pure-black cutoff.
+	_draw_void()
+	# Draw ground ONLY within the grid, tiled to fill it. Everything beyond the grid edge is the
+	# inactive-cell void above, so the map edge reads clearly. Previously the full ground texture
+	# was blitted at origin, overrunning the walkable area and hiding where the map ends.
+	var grid_px := Vector2(grid_width * CELL_SIZE, grid_height * CELL_SIZE)
+	draw_texture_rect(ground_texture, Rect2(Vector2.ZERO, grid_px), true)
 	# any room with a floor style fills its WHOLE area (interior cells + the room-facing
 	# wall/door quadrants) with that texture, so no grass shows between floor and walls.
 	# FloorManager supplies the [dst_rect, texture] pieces; they tile by world position.
@@ -42,3 +80,44 @@ func _draw() -> void:
 			draw_line(Vector2(x * CELL_SIZE, 0), Vector2(x * CELL_SIZE, grid_height * CELL_SIZE), color, 1.0, true)
 		for y in range(grid_height + 1):
 			draw_line(Vector2(0, y * CELL_SIZE), Vector2(grid_width * CELL_SIZE, y * CELL_SIZE), color, 1.0, true)
+
+# fill the on-screen void (outside the grid) with inactive-cell tiles: a grey square + faint
+# border + a subtle darker "+" per cell. Clipped to the visible viewport so it never draws the
+# whole infinite plane; the ground drawn afterwards covers the in-grid cells.
+func _draw_void() -> void:
+	var vis := _visible_local_rect()
+	if vis.size.x <= 0 or vis.size.y <= 0:
+		return
+	# widen to whole cells so tiles align to the grid
+	var cx0 := floori(vis.position.x / CELL_SIZE)
+	var cy0 := floori(vis.position.y / CELL_SIZE)
+	var cx1 := ceili((vis.position.x + vis.size.x) / CELL_SIZE)
+	var cy1 := ceili((vis.position.y + vis.size.y) / CELL_SIZE)
+	if (cx1 - cx0) * (cy1 - cy0) > VOID_MAX_CELLS:
+		return # zoomed out past the cap: skip rather than stall (rare, edit-time only)
+	var ys := scale.y if scale.y != 0.0 else 1.0
+	var vy := VOID_PLUS_ARM / ys # counter World's y-scale so the "+" reads square
+	for cy in range(cy0, cy1):
+		for cx in range(cx0, cx1):
+			if cx >= 0 and cx < grid_width and cy >= 0 and cy < grid_height:
+				continue # inside the map; the ground covers this cell
+			var o := Vector2(cx * CELL_SIZE, cy * CELL_SIZE)
+			var r := Rect2(o, Vector2(CELL_SIZE, CELL_SIZE))
+			draw_rect(r, VOID_FILL, true)
+			draw_rect(r, VOID_LINE, false, 1.0)
+			var c := o + Vector2(CELL_SIZE / 2.0, CELL_SIZE / 2.0)
+			draw_line(c - Vector2(VOID_PLUS_ARM, 0), c + Vector2(VOID_PLUS_ARM, 0), VOID_PLUS, 1.0)
+			draw_line(c - Vector2(0, vy), c + Vector2(0, vy), VOID_PLUS, 1.0)
+
+# the on-screen viewport mapped back into this node's local space (World is scaled/zoomed, so map
+# all four screen corners and take their bounds; no rotation is involved).
+func _visible_local_rect() -> Rect2:
+	var inv := get_global_transform_with_canvas().affine_inverse()
+	var s := get_viewport_rect().size
+	var a := inv * Vector2(0, 0)
+	var b := inv * Vector2(s.x, 0)
+	var c := inv * Vector2(0, s.y)
+	var d := inv * s
+	var mn := Vector2(min(a.x, b.x, c.x, d.x), min(a.y, b.y, c.y, d.y))
+	var mx := Vector2(max(a.x, b.x, c.x, d.x), max(a.y, b.y, c.y, d.y))
+	return Rect2(mn, mx - mn)
