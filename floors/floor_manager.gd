@@ -10,8 +10,10 @@ extends Node2D
 # Erase, see the Mode enum below); the right-click popup is purely contextual, listing floor
 # MATERIALS, wall COLOURS and the Grid toggle. Picking a material/colour applies it to the target.
 #   - Cell Selector / Fine Details paint the ground at cell / quarter grain on click and drag; Erase
-#     writes grass over the cell. Any in-bounds cell is paintable, walls included; while the cursor
-#     is over a wall/door, that obstacle fades to 30% so the ground under it stays visible.
+#     removes topmost-first: a click first deletes the wall/door on the cell (the structure layer),
+#     and only once no structure remains does a further click write grass over the terrain. Any
+#     in-bounds cell is paintable, walls included; while the cursor is over a wall/door, that
+#     obstacle fades to 30% so the ground under it stays visible.
 #   - Magic Wand builds a click-to-grow selection (floor patch -> whole room; wall run -> building);
 #     the marching-ants overlay draws it, and picking a material/colour then fills the whole
 #     selection. With no selection, a floor material fills the clicked room and a wall colour the
@@ -37,7 +39,8 @@ const GRID_COLOR := Color(0.38, 0.64, 0.95, 0.4)
 #           then pick a material/colour from the right-click menu to fill the whole selection.
 #   CELL  - Cell Selector: paint one 32px cell.
 #   FINE  - Fine Details: paint one 16px quarter.
-#   ERASE - erase the floor material of the cell under the cursor back to grass.
+#   ERASE - remove topmost-first: click deletes the wall/door on the cell (structure layer) first,
+#           then a further click erases the floor material of the cell back to grass.
 # Cell/Fine/Erase paint directly on click/drag; Wand builds a selection the menu then fills. See
 # ROADMAP "Authoring surface" (mode rename) and "Applying edits to a selection".
 enum Mode { WAND, CELL, FINE, ERASE }
@@ -194,6 +197,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		# Cell / Fine / Erase: left-click and left-drag paint
 		if event.pressed:
+			# Erase removes the topmost structure (wall/door) first, as a single click; only once
+			# no structure remains does a further click erase the terrain beneath it (cell-occupancy
+			# model, ROADMAP "Erase mode"). Structure removal consumes the click (no paint drag).
+			if _mode == Mode.ERASE and _erase_structure_at(get_local_mouse_position()):
+				get_viewport().set_input_as_handled()
+				return
 			_painting = true
 			_paint(get_local_mouse_position(), true) # fresh click: play the drop animation
 			get_viewport().set_input_as_handled()
@@ -540,6 +549,25 @@ func _paint_wall(cell: Vector2i) -> void:
 		return
 	obs.set_wall_color(cell, _wall_color)
 
+# Erase mode: remove the wall or door on the clicked cell (the structure layer, topmost after any
+# object). Rebuilds the level through the same MapIO path load/resize use, so lighting, floors and
+# shadows recompute consistently after a wall opens a room up. Returns true if a structure was
+# removed, so the caller leaves the terrain for a follow-up click and skips the paint drag. One
+# click = one removal = one undo entry (ROADMAP "Erase mode").
+func _erase_structure_at(local: Vector2) -> bool:
+	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	if not _in_bounds(cell):
+		return false
+	var obs = get_node_or_null("../Obstacles")
+	if obs == null or obs.remove_structure(cell) == "":
+		return false
+	_restore_faded() # the erased wall/door was dimmed under the cursor; drop the stale node ref
+	MapIO.apply_serialized(MapIO.serialize(), true) # rebuild nodes + lighting + floors + shadows
+	EditHistory.commit("erase")
+	_reset_highlight()
+	call_deferred("_update_hover") # re-detect the hover now the structure is gone
+	return true
+
 # set one quarter's material ("" erases it back to grass). Returns whether anything changed,
 # so a drag that stays inside the same quarter doesn't trigger a redundant rebuild.
 func _write_quad(q: Vector2i, mat: String) -> bool:
@@ -564,23 +592,28 @@ func _fade_obstacles_at(cell: Vector2i) -> void:
 		return # already dimmed for this cell
 	_restore_faded()
 	_faded_cell = cell
+	# skip nodes already queued for deletion: an Erase rebuild frees the old wall/gate nodes but
+	# they linger in their group for the rest of the frame, and fading one would leave a freed
+	# reference in _faded that _restore_faded would later touch (use-after-free).
 	for w in get_tree().get_nodes_in_group("walls"):
-		if w.has_method("covers_cell") and w.covers_cell(cell):
+		if not w.is_queued_for_deletion() and w.has_method("covers_cell") and w.covers_cell(cell):
 			_fade(w)
 	for g in get_tree().get_nodes_in_group("gates"):
-		if g.cell == cell:
+		if not g.is_queued_for_deletion() and g.cell == cell:
 			_fade(g)
-			if g.back_layer:
+			if g.back_layer and not g.back_layer.is_queued_for_deletion():
 				_fade(g.back_layer) # vertical gate's behind-player post + door
 
 func _fade(node: CanvasItem) -> void:
 	_faded.append([node, node.modulate])
 	node.modulate.a = 0.3
 
-# put every dimmed obstacle back to full opacity
+# put every dimmed obstacle back to full opacity. Guards is_instance_valid because an Erase rebuild
+# can free a faded wall/gate between fading and restoring, and touching a freed node throws.
 func _restore_faded() -> void:
 	for e in _faded:
-		e[0].modulate = e[1]
+		if is_instance_valid(e[0]):
+			e[0].modulate = e[1]
 	_faded.clear()
 	_faded_cell = Vector2i(-9999, -9999)
 

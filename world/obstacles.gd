@@ -221,6 +221,32 @@ func make_segment(cell: Vector2i, run_length: int) -> Node2D:
 func is_blocked(cell: Vector2i) -> bool:
 	return blocked_cells.has(cell)
 
+# --- structure removal (Erase tool) ---
+
+# is there a wall OR a door on this cell? (the structure layer of the cell-occupancy model)
+func has_structure(cell: Vector2i) -> bool:
+	if blocked_cells.has(cell):
+		return true
+	for g in gate_cells:
+		if g["cell"] == cell:
+			return true
+	return false
+
+# remove the wall or door occupying `cell` (a cell holds at most one of each per the occupancy
+# model, and a wall and door never share a cell). Returns "wall", "door", or "" if nothing was
+# there. ONLY mutates the source-of-truth arrays; the caller re-applies the map through MapIO so
+# the wall/gate nodes, lighting, floors and shadows all rebuild consistently in one pass.
+func remove_structure(cell: Vector2i) -> String:
+	if blocked_cells.has(cell):
+		blocked_cells.erase(cell)
+		wall_colors.erase(cell) # drop any tint stored for the gone wall
+		return "wall"
+	for i in gate_cells.size():
+		if gate_cells[i]["cell"] == cell:
+			gate_cells.remove_at(i)
+			return "door"
+	return ""
+
 # --- wall colouring (per-cell tint over the stone) ---
 
 func get_wall_color(cell: Vector2i) -> Color:

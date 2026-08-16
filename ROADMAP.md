@@ -1577,6 +1577,29 @@ Cell Selector / Fine Details; its hover highlight is **red**.
   and predictable, click-again to keep clearing. The stacking order comes from the cell-occupancy
   model below. Each removal is one undo entry.
 
+#### As built: structure erase (walls + doors, 2026-08-16)
+The structure layer of the Erase tool is built. Objects (monsters, items) are not placeable in the
+editor yet, so the object layer is deferred until they are; the built behaviour is structure then
+terrain, ready to gain the object step on top without changing this code.
+- **`world/obstacles.gd`:** added `has_structure(cell)` (wall OR door on the cell) and
+  `remove_structure(cell) -> "wall"/"door"/""`. It removes the wall from `blocked_cells` (dropping
+  any stored `wall_colors` tint) or the door from `gate_cells`, and ONLY mutates the source-of-truth
+  arrays. A cell holds at most one structure (wall XOR door), matching the occupancy model.
+- **`floors/floor_manager.gd`:** on a left click in ERASE mode, `_erase_structure_at(local)` runs
+  first. If a structure is on the cell it removes it, re-applies the whole map through
+  `MapIO.apply_serialized(MapIO.serialize(), true)` (the proven load/resize rebuild path, so wall/gate
+  nodes, lighting, floors and shadows all recompute after a wall opens a room), commits one undo
+  entry, and consumes the click (no paint drag). If no structure is present the click falls through to
+  the existing terrain erase, so a second click on the now-bare cell writes grass. This is the
+  topmost-first order (structure, then terrain) with one click = one removal = one undo step.
+- **Verified** headless by `dev/test_erase.gd` / `.tscn` (18 checks, text-only): wall removal, door
+  removal, "erase again finds nothing" (topmost-first), undo/redo restoring the structure through the
+  rebuild path, plain-floor cell removes nothing, and the `remove_structure` return values.
+  `dev/test_undo.gd` and `dev/test_resize.gd` still pass (no regression).
+- **Not done here (later Phase A items):** the object layer (needs monster/item placement first), and
+  the red wall/door hover *outline* for erase (part of the Coloured highlight palette item); today the
+  Erase hover still shows the red square cell cursor with the structure dimmed under it.
+
 ### Cell occupancy model (decided 2026-08-16)
 Defines what can share one cell, and therefore placement rules and the erase order. **Three layers,
 at most one of each per cell:**
@@ -1822,6 +1845,39 @@ based on its Domestication level**:
   deferred; the principle is "reaction scales with domestication."
 - Consistent with the 08-14 rule that absorb sets the beast free and the self-power starts at
   level 1.
+
+### Power orbs (absorbed powers become orbs, logged 2026-08-16)
+Refines how absorbed powers are represented in the inventory. When the player absorbs a beast's
+power, that power **is turned into a Power orb** (e.g. **frost orb**, **builder orb**).
+- **Dedicated orb slots.** Power orbs occupy a **special, dedicated orb slot** in the player's
+  inventory, separate from regular item slots.
+- **Orbs are combat OR utility (decided 2026-08-16).** Not just elemental combat powers. A
+  **frost orb** is combat/elemental, but a **builder orb** is a **utility power that unlocks or
+  boosts the base building** (the Minecraft-style Base building on the Block of land, same system
+  as the level editor). This means the 3 active slots are a real playstyle choice between combat
+  power and utility/building power, and orbs are a second lever (alongside gathered resources) on
+  what building the player can do in play mode. Confirm at build how a builder orb interacts with
+  the resource gating already noted under Base building (does it unlock tools, cheapen resource
+  costs, or extend what can be placed).
+- **Collection + 3 active (decided 2026-08-16).** Orbs are a **growing collection**, but only
+  **3 are active/equipped at a time** in the dedicated slots (this is the "Absorbed-ability slots:
+  3 to start, expandable later" capacity made concrete). Absorbing does not overwrite; the extras
+  are kept.
+- **Spares stored at home (decided 2026-08-16, mechanism TBD).** Orbs not in the 3 active slots
+  are **left at home** somehow (exact storage still being figured out). The intended tension: the
+  player must **decide what powers to take with them** before leaving, rather than carrying
+  everything. Ties to the Base building / Block of land as the likely home-storage location.
+- **Switching friction (wanted, mechanism TBD).** The user wants **something that gates switching
+  between stored orbs and the active slots**, so players can't swap constantly (e.g. only at home,
+  a cost, or a cooldown). Exact rule undecided.
+- **Orb carries the level (decided 2026-08-16).** The power's level lives **on the orb** itself
+  (starts at level 1 per the 08-14 absorb rule, levels up materia-style). Implication to confirm:
+  an orb only progresses while it is in an active slot, so spares stored at home **do not level**
+  until equipped, which reinforces the "choose what to take" tension.
+- Ties the absorb-vs-domesticate fork to a tangible collectible: the sacrifice of a companion
+  yields an orb the player can see, slot, and level up (materia-style, per Magic and progression).
+- Open questions (deferred): the home-storage mechanism, the exact switching-friction rule,
+  and whether orbs are tradeable/droppable.
 
 ## Karma / morality system (Fable-style, logged 2026-08-15)
 A **Fable-style morality system** that changes how the game plays and how NPCs react: positive,
@@ -2071,6 +2127,13 @@ fresh `/clear` session.
 - **Honest expectation:** AI gets ~60-80% on textures and concepts, less on animated character
   sprites (consistency across frames/orientations is the hard part). It is a starting point, not a
   finished pipeline; budget hand-cleanup time.
+
+## Localisation (future feature, logged 2026-08-16)
+Support **localisation / translation** of the game's text into multiple languages. Distant future,
+logged so it is not lost. No design owed yet; when tackled, all player-facing strings (UI, menus,
+tooltips, item/creature names, dialogue) need to route through a translation layer (Godot has
+built-in `tr()` / translation-file support), so authoring strings translation-ready from the start
+is the cheap habit to keep in mind.
 
 ## Inspirations (reference list, logged 2026-08-15)
 The user's stated touchstones, per system, to steer design/art decisions:
