@@ -160,9 +160,16 @@ func _ready() -> void:
 		MapIO.save_map(save_name)
 		print("GQ_SAVE wrote: ", JSON.stringify(MapIO.serialize()))
 
+	# GQ_PLAY=1 switches to PLAY mode (the game default is EDIT now, see EditorMode): the player
+	# moves and doors react to proximity, and the editor UI hides. Editor-visual shots leave it unset.
+	# GQ_HOLD implies PLAY, since a frozen EDIT-mode player can't walk.
+	var hold := OS.get_environment("GQ_HOLD")
+	if OS.get_environment("GQ_PLAY") == "1" or hold != "":
+		EditorMode.set_mode(EditorMode.Mode.PLAY)
+		await get_tree().process_frame # let consumers react (camera follow, gate logic, UI hide)
+
 	# GQ_HOLD presses a movement action (e.g. "ui_down") so the player actually walks,
 	# which is needed to reproduce transitions that only happen while moving.
-	var hold := OS.get_environment("GQ_HOLD")
 	if hold != "":
 		Input.action_press(hold)
 

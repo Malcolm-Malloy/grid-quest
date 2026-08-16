@@ -85,6 +85,25 @@ The many editor decisions logged 2026-08-16 group into a coherent Phase A. Rough
    **free editor camera** (pan clamped to map+margin, wheel zoom), **undo/redo** (deep-but-capped,
    one-entry-per-gesture), and the **left tool strip** (grouped: Select / Paint / Objects / Edit).
    Every tool below records undo as it is added.
+
+**As-built (2026-08-16): Play/Edit toggle (foundation, done).** Built to unblock door open/swing
+authoring, which was inert because the player's proximity logic overwrites door state every frame.
+- **`EditorMode` autoload** (`systems/editor_mode.gd`, registered in project.godot): a single global
+  `mode` (enum EDIT / PLAY), `is_edit()` / `is_play()`, `set_mode()`, `toggle()`, and a `changed`
+  signal. **EDIT is the default** (editor-first): the map is static so it can be authored.
+- **Consumers.** `player.gd`: `_physics_process` returns immediately in EDIT (no movement input, no
+  `update_gate_state`), and on entering EDIT it halts any step and closes every gate, so the frozen
+  map reads cleanly. `camera_follow.gd`: PLAY forces follow-the-player and ignores the editor pan/zoom
+  inputs; EDIT restores the free editor camera. `tool_strip.gd`: visible only in EDIT.
+- **Toggle control.** A persistent top-right button (`ui/mode_toggle.gd`, its own CanvasLayer in
+  main.tscn, visible in BOTH modes) labelled by the ACTION it performs ("▶ Play" in EDIT, "■ Edit" in
+  PLAY); **Tab** toggles from anywhere.
+- **Capture harness.** The game default is now EDIT, so `dev/capture.gd` gained `GQ_PLAY=1` (and
+  `GQ_HOLD` implies PLAY) to render/verify gameplay behaviour; editor-visual shots stay in EDIT.
+- **Unblocks next:** door open/closed + swing authoring can now store an authored default that EDIT
+  honours (the proximity logic only runs in PLAY), surfaced through the properties inspector.
+- Verified headlessly: EDIT shows the tool strip + "▶ Play" with a static/closed door by the frozen
+  player; PLAY hides the strip, shows "■ Edit", and the door opens/swings as the player stands in it.
 2. **Make the map readable and sizable:** show the **map edge** (void/black), **remove unwalkable
    ground**, bump default to **48x32** (unify the duplicated grid dims), then **edge-cell add/remove**
    (delete-contents-with-cell, copy-neighbour fill, green highlight).
