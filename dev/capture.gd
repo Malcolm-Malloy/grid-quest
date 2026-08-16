@@ -128,6 +128,32 @@ func _ready() -> void:
 					+ get_viewport().get_visible_rect().size / 2.0
 				Input.warp_mouse(screen)
 
+	# GQ_STRUCT drives the Wall/Door placement tools headlessly (the tool strip can't click here):
+	# "wall:x,y;door:x,y;..." places a wall or door on each cell in order, through the real
+	# _place_wall_at/_place_door_at paths (mode set + world-pixel click), so lighting/shadow rebuilds
+	# are exercised. A door auto-orients to its wall run. Frames the whole map unless GQ_STRUCT_NOFIT=1.
+	var struct := OS.get_environment("GQ_STRUCT")
+	if struct != "":
+		var fms := main.get_node_or_null("World/FloorManager")
+		if fms:
+			for op in struct.split(";", false):
+				var sp := op.split(":")
+				if sp.size() == 2:
+					var xy := sp[1].split(",")
+					if xy.size() == 2:
+						var wc := Vector2(int(xy[0]) * 32 + 16, int(xy[1]) * 32 + 16)
+						if sp[0] == "wall":
+							fms.set_mode(4) # Mode.WALL
+							fms._place_wall_at(wc)
+						elif sp[0] == "door":
+							fms.set_mode(5) # Mode.DOOR
+							fms._place_door_at(wc)
+			await get_tree().process_frame
+			if OS.get_environment("GQ_STRUCT_NOFIT") != "1":
+				var cams := main.get_node_or_null("Camera2D")
+				if cams and cams.has_method("fit_map"):
+					cams.fit_map()
+
 	# GQ_SAVE="name" writes the current level to user://maps/name.json (after the setup above)
 	var save_name := OS.get_environment("GQ_SAVE")
 	if save_name != "":

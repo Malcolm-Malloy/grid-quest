@@ -8,15 +8,18 @@ extends CanvasLayer
 
 const EDGES := ["top", "bottom", "left", "right"]
 
-# authoring modes, mirrored from FloorManager.Mode (WAND, CELL, FINE, ERASE). The strip owns mode
-# selection now (it moved off the right-click popup); each has a single-key shortcut. F is Fine
-# Details, so camera recenter dropped F and keeps Home (see camera_follow.gd).
-enum { M_WAND, M_CELL, M_FINE, M_ERASE }
+# authoring modes, mirrored from FloorManager.Mode (WAND, CELL, FINE, ERASE, WALL, DOOR); the M_*
+# order MUST match that enum since set_mode receives the raw index. The strip owns mode selection now
+# (it moved off the right-click popup); each has a single-key shortcut. F is Fine Details, so camera
+# recenter dropped F and keeps Home (see camera_follow.gd).
+enum { M_WAND, M_CELL, M_FINE, M_ERASE, M_WALL, M_DOOR }
 const MODES := [
 	["Magic Wand (W)", M_WAND, KEY_W],
 	["Cell Selector (C)", M_CELL, KEY_C],
 	["Fine Details (F)", M_FINE, KEY_F],
 	["Erase (E)", M_ERASE, KEY_E],
+	["Wall (L)", M_WALL, KEY_L],
+	["Door (D)", M_DOOR, KEY_D],
 ]
 var _mode_buttons := {} # mode int -> Button, so a keyboard shortcut can light the right radio
 
