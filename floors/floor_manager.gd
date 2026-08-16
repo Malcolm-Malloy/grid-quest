@@ -120,13 +120,15 @@ func _ready() -> void:
 	# Floor materials and wall colours sit in submenus so the top menu stays short (a flat list
 	# of all of them plus scopes overflowed the screen). Submenu items share _on_menu_id since
 	# every id is namespaced (floor 0-4, walls 300+, scopes 200+, grid 100).
+	# The two section submenus are built once as children of _menu. The TOP-LEVEL items are (re)built
+	# per right-click in _apply_menu_context so only the section for the clicked target shows (Godot's
+	# PopupMenu has no set_item_hidden, so contextual = rebuild the top level). See ROADMAP item 4.
 	var floor_sub := PopupMenu.new()
 	floor_sub.name = "floor_sub"
 	for i in MENU.size():
 		floor_sub.add_item(MENU[i][0], i)
 	floor_sub.id_pressed.connect(_on_menu_id)
 	_menu.add_child(floor_sub)
-	_menu.add_submenu_item("Floor", "floor_sub")
 
 	var wall_sub := PopupMenu.new()
 	wall_sub.name = "wall_sub"
@@ -134,12 +136,7 @@ func _ready() -> void:
 		wall_sub.add_item(WALL_COLORS[i][0], WALL_BASE_ID + i)
 	wall_sub.id_pressed.connect(_on_menu_id)
 	_menu.add_child(wall_sub)
-	_menu.add_submenu_item("Wall Colour", "wall_sub")
 
-	# mode selection lives on the tool strip now, so the popup is purely contextual: materials,
-	# wall colours and the grid toggle. It fills the active selection when one exists.
-	_menu.add_separator()
-	_menu.add_check_item("Grid", GRID_ID)
 	_menu.id_pressed.connect(_on_menu_id)
 	add_child(_menu)
 	# the Cell/Fine square paint cursor; Wand uses the mask preview + selection overlay instead
@@ -185,11 +182,13 @@ func _process(_delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 		var local := get_local_mouse_position()
-		if not _in_bounds(Vector2i(floori(local.x / CELL), floori(local.y / CELL))):
+		var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+		if not _in_bounds(cell):
 			return # right-clicked off the map
 		_pending = local
-		_menu.set_item_checked(_menu.get_item_index(GRID_ID), _grid_on)
+		_apply_menu_context(cell) # rebuilds the top level for the clicked target + sets Grid's check
 		_menu.position = Vector2i(get_viewport().get_mouse_position())
+		_menu.reset_size() # re-fit after the rebuild so the popup isn't sized for a stale menu
 		_menu.popup()
 		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
@@ -257,6 +256,23 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		call_deferred("_update_hover")
 		get_viewport().set_input_as_handled()
 
+# contextual right-click menu: rebuild the top level so ONLY the section for what was clicked shows.
+# A wall/door cell (the structure layer) gets the Wall Colour submenu; any other cell is floor, so
+# gets Floor Textures (descriptive heading, kept distinct from the future "Floor Colours" tint). The
+# Grid toggle is a tool setting and stays regardless. PopupMenu has no set_item_hidden in Godot 4, so
+# contextual visibility = clear + re-add the relevant items each right-click.
+func _apply_menu_context(cell: Vector2i) -> void:
+	var obs = get_node_or_null("../Obstacles")
+	var on_structure: bool = obs != null and obs.has_structure(cell)
+	_menu.clear()
+	if on_structure:
+		_menu.add_submenu_item("Wall Colour", "wall_sub")
+	else:
+		_menu.add_submenu_item("Floor Textures", "floor_sub")
+	_menu.add_separator()
+	_menu.add_check_item("Grid", GRID_ID)
+	_menu.set_item_checked(_menu.get_item_index(GRID_ID), _grid_on)
+
 func _on_menu_id(id: int) -> void:
 	if id == GRID_ID:
 		set_grid(not _grid_on)
@@ -267,16 +283,22 @@ func _on_menu_id(id: int) -> void:
 		# under the click (the whole building in Wand mode, a single segment in Cell/Fine).
 		_tool_kind = "wall"
 		_wall_color = WALL_COLORS[id - WALL_BASE_ID][1]
+		var did_edit := false
 		if _sel_kind == "wall" and _selection.has_selection():
 			_fill_wall_selection(_wall_color)
+			did_edit = true
 		else:
 			var obs = get_node_or_null("../Obstacles")
+			# is_blocked (a real wall), not has_structure: doors keep their own independent colour
+			# (unbuilt), so the wall tint only applies to walls. On a door this is a no-op.
 			if obs != null and obs.is_blocked(cell):
 				if _mode == Mode.WAND:
 					obs.color_building(cell, _wall_color)
 				else:
 					obs.set_wall_color(cell, _wall_color)
-		EditHistory.commit("wall colour") # one menu paint = one undo step
+				did_edit = true
+		if did_edit:
+			EditHistory.commit("wall colour") # one menu paint = one undo step
 		_reset_highlight()
 		return
 	# a floor material. Fill the active floor selection if one exists; otherwise, in Wand mode fill
