@@ -20,11 +20,28 @@ const MARGIN := 160.0 # global px of slack beyond the map edge, so the add-band 
 var mode: int = Mode.FOLLOW
 var _panning := false
 
+func _ready() -> void:
+	EditorMode.changed.connect(_on_mode_changed)
+
+# PLAY always follows the player; EDIT drops into the free editor camera framed on the player.
+func _on_mode_changed(_m: int) -> void:
+	if EditorMode.is_play():
+		recenter_on_player() # snaps to the player and sets Mode.FOLLOW
+	else:
+		mode = Mode.FREE
+
 func _process(_delta: float) -> void:
+	# PLAY forces follow regardless of the FOLLOW/FREE sub-state (the editor pan/zoom is inert in play)
+	if EditorMode.is_play():
+		if target:
+			global_position = target.global_position
+		return
 	if mode == Mode.FOLLOW and target:
 		global_position = target.global_position
 
 func _unhandled_input(event: InputEvent) -> void:
+	if EditorMode.is_play():
+		return # the free editor camera (pan/zoom/recenter) is edit-only
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_MIDDLE:
 			_panning = event.pressed

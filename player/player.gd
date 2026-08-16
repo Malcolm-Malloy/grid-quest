@@ -46,6 +46,18 @@ func _ready() -> void:
 	sprite.visibility_layer |= FloorHighlightMask.MASK_BIT
 	shadow_sprite.visibility_layer |= FloorHighlightMask.MASK_BIT
 	update_sprite()
+	EditorMode.changed.connect(_on_mode_changed)
+
+# entering EDIT halts any in-progress step and returns every door to its static state (closed for
+# now; the authored default once door-state authoring lands), so the frozen map reads cleanly and no
+# door is stuck open from a play session. Leaving EDIT needs nothing: the play loop takes over.
+func _on_mode_changed(_mode: int) -> void:
+	if EditorMode.is_edit():
+		is_moving = false
+		target_position = position
+		for gate in get_tree().get_nodes_in_group("gates"):
+			gate.set_open(false)
+			gate.set_player_here(false)
 
 # shared base points used by both shadow shapes below
 const SPRITE_TOP := -18.0
@@ -116,6 +128,11 @@ func _update_shadow_scale() -> void:
 		update_shadow_shape()
 
 func _physics_process(delta: float) -> void:
+	# EDIT mode freezes the player: no movement input and no gate proximity logic, so the map stays
+	# static for authoring and doors keep their authored/spawned state instead of reacting (see
+	# EditorMode). PLAY mode runs the full loop below.
+	if EditorMode.is_edit():
+		return
 	if is_moving:
 		position = position.move_toward(target_position, CELL_SIZE * MOVE_SPEED * delta)
 		if position.is_equal_approx(target_position):
