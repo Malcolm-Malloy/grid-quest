@@ -154,6 +154,19 @@ func _ready() -> void:
 				if cams and cams.has_method("fit_map"):
 					cams.fit_map()
 
+	# GQ_DOORSTATE="x,y,open,swing;..." sets a door's AUTHORED open/swing (0/1) via the same obstacles
+	# edit methods the properties inspector uses, so persistence + EDIT-mode rendering can be verified.
+	var dstate := OS.get_environment("GQ_DOORSTATE")
+	if dstate != "":
+		var obsd := main.get_node_or_null("World/Obstacles")
+		if obsd:
+			for op in dstate.split(";", false):
+				var f := op.split(",")
+				if f.size() == 4:
+					var dc := Vector2i(int(f[0]), int(f[1]))
+					obsd.set_door_open(dc, f[2] == "1")
+					obsd.set_door_swing(dc, f[3] == "1")
+
 	# GQ_SAVE="name" writes the current level to user://maps/name.json (after the setup above)
 	var save_name := OS.get_environment("GQ_SAVE")
 	if save_name != "":
