@@ -48,16 +48,16 @@ func _ready() -> void:
 	update_sprite()
 	EditorMode.changed.connect(_on_mode_changed)
 
-# entering EDIT halts any in-progress step and returns every door to its static state (closed for
-# now; the authored default once door-state authoring lands), so the frozen map reads cleanly and no
-# door is stuck open from a play session. Leaving EDIT needs nothing: the play loop takes over.
+# entering EDIT halts any in-progress step and returns every door to its AUTHORED default (open/closed
+# + swing), so the frozen map shows what the author set and no door is stuck in a play-driven state.
+# Leaving EDIT needs nothing: the play loop takes over.
 func _on_mode_changed(_mode: int) -> void:
 	if EditorMode.is_edit():
 		is_moving = false
 		target_position = position
 		for gate in get_tree().get_nodes_in_group("gates"):
-			gate.set_open(false)
 			gate.set_player_here(false)
+			gate.reset_to_authored()
 
 # shared base points used by both shadow shapes below
 const SPRITE_TOP := -18.0

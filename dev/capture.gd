@@ -154,6 +154,30 @@ func _ready() -> void:
 				if cams and cams.has_method("fit_map"):
 					cams.fit_map()
 
+	# GQ_DOORSTATE="x,y,open,swing;..." sets a door's AUTHORED open/swing (0/1) via the same obstacles
+	# edit methods the properties inspector uses, so persistence + EDIT-mode rendering can be verified.
+	var dstate := OS.get_environment("GQ_DOORSTATE")
+	if dstate != "":
+		var obsd := main.get_node_or_null("World/Obstacles")
+		if obsd:
+			for op in dstate.split(";", false):
+				var f := op.split(",")
+				if f.size() == 4:
+					var dc := Vector2i(int(f[0]), int(f[1]))
+					obsd.set_door_open(dc, f[2] == "1")
+					obsd.set_door_swing(dc, f[3] == "1")
+
+	# GQ_SELECT="x,y" drives the Select tool at a cell so the properties inspector shows that object
+	# (door or wall), for verifying the inspector headlessly (the tool strip can't be clicked here).
+	var sel := OS.get_environment("GQ_SELECT")
+	if sel != "":
+		var sp := sel.split(",")
+		if sp.size() == 2:
+			var fmsel := main.get_node_or_null("World/FloorManager")
+			if fmsel:
+				fmsel.set_mode(6) # Mode.SELECT
+				fmsel._select_at(Vector2(int(sp[0]) * 32 + 16, int(sp[1]) * 32 + 16))
+
 	# GQ_SAVE="name" writes the current level to user://maps/name.json (after the setup above)
 	var save_name := OS.get_environment("GQ_SAVE")
 	if save_name != "":
