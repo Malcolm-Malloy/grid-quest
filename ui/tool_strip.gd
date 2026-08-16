@@ -24,6 +24,10 @@ const MODES := [
 var _mode_buttons := {} # mode int -> Button, so a keyboard shortcut can light the right radio
 
 func _ready() -> void:
+	# the tool strip is editor-only chrome: show it in EDIT, hide it in PLAY (see EditorMode)
+	visible = EditorMode.is_edit()
+	EditorMode.changed.connect(func(_m): visible = EditorMode.is_edit())
+
 	var panel := PanelContainer.new()
 	panel.position = Vector2(8, 8)
 	add_child(panel)

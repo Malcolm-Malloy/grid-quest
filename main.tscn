@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="PackedScene" path="res://player/player.tscn" id="1"]
 [ext_resource type="Script" path="res://world/grid_background.gd" id="2"]
@@ -12,6 +12,7 @@
 [ext_resource type="Script" path="res://world/edge_highlight.gd" id="10"]
 [ext_resource type="Script" path="res://ui/tool_strip.gd" id="11"]
 [ext_resource type="Script" path="res://world/map_size_tool.gd" id="12"]
+[ext_resource type="Script" path="res://ui/mode_toggle.gd" id="13"]
 
 [node name="Main" type="Node2D"]
 
@@ -59,3 +60,6 @@ script = ExtResource("9")
 
 [node name="ToolStrip" type="CanvasLayer" parent="."]
 script = ExtResource("11")
+
+[node name="ModeToggle" type="CanvasLayer" parent="."]
+script = ExtResource("13")
