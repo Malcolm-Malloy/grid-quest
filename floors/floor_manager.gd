@@ -81,7 +81,9 @@ var _wall_color := Color.WHITE # active wall colour tint (white = natural / rese
 var _mode: Mode = Mode.WAND  # active authoring mode (set by the tool strip)
 var _painting := false       # true while the left button is held, for drag painting
 var _cursor: Node2D          # the Cell/Fine square paint cursor (see paint_cursor.gd)
+var _preview: Node2D         # the lifted terrain drop-preview sprite (see terrain_preview.gd)
 var _selection: Node2D       # marching-ants selection overlay (see selection_overlay.gd)
+var _mouse_inside := true    # false while the OS cursor is off the game window; hides all highlights
 # Magic Wand selection state, so a repeat click on the same selection grows its scope:
 var _sel_kind := ""          # "" none, "floor" (quarters) or "wall" (cells)
 var _sel_quads := {}         # floor selection: quarter Vector2i (16px grid) -> true
@@ -136,6 +138,15 @@ func _ready() -> void:
 	_cursor.set_script(load("res://floors/paint_cursor.gd"))
 	_cursor.z_index = 1000
 	add_child(_cursor)
+	# the lifted terrain drop-preview sprite (Cell/Fine placement): armed material floats over the
+	# hovered cell and falls in on click. Above the cursor so it reads as lifted over the highlight.
+	_preview = Node2D.new()
+	_preview.set_script(load("res://floors/terrain_preview.gd"))
+	add_child(_preview)
+	# when the cursor leaves the game window, drop every highlight (ROADMAP "Terrain placement UX":
+	# cursor off screen clears all highlights); restore tracking when it returns
+	get_window().mouse_exited.connect(_on_window_mouse_exited)
+	get_window().mouse_entered.connect(_on_window_mouse_entered)
 	# the marching-ants selection overlay the Magic Wand builds and the menu fills
 	_selection = Node2D.new()
 	_selection.set_script(load("res://floors/selection_overlay.gd"))
@@ -145,6 +156,16 @@ func _ready() -> void:
 
 func _seed() -> void:
 	set_room_style(Vector2i(8, 9), "wood")
+
+# cursor left / re-entered the game window: clear every highlight while it is away so nothing
+# lingers under an absent pointer, and stop recomputing the hover until it returns.
+func _on_window_mouse_exited() -> void:
+	_mouse_inside = false
+	_reset_highlight()
+	_restore_faded()
+
+func _on_window_mouse_entered() -> void:
+	_mouse_inside = true
 
 # keep the highlight under the pointer as the camera scrolls with the player. get_local_mouse_position
 # tracks the current camera, so re-detecting the hovered cell each frame follows the world. The
@@ -174,7 +195,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		# Cell / Fine / Erase: left-click and left-drag paint
 		if event.pressed:
 			_painting = true
-			_paint(get_local_mouse_position())
+			_paint(get_local_mouse_position(), true) # fresh click: play the drop animation
 			get_viewport().set_input_as_handled()
 		elif _painting:
 			# stroke ended: the whole drag (or single click) is one undo step
@@ -215,17 +236,22 @@ func _on_menu_id(id: int) -> void:
 		_reset_highlight()
 		return
 	# a floor material. Fill the active floor selection if one exists; otherwise, in Wand mode fill
-	# the clicked room, and in Cell/Fine paint the clicked cell/quarter.
+	# the clicked room. In Cell/Fine, selecting a terrain no longer auto-places: it just arms the
+	# brush and the user clicks the target to drop it (ROADMAP "Terrain placement UX").
 	_tool_kind = "floor"
 	_brush = MENU[id][1]
 	if _sel_kind == "floor" and _selection.has_selection():
 		_fill_floor_selection(_brush)
+		EditHistory.commit("paint") # one menu fill = one undo step
+		_reset_highlight()
 	elif _mode == Mode.WAND:
 		set_room_style(cell, _brush) # convenience room fill; may no-op outside a room
+		EditHistory.commit("paint")
+		_reset_highlight()
 	else:
-		_paint(_pending)
-	EditHistory.commit("paint") # one menu paint = one undo step
-	_reset_highlight()
+		# arm only: nothing changed yet (no undo entry). Refresh the hover so the lifted drop-
+		# preview of the freshly-armed material appears over the cursor immediately.
+		call_deferred("_update_hover")
 
 # --- authoring mode (driven by the tool strip) ---
 
@@ -359,6 +385,7 @@ func _reset_highlight() -> void:
 	_whole_hover = INVALID_CELL
 	_mask.hide_floor()
 	_cursor.hide_cursor()
+	_preview.hide_preview()
 
 # --- reference grid toggle ---
 
@@ -382,6 +409,8 @@ func grid_color() -> Color:
 func _update_hover() -> void:
 	if _menu.visible:
 		return # keep the highlight put while the menu is open
+	if not _mouse_inside:
+		return # cursor is off the game window; highlights were cleared on exit
 	var local := get_local_mouse_position()
 	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
 	# Wand: preview the ONE thing a click would select (building walls over a wall, room floor over
@@ -398,14 +427,28 @@ func _update_hover() -> void:
 	_clear_room_hover()
 	if not _paintable(cell):
 		_cursor.hide_cursor()
+		_preview.hide_preview()
 		_restore_faded()
 		return
 	_fade_obstacles_at(cell)
 	if _mode == Mode.FINE:
 		var q := Vector2i(floori(local.x / HALF), floori(local.y / HALF))
-		_cursor.show_rect(Rect2(q.x * HALF, q.y * HALF, HALF, HALF))
+		var r := Rect2(q.x * HALF, q.y * HALF, HALF, HALF)
+		_cursor.show_rect(r)
+		_show_preview(r)
 	else: # Cell or Erase -> the whole cell
-		_cursor.show_rect(Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL))
+		var r := Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL)
+		_cursor.show_rect(r)
+		_show_preview(r)
+
+# arm the lifted drop-preview over `rect` when a real material is armed in a placement mode; Erase
+# (removal) and the grass eraser show only the square cursor, no floating tile.
+func _show_preview(rect: Rect2) -> void:
+	if _mode == Mode.ERASE or not textures.has(_brush):
+		_preview.hide_preview()
+		return
+	_preview.arm(textures[_brush])
+	_preview.show_at(rect)
 
 # clear the mask highlight and reset the dedupe cells so a later hover recomputes cleanly
 func _clear_room_hover() -> void:
@@ -461,7 +504,10 @@ func _cell_quads(c: Vector2i) -> Array:
 # --- painting (the authoring surface over the quarter store) ---
 
 # apply the active tool at the active scope, at World-space local position `local`.
-func _paint(local: Vector2) -> void:
+# `drop` (set on a fresh click, not on drag-moves) plays the terrain drop animation when a real
+# material lands, so a single placement gets the falling-tile effect without spamming it per cell
+# as a drag sweeps across the map.
+func _paint(local: Vector2, drop := false) -> void:
 	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
 	# after a wall colour was picked, a drag colours the walls it passes over
 	if _tool_kind == "wall":
@@ -472,14 +518,18 @@ func _paint(local: Vector2) -> void:
 	# Erase writes grass ("") over the cell; Cell/Fine write the active brush.
 	var mat := "" if _mode == Mode.ERASE else _brush
 	var changed := false
+	var rect := Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL)
 	if _mode == Mode.FINE:
 		var q := Vector2i(floori(local.x / HALF), floori(local.y / HALF))
+		rect = Rect2(q.x * HALF, q.y * HALF, HALF, HALF)
 		changed = _write_quad(q, mat)
 	else: # Cell or Erase -> the whole cell
 		for q in _cell_quads(cell):
 			changed = _write_quad(q, mat) or changed
 	if changed:
 		_rebuild()
+		if drop and mat != "" and textures.has(mat):
+			_preview.play_drop(rect) # falling-tile effect for this placement
 
 # wall tool drag: colour the single wall segment under the cursor. No-op off a wall. Whole-building
 # colouring is done from the menu path (Wand mode) or a wall selection, not by dragging.

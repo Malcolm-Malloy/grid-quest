@@ -108,6 +108,26 @@ func _ready() -> void:
 				if camw and camw.has_method("fit_map"):
 					camw.fit_map()
 
+	# GQ_PREVIEW="x,y,material" shows the lifted terrain drop-preview over a cell in Cell mode. Arms
+	# the brush and warps the OS mouse over the cell so the real hover path (_update_hover) shows the
+	# floating tile + contact shadow, exactly as a live session would. See ROADMAP "Terrain placement
+	# UX". Warp rather than calling _show_preview directly, because set_mode defers an _update_hover
+	# that would otherwise clobber a direct call from the off-cell headless mouse.
+	var preview := OS.get_environment("GQ_PREVIEW")
+	if preview != "":
+		var pp := preview.split(",")
+		if pp.size() == 3:
+			var fmp := main.get_node_or_null("World/FloorManager")
+			var camp := main.get_node_or_null("Camera2D")
+			if fmp and camp:
+				fmp.set_mode(1) # Mode.CELL
+				fmp._brush = pp[2]
+				await get_tree().process_frame # let the camera settle onto the player first
+				var wc := Vector2(int(pp[0]) * 32 + 16, int(pp[1]) * 32 + 16)
+				var screen: Vector2 = (wc - camp.global_position) * camp.zoom \
+					+ get_viewport().get_visible_rect().size / 2.0
+				Input.warp_mouse(screen)
+
 	# GQ_SAVE="name" writes the current level to user://maps/name.json (after the setup above)
 	var save_name := OS.get_environment("GQ_SAVE")
 	if save_name != "":

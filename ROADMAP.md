@@ -49,10 +49,10 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
    terrain/wall/door material menus and the rest of the coloured-highlight palette (orange/purple/
    blue/yellow). See "Authoring surface", "Right-click menu overhaul" and "Coloured highlight
    system" as-built notes.
-5. **Terrain placement UX (select, then hover-preview, then click-to-drop).** Selecting a terrain
-   no longer auto-places; it arms a brush that shows a lifted preview sprite over the hovered cell
-   and drops with an animation on click. Highlights clear when the cursor leaves the screen. See
-   "Terrain placement UX".
+5. **Terrain placement UX (select, then hover-preview, then click-to-drop). DONE 2026-08-16.**
+   Selecting a terrain no longer auto-places; it arms a brush that shows a lifted preview sprite over
+   the hovered cell and drops with an animation on click. Highlights clear when the cursor leaves the
+   screen. See "Terrain placement UX" (spec + As-built).
 6. **Add and remove walls in Cell Mode, plus wall-removal outside reclassification.** Editing
    perimeter walls reclassifies an opened room as outdoors (lighting, shadows including the player
    shadow, later creature reactions); ground is untouched. See "Wall editing and outside
@@ -1640,6 +1640,33 @@ How laying terrain should feel in the editor (the user calls this "Terrain Mode"
   Builder minion placing obstacles (same drop effect, see Builder Bear).
 - **Cursor leaves the screen: clear all highlights.** When the cursor moves off screen, every
   highlight disappears.
+
+### As built (2026-08-16)
+Built exactly per the spec above. Touched: `floors/terrain_preview.gd` (new), `floors/floor_manager.gd`,
+`dev/capture.gd` (a `GQ_PREVIEW` verification hook).
+- **`floors/terrain_preview.gd` (new Node2D, child of FloorManager, z 1200 = above the paint cursor
+  at 1000).** Draws the armed material as a floating tile lifted `REST_LIFT`=6px over the target with
+  a translucent contact shadow, at `REST_ALPHA`=0.7. Sampled with `GridBackground.tiled_src`, the
+  same phase the real floor uses, so the preview shows the exact pixels that will land.
+  `play_drop(rect)` runs a ~0.11s tween falling from `DROP_LIFT`=16px to the ground while the alpha
+  fades, then returns to the resting hover; the floor paint commits underneath immediately, so the
+  drop just sells the placement.
+- **Arm, don't auto-place (`floor_manager._on_menu_id`).** Picking a floor material in Cell/Fine no
+  longer paints `_pending`; it only arms `_brush` and refreshes the hover so the lifted preview
+  appears (no undo entry, since nothing changed). Selection-fill and Wand-room-fill keep their
+  immediate commit. `_show_preview(rect)` shows the tile in Cell/Fine when a real material is armed
+  (Erase and the grass eraser show only the square cursor, no floating tile).
+- **Drop on click (`_paint(local, drop)`).** A fresh left-press passes `drop=true` and, when a real
+  material actually lands, calls `_preview.play_drop(rect)`. Drag-moves pass `drop=false` so a sweep
+  across the map doesn't spam the animation per cell (only the press animates).
+- **Cursor off window clears highlights.** `_ready` connects `get_window().mouse_exited/entered`;
+  on exit `_reset_highlight()` + `_restore_faded()` run and `_mouse_inside` gates `_update_hover` so
+  nothing lingers under an absent pointer; on re-entry the hover recomputes. `_reset_highlight` also
+  hides the preview now.
+- **Verified** headless: project boots clean with the changes; a diff of the `GQ_PREVIEW` frame vs a
+  baseline shows the lifted tile sitting above the red cell cursor with grass showing through the
+  bottom of the cell and a contact shadow (the tile reads as lifted, exactly as specced). The drop
+  tween reuses the same verified draw path. Not captured mid-drop (a sub-frame tween).
 
 ## Wall editing and outside reclassification (logged 2026-08-16, Phase A + analysis)
 The user wants to add and remove wall pieces in Cell Mode. Removing a perimeter wall that exposes a
