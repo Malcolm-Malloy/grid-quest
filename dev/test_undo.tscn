@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://b8qundotest01"]
+
+[ext_resource type="Script" path="res://dev/test_undo.gd" id="1"]
+
+[node name="TestUndo" type="Node"]
+script = ExtResource("1")

@@ -65,9 +65,16 @@ func serialize() -> Dictionary:
 		"wall_colors": wall_colors,
 	}
 
-# --- apply a parsed dict back onto the live level, in dependency order ---
+# apply a serialize()-shaped dict onto the live level without touching disk. Used by
+# MapEdit (grid resize) and, later, undo/redo, which both work by transforming the dict
+# and re-applying it through this one rebuild path.
+func apply_serialized(data: Dictionary, keep_player := false) -> void:
+	_apply(data, keep_player)
 
-func _apply(data: Dictionary) -> void:
+# --- apply a parsed dict back onto the live level, in dependency order ---
+# keep_player: leave the player where it currently stands instead of snapping it to the dict's
+# spawn. Undo/redo passes true so history never teleports the player (ROADMAP undo caveat).
+func _apply(data: Dictionary, keep_player := false) -> void:
 	var w := _world()
 	var gb = w.get_node("GridBackground")
 	var obs = w.get_node("Obstacles")
@@ -111,12 +118,13 @@ func _apply(data: Dictionary) -> void:
 		wcols.append([int(a[0]), int(a[1]), float(a[2]), float(a[3]), float(a[4])])
 	obs.apply_wall_colors(wcols)
 
-	# 5. player spawn
-	var spawn: Dictionary = data.get("spawn", {"x": player.position.x, "y": player.position.y})
-	var p := Vector2(spawn["x"], spawn["y"])
-	player.position = p
-	player.target_position = p
-	player.is_moving = false
+	# 5. player spawn (skipped for undo/redo so history leaves the player where it stands)
+	if not keep_player:
+		var spawn: Dictionary = data.get("spawn", {"x": player.position.x, "y": player.position.y})
+		var p := Vector2(spawn["x"], spawn["y"])
+		player.position = p
+		player.target_position = p
+		player.is_moving = false
 
 # --- disk I/O ---
 
@@ -156,6 +164,8 @@ func load_map(map_name: String) -> bool:
 		push_warning("MapIO: %s was saved by a newer version" % path)
 	_apply(data)
 	_set_last(map_name)
+	# a loaded map is a fresh baseline: undo history from the previous map must not carry over
+	EditHistory.reset()
 	return true
 
 # the map reloaded on next launch (last one saved or loaded)

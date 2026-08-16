@@ -23,6 +23,20 @@ func _ready() -> void:
 	if load_name != "":
 		MapIO.load_map(load_name)
 
+	# GQ_RESIZE runs edge resizes on the loaded/default map before the grab, e.g.
+	# GQ_RESIZE="grow:left;grow:top;shrink:right" (semicolon-separated "op:edge" pairs).
+	# Lets the row/column edge editing be verified headlessly (no tool strip yet).
+	var resize := OS.get_environment("GQ_RESIZE")
+	if resize != "":
+		for op in resize.split(";", false):
+			var parts := op.split(":")
+			if parts.size() == 2:
+				if parts[0] == "grow":
+					MapEdit.grow(parts[1])
+				elif parts[0] == "shrink":
+					MapEdit.shrink(parts[1])
+		await get_tree().process_frame
+
 	var pos := OS.get_environment("GQ_POS")
 	if pos != "":
 		var parts := pos.split(",")
@@ -58,6 +72,61 @@ func _ready() -> void:
 		var fmg := main.get_node_or_null("World/FloorManager")
 		if fmg:
 			fmg.set_grid(true)
+
+	# GQ_EDGEBAND="edge:mode" previews the Map Size tool's band (edge top/bottom/left/right,
+	# mode add/remove) and frames the whole map, so the tool-strip highlight can be seen headlessly.
+	var band := OS.get_environment("GQ_EDGEBAND")
+	if band != "":
+		var bp := band.split(":")
+		if bp.size() == 2:
+			var eh := main.get_node_or_null("World/EdgeHighlight")
+			if eh:
+				eh.show_band(bp[0], bp[1])
+			var cam := main.get_node_or_null("Camera2D")
+			if cam and cam.has_method("fit_map"):
+				cam.fit_map()
+
+	# GQ_WAND="x,y" (optionally "x,y;x,y;..." for repeat clicks that grow the selection) drives the
+	# Magic Wand headlessly so the marching-ants selection overlay can be verified. Sets WAND mode,
+	# clicks each world-pixel point in order, then frames the whole map. Pair with GQ_FLOOR to lay a
+	# patch first (e.g. GQ_FLOOR="8,9,wood" GQ_WAND="272,304").
+	var wand := OS.get_environment("GQ_WAND")
+	if wand != "":
+		var fmw := main.get_node_or_null("World/FloorManager")
+		if fmw:
+			fmw.set_mode(0) # Mode.WAND
+			for pt in wand.split(";", false):
+				var wp := pt.split(",")
+				if wp.size() == 2:
+					fmw._wand_click(Vector2(float(wp[0]), float(wp[1])))
+			print("GQ_WAND kind=", fmw._sel_kind, " quads=", fmw._sel_quads.size(),
+				" cells=", fmw._sel_cells.size(), " level=", fmw._sel_level,
+				" overlay=", fmw._selection.has_selection())
+			# frame the whole map by default; GQ_WAND_NOFIT=1 keeps the GQ_POS-centred view instead
+			if OS.get_environment("GQ_WAND_NOFIT") != "1":
+				var camw := main.get_node_or_null("Camera2D")
+				if camw and camw.has_method("fit_map"):
+					camw.fit_map()
+
+	# GQ_PREVIEW="x,y,material" shows the lifted terrain drop-preview over a cell in Cell mode. Arms
+	# the brush and warps the OS mouse over the cell so the real hover path (_update_hover) shows the
+	# floating tile + contact shadow, exactly as a live session would. See ROADMAP "Terrain placement
+	# UX". Warp rather than calling _show_preview directly, because set_mode defers an _update_hover
+	# that would otherwise clobber a direct call from the off-cell headless mouse.
+	var preview := OS.get_environment("GQ_PREVIEW")
+	if preview != "":
+		var pp := preview.split(",")
+		if pp.size() == 3:
+			var fmp := main.get_node_or_null("World/FloorManager")
+			var camp := main.get_node_or_null("Camera2D")
+			if fmp and camp:
+				fmp.set_mode(1) # Mode.CELL
+				fmp._brush = pp[2]
+				await get_tree().process_frame # let the camera settle onto the player first
+				var wc := Vector2(int(pp[0]) * 32 + 16, int(pp[1]) * 32 + 16)
+				var screen: Vector2 = (wc - camp.global_position) * camp.zoom \
+					+ get_viewport().get_visible_rect().size / 2.0
+				Input.warp_mouse(screen)
 
 	# GQ_SAVE="name" writes the current level to user://maps/name.json (after the setup above)
 	var save_name := OS.get_environment("GQ_SAVE")
