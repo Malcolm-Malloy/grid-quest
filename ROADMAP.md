@@ -1834,6 +1834,22 @@ menu" work:
   zone's type/rate/cap, a spawn point's type. Simple objects show a couple of fields, complex ones
   (spawn zones) show more. The context-menu "Edit" action focuses the object here rather than deep
   submenus. Docked on the right near the palette (share/stack the right column).
+  - **As-built (2026-08-16): inspector v1 + Select tool + door authoring.** Built on the Play/Edit
+    toggle (which lets authored door state persist without the proximity logic clobbering it).
+    - **Door authored state (Layer 1):** each door now carries an authored `open` (open/closed
+      default) and `swing`, MapIO-persisted (save VERSION -> 4, backward-compatible). `gate.gd` gains
+      `authored_open`/`authored_swing` + `reset_to_authored()`; `obstacles.build_world` applies them;
+      entering EDIT resets every gate to its authored state so the frozen map shows what was authored.
+    - **Select tool (S):** `FloorManager.Mode.SELECT` + `_select_at` loads the clicked door or wall
+      into the inspector (no map edit); tool-strip **Select (S)** button.
+    - **Inspector (`ui/inspector.gd`, right-docked CanvasLayer, EDIT-only, shown only with a
+      selection):** Door -> orientation flip (structural, rebuilds via MapIO), open-by-default +
+      swing toggles (live via `obstacles.set_door_open`/`set_door_swing`). Wall -> colour swatches
+      (the WALL_COLORS palette, current colour disabled). Holds the selected CELL not a node, so a
+      rebuild can't strand it. One undo entry per edit.
+    - **Deferred:** locked state (needs keys/inventory, Phase B), object/spawn-zone property types
+      (need those objects), the status bar, and folding the inspector's wall-colour into the same
+      right-click contextual menu path.
 - **Centre: the map canvas.**
 - **A thin status bar (decided 2026-08-16, bottom or top).** Shows live editing info: hovered cell
   x,y, active tool, current selection size, map dimensions (WxH), and zoom %. Cheap and genuinely
