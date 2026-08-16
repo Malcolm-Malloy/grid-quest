@@ -53,9 +53,12 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
    Selecting a terrain no longer auto-places; it arms a brush that shows a lifted preview sprite over
    the hovered cell and drops with an animation on click. Highlights clear when the cursor leaves the
    screen. See "Terrain placement UX" (spec + As-built).
-6. **Add and remove walls in Cell Mode, plus wall-removal outside reclassification.** Editing
-   perimeter walls reclassifies an opened room as outdoors (lighting, shadows including the player
-   shadow, later creature reactions); ground is untouched. See "Wall editing and outside
+6. **Add and remove walls (and doors) in Cell Mode, plus outside reclassification. DONE 2026-08-16.**
+   Wall + Door placement tools (drag to draw a wall line; a door auto-orients to its wall run and
+   converts a wall to a doorway), on top of the earlier Erase removal. Editing perimeter walls
+   reclassifies via the MapIO rebuild in BOTH directions: removing a wall opens a room to outdoors,
+   adding one re-encloses it to indoors (lighting, shadows including the player shadow; later creature
+   reactions); ground is untouched. See the As-built note under "Wall editing and outside
    reclassification".
 7. **Coloured floors plus terrain and wall pattern and material options.** Tinting (presets, then
    picker) plus pattern variants (carpet, grass, tile, wood patterns) and wall/fence materials
@@ -1577,6 +1580,29 @@ Cell Selector / Fine Details; its hover highlight is **red**.
   and predictable, click-again to keep clearing. The stacking order comes from the cell-occupancy
   model below. Each removal is one undo entry.
 
+#### As built: structure erase (walls + doors, 2026-08-16)
+The structure layer of the Erase tool is built. Objects (monsters, items) are not placeable in the
+editor yet, so the object layer is deferred until they are; the built behaviour is structure then
+terrain, ready to gain the object step on top without changing this code.
+- **`world/obstacles.gd`:** added `has_structure(cell)` (wall OR door on the cell) and
+  `remove_structure(cell) -> "wall"/"door"/""`. It removes the wall from `blocked_cells` (dropping
+  any stored `wall_colors` tint) or the door from `gate_cells`, and ONLY mutates the source-of-truth
+  arrays. A cell holds at most one structure (wall XOR door), matching the occupancy model.
+- **`floors/floor_manager.gd`:** on a left click in ERASE mode, `_erase_structure_at(local)` runs
+  first. If a structure is on the cell it removes it, re-applies the whole map through
+  `MapIO.apply_serialized(MapIO.serialize(), true)` (the proven load/resize rebuild path, so wall/gate
+  nodes, lighting, floors and shadows all recompute after a wall opens a room), commits one undo
+  entry, and consumes the click (no paint drag). If no structure is present the click falls through to
+  the existing terrain erase, so a second click on the now-bare cell writes grass. This is the
+  topmost-first order (structure, then terrain) with one click = one removal = one undo step.
+- **Verified** headless by `dev/test_erase.gd` / `.tscn` (18 checks, text-only): wall removal, door
+  removal, "erase again finds nothing" (topmost-first), undo/redo restoring the structure through the
+  rebuild path, plain-floor cell removes nothing, and the `remove_structure` return values.
+  `dev/test_undo.gd` and `dev/test_resize.gd` still pass (no regression).
+- **Not done here (later Phase A items):** the object layer (needs monster/item placement first), and
+  the red wall/door hover *outline* for erase (part of the Coloured highlight palette item); today the
+  Erase hover still shows the red square cell cursor with the structure dimmed under it.
+
 ### Cell occupancy model (decided 2026-08-16)
 Defines what can share one cell, and therefore placement rules and the erase order. **Three layers,
 at most one of each per cell:**
@@ -1693,6 +1719,41 @@ mostly automatic given the current architecture).**
   (Architecture Q2) before these land is worth it.
 - Net: because indoor/outdoor is derived, not stored, "remove wall = becomes outside" is largely
   free; the build work is recompute-on-wall-edit plus confirming the player-shadow switch.
+
+**As-built (2026-08-16): Wall + Door placement tools.** Removal already shipped (Erase tool). This
+adds the additive side, completing item 6.
+- **Two new modes** `Mode.WALL` / `Mode.DOOR` in `floor_manager.gd`, chosen from the left tool strip
+  (`ui/tool_strip.gd`) as **Wall (L)** and **Door (D)** radio buttons. The tool-strip `M_*` enum order
+  must stay in lockstep with `FloorManager.Mode` (set_mode receives the raw index).
+- **Wall tool:** left-click places a wall on the cell, and **drag draws a wall line** (routed through
+  the shared `_painting` drag path, so the whole gesture is one undo entry). `obstacles.add_wall`
+  no-ops on an occupied cell, so dragging over existing walls triggers no rebuild.
+- **Door tool:** one click = one door = one undo entry (no drag). `obstacles.add_door` auto-orients the
+  door to the wall run it bridges (`wall_run_orientation`: horizontal neighbours give "horizontal",
+  walked top-to-bottom; vertical gives "vertical"), and a **wall under the click becomes a doorway**
+  (the wall is replaced, keeping one structure per cell). In open space with no run, orientation falls
+  back to a default that **R flips** (ROADMAP "directional placement (auto + R)").
+- **Reclassification is free (both directions):** both tools rebuild through
+  `MapIO.apply_serialized(MapIO.serialize(), true)`, the exact path Erase/resize/load use, so
+  lighting, floors and shadows recompute together. Adding a wall that re-encloses a room flips it back
+  to indoors; the earlier "remove wall opens a room" is the inverse. No new classification code.
+- **Hover:** a plain green cell cursor marks where the wall/door will land (no lifted drop-preview
+  sprite yet, since walls/doors have no floating-tile art; a lifted preview is a deferred polish item).
+- **Verified headlessly** via a new `GQ_STRUCT="wall:x,y;door:x,y;..."` hook in `dev/capture.gd`
+  (mirrors GQ_WAND/GQ_FLOOR): placed a wall column with a mid-run door, confirmed the door serialised
+  as `vertical`, the wall under it converted to a doorway, and the rendered frame showed a correct
+  vertical wall + doorway with continuous shadows.
+- **Deferred:** single-cell green "will-be-added" edge highlight parity, lifted wall/door drop-preview
+  sprites, and door swing-side authoring (doors spawn with default swing; the properties inspector,
+  item 4/layout, will expose swing + open/closed state later).
+- **Corner-connection fix (2026-08-16, follow-up):** placing a door next to a wall corner left a grass
+  notch because `build_world`'s corner/run passes tested `blocked_cells` (walls) only, so a door
+  neighbour was invisible to the corner geometry. Both passes now use `has_structure` (wall OR door)
+  for corner/line DECISIONS, while only WALL cells ever spawn a rail. The vertical pass gained a
+  length-1 rail case: a wall cell bounded by a door gets a THIN, centered vertical rail (via a new
+  `thin` arg on `spawn_segment`, since `wall_segment` otherwise draws a single cell full-width and it
+  would read as a fat horizontal block). Verified for a door below, beside, and above a corner; the
+  default map renders unchanged (its wall cells all take the same branch as before).
 
 ## Terrain patterns and material variants (logged 2026-08-16)
 Beyond colour, some terrain types get **pattern options that are separate from colour changes**.
@@ -1822,6 +1883,39 @@ based on its Domestication level**:
   deferred; the principle is "reaction scales with domestication."
 - Consistent with the 08-14 rule that absorb sets the beast free and the self-power starts at
   level 1.
+
+### Power orbs (absorbed powers become orbs, logged 2026-08-16)
+Refines how absorbed powers are represented in the inventory. When the player absorbs a beast's
+power, that power **is turned into a Power orb** (e.g. **frost orb**, **builder orb**).
+- **Dedicated orb slots.** Power orbs occupy a **special, dedicated orb slot** in the player's
+  inventory, separate from regular item slots.
+- **Orbs are combat OR utility (decided 2026-08-16).** Not just elemental combat powers. A
+  **frost orb** is combat/elemental, but a **builder orb** is a **utility power that unlocks or
+  boosts the base building** (the Minecraft-style Base building on the Block of land, same system
+  as the level editor). This means the 3 active slots are a real playstyle choice between combat
+  power and utility/building power, and orbs are a second lever (alongside gathered resources) on
+  what building the player can do in play mode. Confirm at build how a builder orb interacts with
+  the resource gating already noted under Base building (does it unlock tools, cheapen resource
+  costs, or extend what can be placed).
+- **Collection + 3 active (decided 2026-08-16).** Orbs are a **growing collection**, but only
+  **3 are active/equipped at a time** in the dedicated slots (this is the "Absorbed-ability slots:
+  3 to start, expandable later" capacity made concrete). Absorbing does not overwrite; the extras
+  are kept.
+- **Spares stored at home (decided 2026-08-16, mechanism TBD).** Orbs not in the 3 active slots
+  are **left at home** somehow (exact storage still being figured out). The intended tension: the
+  player must **decide what powers to take with them** before leaving, rather than carrying
+  everything. Ties to the Base building / Block of land as the likely home-storage location.
+- **Switching friction (wanted, mechanism TBD).** The user wants **something that gates switching
+  between stored orbs and the active slots**, so players can't swap constantly (e.g. only at home,
+  a cost, or a cooldown). Exact rule undecided.
+- **Orb carries the level (decided 2026-08-16).** The power's level lives **on the orb** itself
+  (starts at level 1 per the 08-14 absorb rule, levels up materia-style). Implication to confirm:
+  an orb only progresses while it is in an active slot, so spares stored at home **do not level**
+  until equipped, which reinforces the "choose what to take" tension.
+- Ties the absorb-vs-domesticate fork to a tangible collectible: the sacrifice of a companion
+  yields an orb the player can see, slot, and level up (materia-style, per Magic and progression).
+- Open questions (deferred): the home-storage mechanism, the exact switching-friction rule,
+  and whether orbs are tradeable/droppable.
 
 ## Karma / morality system (Fable-style, logged 2026-08-15)
 A **Fable-style morality system** that changes how the game plays and how NPCs react: positive,
@@ -2071,6 +2165,13 @@ fresh `/clear` session.
 - **Honest expectation:** AI gets ~60-80% on textures and concepts, less on animated character
   sprites (consistency across frames/orientations is the hard part). It is a starting point, not a
   finished pipeline; budget hand-cleanup time.
+
+## Localisation (future feature, logged 2026-08-16)
+Support **localisation / translation** of the game's text into multiple languages. Distant future,
+logged so it is not lost. No design owed yet; when tackled, all player-facing strings (UI, menus,
+tooltips, item/creature names, dialogue) need to route through a translation layer (Godot has
+built-in `tr()` / translation-file support), so authoring strings translation-ready from the start
+is the cheap habit to keep in mind.
 
 ## Inspirations (reference list, logged 2026-08-15)
 The user's stated touchstones, per system, to steer design/art decisions:
