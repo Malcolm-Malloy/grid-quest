@@ -43,7 +43,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_clamp_to_map()
 		get_viewport().set_input_as_handled()
 	elif event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_F or event.keycode == KEY_HOME:
+		# Home recenters; F is now Fine Details (see ui/tool_strip.gd MODES)
+		if event.keycode == KEY_HOME:
 			recenter_on_player()
 
 func _zoom_at(world_point: Vector2, factor: float) -> void:

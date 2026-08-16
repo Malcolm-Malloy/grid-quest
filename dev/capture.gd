@@ -86,6 +86,28 @@ func _ready() -> void:
 			if cam and cam.has_method("fit_map"):
 				cam.fit_map()
 
+	# GQ_WAND="x,y" (optionally "x,y;x,y;..." for repeat clicks that grow the selection) drives the
+	# Magic Wand headlessly so the marching-ants selection overlay can be verified. Sets WAND mode,
+	# clicks each world-pixel point in order, then frames the whole map. Pair with GQ_FLOOR to lay a
+	# patch first (e.g. GQ_FLOOR="8,9,wood" GQ_WAND="272,304").
+	var wand := OS.get_environment("GQ_WAND")
+	if wand != "":
+		var fmw := main.get_node_or_null("World/FloorManager")
+		if fmw:
+			fmw.set_mode(0) # Mode.WAND
+			for pt in wand.split(";", false):
+				var wp := pt.split(",")
+				if wp.size() == 2:
+					fmw._wand_click(Vector2(float(wp[0]), float(wp[1])))
+			print("GQ_WAND kind=", fmw._sel_kind, " quads=", fmw._sel_quads.size(),
+				" cells=", fmw._sel_cells.size(), " level=", fmw._sel_level,
+				" overlay=", fmw._selection.has_selection())
+			# frame the whole map by default; GQ_WAND_NOFIT=1 keeps the GQ_POS-centred view instead
+			if OS.get_environment("GQ_WAND_NOFIT") != "1":
+				var camw := main.get_node_or_null("Camera2D")
+				if camw and camw.has_method("fit_map"):
+					camw.fit_map()
+
 	# GQ_SAVE="name" writes the current level to user://maps/name.json (after the setup above)
 	var save_name := OS.get_environment("GQ_SAVE")
 	if save_name != "":

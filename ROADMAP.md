@@ -39,12 +39,16 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
    highlight are deferred: a lone jagged cell needs a per-cell existence model the rectangular map
    lacks (tie to Architecture review Q1/Q2). Live UX (the tool strip that triggers grow/shrink, plus
    the green highlight) is still the next step; interim control is IJKL keys + the GQ_RESIZE hook.
-4. **Right-click menu (renamed modes plus coloured highlights). Tool strip STARTED 2026-08-16.** The
-   persistent left tool strip now exists with the Map Size (edge grow/shrink) control and the green/
-   red edge band; the editor camera (pan/zoom/fit, F to recenter) is DONE. Still to do: move the
-   three modes (Magic Wand, Cell Selector, Fine Details) + Erase onto the strip, the terrain/wall/
-   door material menus, and the rest of the coloured-highlight palette (orange/purple/blue/yellow +
-   marching ants). See "Right-click menu overhaul" and "Coloured highlight system" as-built notes.
+4. **Right-click menu (renamed modes plus coloured highlights). Tool strip modes DONE 2026-08-16.**
+   The persistent left tool strip has the Map Size (edge grow/shrink) control, the green/red edge
+   band, and now the **Tools radio group**: Magic Wand / Cell Selector / Fine Details / Erase, with
+   W/C/F/E shortcuts (recenter moved off F to **Home** so F is Fine Details). The **Magic Wand**
+   click-to-grow selection (floor patch -> whole room; wall run -> whole building) with a **marching-
+   ants** overlay and **selection-fill** (pick a material/colour to fill the whole selection) are
+   built. The editor camera (pan/zoom/fit, Home to recenter) is DONE. Still to do: the *contextual*
+   terrain/wall/door material menus and the rest of the coloured-highlight palette (orange/purple/
+   blue/yellow). See "Authoring surface", "Right-click menu overhaul" and "Coloured highlight
+   system" as-built notes.
 5. **Terrain placement UX (select, then hover-preview, then click-to-drop).** Selecting a terrain
    no longer auto-places; it arms a brush that shows a lifted preview sprite over the hovered cell
    and drops with an animation on click. Highlights clear when the cursor leaves the screen. See
@@ -286,6 +290,33 @@ Storage refactor landed exactly per the execution spec below. What changed:
 ### Authoring surface (quarter painting, 2026-08-15)
 The step-2 editing surface over the quarter store is now built in `FloorManager`, so floors can be
 painted at room, cell or quarter grain:
+
+**Modes + Magic Wand as-built (2026-08-16): DONE.** The scope system was replaced by a `Mode` enum
+(`WAND`, `CELL`, `FINE`, `ERASE`) driven by the tool strip's Tools radio group, not the popup:
+- **Cell Selector / Fine Details** paint one cell / one quarter on click and drag (the old Cell /
+  Quarter scopes). **Erase** writes grass over the cell on click and drag.
+- **Magic Wand** is a click-to-grow *selection*, stored as `_sel_kind`/`_sel_quads`/`_sel_cells`/
+  `_sel_level`. A floor click floods the connected same-material quarters bounded to the room
+  (`_patch_quads`, level 1); a repeat click inside grows to the whole room including its wall ring
+  (`_room_quads`, level 2). A wall click selects the run (`obs.line_cells`, level 1); a repeat grows
+  to the whole building (`obs.building_cells`, level 2). Esc or clicking a new spot resets.
+- **Marching-ants overlay** (`floors/selection_overlay.gd`, a Node2D child of FloorManager at
+  z 1000): a translucent wash over the selected quarters/walls plus an animated dashed boundary,
+  keyed to world coords so dashes stay continuous. Verified via the new `GQ_WAND` capture hook (a
+  hollow dashed ring around the room; the engine reports patch = 36 quads growing to room = 64
+  quads; wall run = 9 cells growing to building = 40 cells).
+- **Selection-fill**: with a selection active, picking a floor material or wall colour from the
+  popup fills the *whole selection* (`_fill_floor_selection` / `_fill_wall_selection`) as one undo
+  entry. With no selection, a floor material fills the clicked room and a wall colour the clicked
+  building (Wand mode), or paints/colours the clicked cell (Cell/Fine). The selection persists
+  across mode switches and after a fill, so it is a reusable target.
+- **Caveats and still-deferred items (each its own roadmap section):** Erase only clears *floor*
+  material for now; wall/object removal (the topmost-first cell-occupancy model) is not built. The
+  wand's ants trace wall *cells* (32px), not per-wall-piece geometry. Outdoors (no enclosed room) a
+  floor patch is just the clicked cell. Whole-map (a 3rd grow level), additive/subtractive Shift/Alt
+  modifiers, box-select, and copy/paste are not built. The popup lost its Scope radios but is not
+  yet *contextually* filtered (floor-only vs wall-only submenus). Selection-fill is verified by code
+  inspection (the popup can't fire headlessly); the wand engine and ants are verified headlessly.
 - **Rename and expand the scopes (decided 2026-08-16, apply at build).** The scope system becomes
   three modes, ordered coarse to fine. The old "Selector Mode" and "Room Mode" ideas are merged into
   a single **Magic Wand**, on the user's call, because the two behaviours are the same tool at
@@ -695,15 +726,18 @@ Follow-ups (2026-08-16, from live testing):
 
 ## Right-click menu overhaul
 
-**Tool strip foundation as-built (2026-08-16): STARTED.** The persistent left tool strip now
-exists (`ui/tool_strip.gd`, a CanvasLayer added to `main.tscn`). Its first occupant is the **Map
-Size** control: a Top/Bottom/Left/Right row each with a `+` (grow) and `−` (shrink) button wired to
-`MapEdit.grow/shrink`, plus a "Recenter (F)" button. Hovering a button previews the affected
-row/column on the map via `EdgeHighlight` (green for add, red for remove). The mode tools (Magic
-Wand / Cell Selector / Fine Details / Erase) and the material/colour menus are NOT here yet; they
-get added to this same strip. Explicit per-edge buttons were used (not mouse-to-edge) so edge
-editing works before the pointer-driven UX, and they stay useful for off-screen edges even with the
-new editor camera. See the Coloured highlight system as-built note for the green/red band.
+**Tool strip as-built (2026-08-16): modes DONE.** The persistent left tool strip
+(`ui/tool_strip.gd`, a CanvasLayer added to `main.tscn`) now holds two sections. The **Tools** radio
+group (Magic Wand / Cell Selector / Fine Details / Erase, W/C/F/E shortcuts) owns mode selection,
+which has moved off the right-click popup; it calls `FloorManager.set_mode`. The **Map Size**
+control below it is a Top/Bottom/Left/Right row each with a `+` (grow) and `−` (shrink) button wired
+to `MapEdit.grow/shrink`, plus a "Recenter (Home)" button (recenter moved off F so F is Fine
+Details). Hovering a Map Size button previews the affected row/column via `EdgeHighlight` (green for
+add, red for remove). The material/colour *menus* are still the right-click popup (Floor materials +
+Wall colours + Grid), not yet on the strip and not yet contextually filtered. Explicit per-edge
+buttons were used (not mouse-to-edge) so edge editing works before the pointer-driven UX, and they
+stay useful for off-screen edges even with the new editor camera. See the Coloured highlight system
+as-built note for the green/red band and the Authoring surface note for the modes and Magic Wand.
 
 The menu gains a **Block / Ground** mode toggle (bottom option) that decides which options
 are shown. The Grid Lines toggle stays near the bottom, default **OFF** (confirmed 2026-08-16). The
@@ -1508,9 +1542,10 @@ already specced, so it is a natural fast-follow rather than new machinery:
 `world/edge_highlight.gd` (an `EdgeHighlight` Node2D under World, drawn over the ground) fills the
 affected edge row/column: **green** for the will-be-added band (drawn just outside the edge, in the
 void) and **red** for the will-be-removed edge band. The tool strip drives it on button hover.
-Verified via the capture harness `GQ_EDGEBAND="left:add"` on a fitted map. Still to do: orange
-(ground recolour of the existing floor mask), purple (walls), blue/cyan (doors), yellow (shadow),
-and marching-ants for the Magic Wand. This edge band is a plain `_draw`; the room/wall highlights
+Verified via the capture harness `GQ_EDGEBAND="left:add"` on a fitted map. **Marching-ants for the
+Magic Wand is now DONE** (`floors/selection_overlay.gd`; see the Authoring surface as-built note).
+Still to do: orange (ground recolour of the existing floor mask), purple (walls), blue/cyan (doors),
+and yellow (shadow). This edge band and the ants are plain `_draw`; the room/wall *hover* highlights
 stay on the FloorHighlightMask shader path, whose colour becomes a per-action parameter.
 
 Replace the single red hover highlight with a **colour-coded highlight** that tells the user what
