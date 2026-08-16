@@ -623,6 +623,33 @@ The preset palette is **16 swatches in two groups of 8**:
   contextual colours); selecting a material/terrain swaps that row. The fun group is a constant. This
   pairs with "Terrain patterns and material variants" (pattern axis) and the material tiers.
 
+### First-slice build plan (mapped 2026-08-16, next-session kickoff)
+Recorded from the item-4 session's loaded context so the next fresh session reads little (read volume
+is the dominant session-cost lever, see [[claude-usage-limits]]). **Slice 1 = the 8 "fun" swatches
+only** (constant palette, defer the material-aware row and the picker). It clones the built
+wall-colour machinery almost 1:1, and the **contextual menu already reserves the slot** (the
+"Floor Colours" submenu was intentionally left out pending this; the floor-cell branch of
+`_apply_menu_context` is where it plugs in, right beside "Floor Textures").
+- **`floors/floor_manager.gd`** (the hub, ~810L, read this one in full): add a `FLOOR_COLORS` const +
+  `FLOOR_COLOR_BASE_ID` namespaced id (mirror `WALL_COLORS` / `WALL_BASE_ID`); build a `floor_color_sub`
+  child submenu in `_ready` beside `floor_sub`; in `_apply_menu_context` add it to the floor-cell
+  branch (structure branch unchanged); add a `_on_menu_id` branch for `id >= FLOOR_COLOR_BASE_ID` that
+  writes the tint (mirror the `id >= WALL_BASE_ID` branch, incl. the `did_edit`/EditHistory.commit
+  guard). Store tint per quarter in a new `_quad_tint := {}` (quarter Vector2i -> Color), parallel to
+  `_quad_mat`, and apply it when `_base_fills` are drawn (find the floor draw/derive path; walls used
+  `modulate`, floors likely a per-fill `Color`).
+- **`world/map_io.gd`**: bump VERSION (currently **4**) to 5, serialize/deserialize `_quad_tint` as a
+  `floor_tints` list (mirror the `wall_colors` list added at v3). Keep back-compat: a v4 file loads
+  with empty tints.
+- **`floors/floor_highlight_mask.gd`**: already palette-ready; the **orange** GROUND colour from the
+  item-4 work is the correct hover for a floor-colour edit, so likely **no change** here.
+- **Verify** headless/text-only (renders hang headless on this machine): a `dev/test_floor_color`
+  scene asserting the tint round-trips through MapIO serialize/deserialize and that undo restores it,
+  mirroring `test_erase`/`test_context_menu`. Remember `--editor --import` after adding any new `.gd`
+  (for its `.uid`) or `class_name`.
+- **Defer to slice 2+:** the 8 material-aware swatches (per-material table + row-swap on
+  material select), the full colour picker, and wall *materials* (wood/slate/stone, its own section).
+
 ## Coloured walls (per-cell wall colouring) BUILT 2026-08-16 (spec below, as executed)
 Recolour individual wall pieces (a tint over the stone). Built exactly per the spec below in a fresh
 `/clear`ed session. Touched: `wall_segment.gd` (per-cell sliced-cap render + `cells()`/`piece_rects()`),
