@@ -72,6 +72,15 @@ func build_world() -> void:
 		gate.set_script(gate_script)
 		gate.cell = gate_data["cell"]
 		gate.orientation = gate_data["orientation"]
+		# authored default state (MapIO-persisted); applied here so the gate spawns showing what was
+		# authored. In PLAY the player's proximity logic takes over; EDIT resets to these.
+		gate.authored_open = gate_data.get("open", false)
+		gate.authored_swing = gate_data.get("swing", false)
+		gate.is_open = gate.authored_open
+		if gate.orientation == "vertical":
+			gate.swing_right = gate.authored_swing
+		else:
+			gate.swing_up = gate.authored_swing
 		gate.position = Vector2(
 			gate.cell.x * CELL_SIZE + CELL_SIZE / 2.0,
 			gate.cell.y * CELL_SIZE + CELL_SIZE / 2.0
@@ -285,8 +294,52 @@ func add_door(cell: Vector2i, orientation: String) -> bool:
 			return false
 	blocked_cells.erase(cell) # a wall under the new door becomes a doorway
 	wall_colors.erase(cell)   # drop any tint stored for the replaced wall
-	gate_cells.append({"cell": cell, "orientation": orientation})
+	gate_cells.append({"cell": cell, "orientation": orientation, "open": false, "swing": false})
 	return true
+
+# --- door authored-state edits (the properties inspector) ---
+# open/swing update the live gate node directly (cheap, keeps the node ref) AND the source-of-truth
+# dict so the change persists. Orientation is structural (different textures/z/back-layer), so the
+# caller re-applies the whole map through MapIO after set_door_orientation.
+
+func door_at(cell: Vector2i) -> Dictionary:
+	for d in gate_cells:
+		if d["cell"] == cell:
+			return d
+	return {}
+
+func gate_node_at(cell: Vector2i):
+	for g in get_tree().get_nodes_in_group("gates"):
+		if g.cell == cell:
+			return g
+	return null
+
+func set_door_open(cell: Vector2i, value: bool) -> void:
+	var d := door_at(cell)
+	if d.is_empty():
+		return
+	d["open"] = value
+	var g = gate_node_at(cell)
+	if g:
+		g.authored_open = value
+		g.reset_to_authored()
+
+func set_door_swing(cell: Vector2i, value: bool) -> void:
+	var d := door_at(cell)
+	if d.is_empty():
+		return
+	d["swing"] = value
+	var g = gate_node_at(cell)
+	if g:
+		g.authored_swing = value
+		g.reset_to_authored()
+
+# flip the door's orientation between "horizontal" and "vertical". Structural, so only the dict is
+# mutated here; the caller rebuilds via MapIO to respawn the gate with the right textures/layers.
+func set_door_orientation(cell: Vector2i, orientation: String) -> void:
+	var d := door_at(cell)
+	if not d.is_empty():
+		d["orientation"] = orientation
 
 # orientation of the wall run through `cell`: "horizontal" if it has a horizontal wall/door
 # neighbour, "vertical" if a vertical one, "" if isolated (the caller falls back to its armed

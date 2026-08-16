@@ -45,9 +45,10 @@ const GRID_COLOR := Color(0.38, 0.64, 0.95, 0.4)
 #           back to indoors (the inverse of ERASE opening a room), free via the MapIO rebuild.
 #   DOOR  - add a door on the clicked cell (a wall there becomes a doorway). Orientation auto-follows
 #           the wall run it bridges; R flips the default used when placing in open space.
+#   SELECT- click a door or wall to load it into the properties inspector (no map edit itself).
 # Cell/Fine/Erase paint directly on click/drag; Wand builds a selection the menu then fills. See
 # ROADMAP "Authoring surface" (mode rename), "Applying edits to a selection" and "Wall editing".
-enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR }
+enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR, SELECT }
 
 var textures := {
 	"wood": preload("res://floors/wood_floor.png"),
@@ -199,6 +200,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				if _in_bounds(Vector2i(floori(local.x / CELL), floori(local.y / CELL))):
 					_wand_click(local)
 					get_viewport().set_input_as_handled()
+			return
+		if _mode == Mode.SELECT:
+			# selecting an object never edits the map; it loads the inspector. No drag.
+			if event.pressed:
+				_select_at(get_local_mouse_position())
+				get_viewport().set_input_as_handled()
 			return
 		if _mode == Mode.DOOR:
 			# one click = one door = one undo entry (no drag: a dragged door line is rarely wanted)
@@ -455,8 +462,8 @@ func _update_hover() -> void:
 	if _mode == Mode.WAND:
 		_update_whole_hover(cell)
 		return
-	# Wall / Door placement: a green cell cursor marks where the structure will land
-	if _mode == Mode.WALL or _mode == Mode.DOOR:
+	# Wall / Door placement and Select: a green cell cursor marks the target cell
+	if _mode == Mode.WALL or _mode == Mode.DOOR or _mode == Mode.SELECT:
 		_update_structure_placement_hover(cell)
 		return
 	# after a wall colour is picked, outline the single wall under the cursor
@@ -631,6 +638,21 @@ func _place_door_at(local: Vector2) -> void:
 		return
 	_reapply_map()
 	EditHistory.commit("door")
+
+# Select tool: load the door or wall on the clicked cell into the properties inspector (a door wins
+# if somehow both are present, matching the topmost-structure model). An empty cell clears it.
+func _select_at(local: Vector2) -> void:
+	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var inspector = get_tree().get_first_node_in_group("inspector")
+	if inspector == null:
+		return
+	var obs = get_node_or_null("../Obstacles")
+	if obs != null and not obs.door_at(cell).is_empty():
+		inspector.inspect_door(cell)
+	elif obs != null and obs.is_blocked(cell):
+		inspector.inspect_wall(cell)
+	else:
+		inspector.clear()
 
 # rebuild the level after a structure was added, through the same MapIO path erase/resize/load use,
 # so lighting, floors and shadows recompute together (a newly enclosed room turns indoors). Undo is

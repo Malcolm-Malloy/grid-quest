@@ -8,7 +8,7 @@ extends Node
 # Maps live in user://maps/<name>.json (persistent, writable, cross-platform). Writes are
 # atomic (temp file, then rename) so a crash mid-save can't corrupt an existing map.
 
-const VERSION := 3 # v3: adds per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
+const VERSION := 4 # v4: per-door authored open+swing; v3: per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
 const DIR := "user://maps"
 const LAST_FILE := "user://last_map.txt" # remembers the map to reload on next launch
 
@@ -43,7 +43,8 @@ func serialize() -> Dictionary:
 		walls.append([c.x, c.y])
 	var doors: Array = []
 	for d in obs.gate_cells:
-		doors.append({"cell": [d["cell"].x, d["cell"].y], "orientation": d["orientation"]})
+		doors.append({"cell": [d["cell"].x, d["cell"].y], "orientation": d["orientation"],
+			"open": d.get("open", false), "swing": d.get("swing", false)})
 	# floors are stored per 16px quarter: a flat list of [qx, qy, material]. Sparse by design
 	# (only painted quarters are written), so save size scales with painted area, not map area.
 	var quads: Array = []
@@ -92,7 +93,8 @@ func _apply(data: Dictionary, keep_player := false) -> void:
 		walls.append(Vector2i(int(a[0]), int(a[1])))
 	var doors: Array = []
 	for d in data.get("doors", []):
-		doors.append({"cell": Vector2i(int(d["cell"][0]), int(d["cell"][1])), "orientation": d["orientation"]})
+		doors.append({"cell": Vector2i(int(d["cell"][0]), int(d["cell"][1])), "orientation": d["orientation"],
+			"open": bool(d.get("open", false)), "swing": bool(d.get("swing", false))})
 	obs.apply_map(walls, doors)
 
 	# 3. lighting (depends on walls/doors)

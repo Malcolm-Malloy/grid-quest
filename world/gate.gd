@@ -19,6 +19,13 @@ var is_open := false
 var swing_right := true # vertical gates only: which side the panel swings toward
 var swing_up := false # horizontal gates only: true when the door swings north (away)
 
+# Authored default state (set by Obstacles from the saved door data, MapIO-persisted). In PLAY the
+# live is_open/swing above are driven by player proximity; on returning to EDIT the door is reset to
+# these so the frozen map shows what was authored. `authored_swing` is a single bool interpreted per
+# orientation (vertical -> swing_right, horizontal -> swing_up); it only shows when authored_open.
+var authored_open := false
+var authored_swing := false
+
 var closed_texture: Texture2D
 var open_texture: Texture2D # horizontal, swung south (toward camera): top + front
 var open_texture_north: Texture2D # horizontal, swung north (away): top only
@@ -118,6 +125,15 @@ func _shadow_rects() -> Array:
 			else:
 				out.append([left + 1.0, left + 6.0, base - 4.0, base + 22.0]) # door down
 	return out
+
+# return the door to its authored default (open/closed + swing). Called when entering EDIT, so a
+# door the player left open/swung in PLAY snaps back to what the map author set.
+func reset_to_authored() -> void:
+	if orientation == "vertical":
+		set_swing_right(authored_swing)
+	else:
+		set_swing_up(authored_swing)
+	set_open(authored_open)
 
 func set_open(value: bool) -> void:
 	if value != is_open:
