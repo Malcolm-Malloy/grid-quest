@@ -53,9 +53,12 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
    Selecting a terrain no longer auto-places; it arms a brush that shows a lifted preview sprite over
    the hovered cell and drops with an animation on click. Highlights clear when the cursor leaves the
    screen. See "Terrain placement UX" (spec + As-built).
-6. **Add and remove walls in Cell Mode, plus wall-removal outside reclassification.** Editing
-   perimeter walls reclassifies an opened room as outdoors (lighting, shadows including the player
-   shadow, later creature reactions); ground is untouched. See "Wall editing and outside
+6. **Add and remove walls (and doors) in Cell Mode, plus outside reclassification. DONE 2026-08-16.**
+   Wall + Door placement tools (drag to draw a wall line; a door auto-orients to its wall run and
+   converts a wall to a doorway), on top of the earlier Erase removal. Editing perimeter walls
+   reclassifies via the MapIO rebuild in BOTH directions: removing a wall opens a room to outdoors,
+   adding one re-encloses it to indoors (lighting, shadows including the player shadow; later creature
+   reactions); ground is untouched. See the As-built note under "Wall editing and outside
    reclassification".
 7. **Coloured floors plus terrain and wall pattern and material options.** Tinting (presets, then
    picker) plus pattern variants (carpet, grass, tile, wood patterns) and wall/fence materials
@@ -1716,6 +1719,41 @@ mostly automatic given the current architecture).**
   (Architecture Q2) before these land is worth it.
 - Net: because indoor/outdoor is derived, not stored, "remove wall = becomes outside" is largely
   free; the build work is recompute-on-wall-edit plus confirming the player-shadow switch.
+
+**As-built (2026-08-16): Wall + Door placement tools.** Removal already shipped (Erase tool). This
+adds the additive side, completing item 6.
+- **Two new modes** `Mode.WALL` / `Mode.DOOR` in `floor_manager.gd`, chosen from the left tool strip
+  (`ui/tool_strip.gd`) as **Wall (L)** and **Door (D)** radio buttons. The tool-strip `M_*` enum order
+  must stay in lockstep with `FloorManager.Mode` (set_mode receives the raw index).
+- **Wall tool:** left-click places a wall on the cell, and **drag draws a wall line** (routed through
+  the shared `_painting` drag path, so the whole gesture is one undo entry). `obstacles.add_wall`
+  no-ops on an occupied cell, so dragging over existing walls triggers no rebuild.
+- **Door tool:** one click = one door = one undo entry (no drag). `obstacles.add_door` auto-orients the
+  door to the wall run it bridges (`wall_run_orientation`: horizontal neighbours give "horizontal",
+  walked top-to-bottom; vertical gives "vertical"), and a **wall under the click becomes a doorway**
+  (the wall is replaced, keeping one structure per cell). In open space with no run, orientation falls
+  back to a default that **R flips** (ROADMAP "directional placement (auto + R)").
+- **Reclassification is free (both directions):** both tools rebuild through
+  `MapIO.apply_serialized(MapIO.serialize(), true)`, the exact path Erase/resize/load use, so
+  lighting, floors and shadows recompute together. Adding a wall that re-encloses a room flips it back
+  to indoors; the earlier "remove wall opens a room" is the inverse. No new classification code.
+- **Hover:** a plain green cell cursor marks where the wall/door will land (no lifted drop-preview
+  sprite yet, since walls/doors have no floating-tile art; a lifted preview is a deferred polish item).
+- **Verified headlessly** via a new `GQ_STRUCT="wall:x,y;door:x,y;..."` hook in `dev/capture.gd`
+  (mirrors GQ_WAND/GQ_FLOOR): placed a wall column with a mid-run door, confirmed the door serialised
+  as `vertical`, the wall under it converted to a doorway, and the rendered frame showed a correct
+  vertical wall + doorway with continuous shadows.
+- **Deferred:** single-cell green "will-be-added" edge highlight parity, lifted wall/door drop-preview
+  sprites, and door swing-side authoring (doors spawn with default swing; the properties inspector,
+  item 4/layout, will expose swing + open/closed state later).
+- **Corner-connection fix (2026-08-16, follow-up):** placing a door next to a wall corner left a grass
+  notch because `build_world`'s corner/run passes tested `blocked_cells` (walls) only, so a door
+  neighbour was invisible to the corner geometry. Both passes now use `has_structure` (wall OR door)
+  for corner/line DECISIONS, while only WALL cells ever spawn a rail. The vertical pass gained a
+  length-1 rail case: a wall cell bounded by a door gets a THIN, centered vertical rail (via a new
+  `thin` arg on `spawn_segment`, since `wall_segment` otherwise draws a single cell full-width and it
+  would read as a fat horizontal block). Verified for a door below, beside, and above a corner; the
+  default map renders unchanged (its wall cells all take the same branch as before).
 
 ## Terrain patterns and material variants (logged 2026-08-16)
 Beyond colour, some terrain types get **pattern options that are separate from colour changes**.

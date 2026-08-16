@@ -90,12 +90,15 @@ func build_world() -> void:
 	#      column. A run starts at the top of a vertical span and extends DOWN
 	#      through every blocked cell, corner cells included, so it physically
 	#      overlaps the corner and the square closes with no grass gap.
+	# Corner/junction decisions use has_structure (wall OR door), not just walls, so a door adjacent
+	# to a corner still forms the L: a door is part of the wall LINE (a doorway in it), so the corner
+	# must turn toward it. Only WALL cells ever spawn a rail; the door cell itself is never drawn over.
 	for cell in blocked_cells:
-		var has_left := blocked_cells.has(Vector2i(cell.x - 1, cell.y))
-		var has_right := blocked_cells.has(Vector2i(cell.x + 1, cell.y))
+		var has_left := has_structure(Vector2i(cell.x - 1, cell.y))
+		var has_right := has_structure(Vector2i(cell.x + 1, cell.y))
 		if not (has_left or has_right):
 			continue
-		var has_vertical := blocked_cells.has(Vector2i(cell.x, cell.y - 1)) or blocked_cells.has(Vector2i(cell.x, cell.y + 1))
+		var has_vertical := has_structure(Vector2i(cell.x, cell.y - 1)) or has_structure(Vector2i(cell.x, cell.y + 1))
 		if has_vertical and has_right and not has_left:
 			# left corner: horizontal arm reaches right, outer (left) edge flush
 			# with the centered vertical rail's left edge
@@ -108,16 +111,24 @@ func build_world() -> void:
 			spawn_segment(cell, 1, 0.0)
 
 	for cell in blocked_cells:
-		var has_above := blocked_cells.has(Vector2i(cell.x, cell.y - 1))
-		var has_below := blocked_cells.has(Vector2i(cell.x, cell.y + 1))
+		# "part of a vertical line" counts a door neighbour (structure), so the wall cell above/below
+		# a door still gets a rail and the corner closes. A door interrupts the RUN though: the rail
+		# only extends over consecutive WALL cells (stops at the door), and a new run starts on the far
+		# side, so a length-1 rail lands on a corner cell that sits against a door.
+		var has_above := has_structure(Vector2i(cell.x, cell.y - 1))
+		var has_below := has_structure(Vector2i(cell.x, cell.y + 1))
 		if not (has_above or has_below):
-			continue # not part of any vertical rail
-		if has_above:
-			continue # covered by the run that started higher in this column
+			continue # not part of any vertical line
+		if blocked_cells.has(Vector2i(cell.x, cell.y - 1)):
+			continue # a WALL above already covers this cell via the run that started higher
 		var run_length := 1
 		while blocked_cells.has(Vector2i(cell.x, cell.y + run_length)):
 			run_length += 1
-		spawn_segment(cell, run_length, 0.0)
+		# A length-1 vertical rail only ever arises here for a wall cell bounded by a door (the old
+		# wall-only run always had a wall below, so length >= 2). Force it THIN + centered: a full-width
+		# single cell would read as a fat horizontal block, but this piece is the vertical arm of a
+		# corner that must line up with the (thin, centered) door post it meets.
+		spawn_segment(cell, run_length, 0.0, run_length == 1)
 
 	spawn_shadows()
 	# colour the freshly spawned walls once they are actually in the tree (they were added
@@ -193,9 +204,14 @@ func hexagon(left: float, right: float, top: float, bottom: float) -> PackedVect
 		Vector2(left, bottom), # bottom-left 45-degree diagonal
 	])
 
-func spawn_segment(cell: Vector2i, run_length: int, align_offset_x: float) -> void:
+func spawn_segment(cell: Vector2i, run_length: int, align_offset_x: float, thin := false) -> void:
 	var segment := make_segment(cell, run_length)
 	segment.align_offset_x = align_offset_x
+	if thin:
+		# force the thin, centered vertical-rail width (wall_segment defaults a single cell to full
+		# width). Used for a length-1 vertical rail at a corner that abuts a door (see the vertical pass).
+		segment.seg_x_start = -CAP_HEIGHT / 2.0
+		segment.seg_width = CAP_HEIGHT
 	get_parent().add_child.call_deferred(segment)
 
 # a trimmed single-cell horizontal piece with an explicit local x extent, used for
@@ -245,6 +261,42 @@ func remove_structure(cell: Vector2i) -> String:
 		if gate_cells[i]["cell"] == cell:
 			gate_cells.remove_at(i)
 			return "door"
+	return ""
+
+# --- structure placement (Wall / Door tools) ---
+# Both ONLY mutate the source-of-truth arrays; the caller re-applies the map through MapIO so the
+# wall/gate nodes, lighting, floors and shadows rebuild consistently. Adding a wall that re-encloses
+# a room flips it back to indoors for free, the inverse of the erase-opens-a-room reclassification.
+
+# add a wall on `cell`. No-op (returns false) if a wall or door already occupies it, keeping one
+# structure per cell (the occupancy model). Ground under the wall is untouched (separate AREA layer).
+func add_wall(cell: Vector2i) -> bool:
+	if has_structure(cell):
+		return false
+	blocked_cells.append(cell)
+	return true
+
+# add a door on `cell` with `orientation` ("horizontal"/"vertical"). A wall already there becomes a
+# doorway (the wall is replaced, so a door and wall never share a cell). No-op if a door is already
+# on the cell. Returns whether anything changed.
+func add_door(cell: Vector2i, orientation: String) -> bool:
+	for g in gate_cells:
+		if g["cell"] == cell:
+			return false
+	blocked_cells.erase(cell) # a wall under the new door becomes a doorway
+	wall_colors.erase(cell)   # drop any tint stored for the replaced wall
+	gate_cells.append({"cell": cell, "orientation": orientation})
+	return true
+
+# orientation of the wall run through `cell`: "horizontal" if it has a horizontal wall/door
+# neighbour, "vertical" if a vertical one, "" if isolated (the caller falls back to its armed
+# default). A door embeds in the run it bridges, mirroring how walls auto-orient from neighbours
+# (see build_world): a door in a left-right wall line is "horizontal" (walked top-to-bottom).
+func wall_run_orientation(cell: Vector2i) -> String:
+	if has_structure(Vector2i(cell.x - 1, cell.y)) or has_structure(Vector2i(cell.x + 1, cell.y)):
+		return "horizontal"
+	if has_structure(Vector2i(cell.x, cell.y - 1)) or has_structure(Vector2i(cell.x, cell.y + 1)):
+		return "vertical"
 	return ""
 
 # --- wall colouring (per-cell tint over the stone) ---

@@ -41,9 +41,13 @@ const GRID_COLOR := Color(0.38, 0.64, 0.95, 0.4)
 #   FINE  - Fine Details: paint one 16px quarter.
 #   ERASE - remove topmost-first: click deletes the wall/door on the cell (structure layer) first,
 #           then a further click erases the floor material of the cell back to grass.
+#   WALL  - add a wall on the clicked cell; drag to draw a wall line. Re-enclosing a room flips it
+#           back to indoors (the inverse of ERASE opening a room), free via the MapIO rebuild.
+#   DOOR  - add a door on the clicked cell (a wall there becomes a doorway). Orientation auto-follows
+#           the wall run it bridges; R flips the default used when placing in open space.
 # Cell/Fine/Erase paint directly on click/drag; Wand builds a selection the menu then fills. See
-# ROADMAP "Authoring surface" (mode rename) and "Applying edits to a selection".
-enum Mode { WAND, CELL, FINE, ERASE }
+# ROADMAP "Authoring surface" (mode rename), "Applying edits to a selection" and "Wall editing".
+enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR }
 
 var textures := {
 	"wood": preload("res://floors/wood_floor.png"),
@@ -82,6 +86,7 @@ var _tool_kind := "floor"    # "floor" (paint _brush) or "wall" (colour with _wa
 var _brush := "wood"         # active floor material ("" = grass eraser)
 var _wall_color := Color.WHITE # active wall colour tint (white = natural / reset)
 var _mode: Mode = Mode.WAND  # active authoring mode (set by the tool strip)
+var _door_orient := "horizontal" # DOOR mode: orientation used when the cell has no wall run (R flips)
 var _painting := false       # true while the left button is held, for drag painting
 var _cursor: Node2D          # the Cell/Fine square paint cursor (see paint_cursor.gd)
 var _preview: Node2D         # the lifted terrain drop-preview sprite (see terrain_preview.gd)
@@ -195,6 +200,22 @@ func _unhandled_input(event: InputEvent) -> void:
 					_wand_click(local)
 					get_viewport().set_input_as_handled()
 			return
+		if _mode == Mode.DOOR:
+			# one click = one door = one undo entry (no drag: a dragged door line is rarely wanted)
+			if event.pressed:
+				_place_door_at(get_local_mouse_position())
+				get_viewport().set_input_as_handled()
+			return
+		if _mode == Mode.WALL:
+			# click-and-drag draws a wall line; the whole gesture is one undo entry
+			if event.pressed:
+				_painting = true
+				_place_wall_at(get_local_mouse_position())
+				get_viewport().set_input_as_handled()
+			elif _painting:
+				_painting = false
+				EditHistory.commit("wall")
+			return
 		# Cell / Fine / Erase: left-click and left-drag paint
 		if event.pressed:
 			# Erase removes the topmost structure (wall/door) first, as a single click; only once
@@ -216,11 +237,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		_update_hover()
 
 # Esc clears the current Magic Wand selection (also cleared by starting a new selection elsewhere).
+# R (in DOOR mode) flips the default door orientation used when placing in open space, so a door with
+# no wall run to embed in can still be laid either way (ROADMAP "directional placement (auto + R)").
 func _unhandled_key_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
-		if _selection.has_selection():
-			_clear_selection()
-			get_viewport().set_input_as_handled()
+	if not (event is InputEventKey) or not event.pressed or event.echo:
+		return
+	if event.keycode == KEY_ESCAPE and _selection.has_selection():
+		_clear_selection()
+		get_viewport().set_input_as_handled()
+	elif event.keycode == KEY_R and _mode == Mode.DOOR:
+		_door_orient = "vertical" if _door_orient == "horizontal" else "horizontal"
+		call_deferred("_update_hover")
+		get_viewport().set_input_as_handled()
 
 func _on_menu_id(id: int) -> void:
 	if id == GRID_ID:
@@ -427,6 +455,10 @@ func _update_hover() -> void:
 	if _mode == Mode.WAND:
 		_update_whole_hover(cell)
 		return
+	# Wall / Door placement: a green cell cursor marks where the structure will land
+	if _mode == Mode.WALL or _mode == Mode.DOOR:
+		_update_structure_placement_hover(cell)
+		return
 	# after a wall colour is picked, outline the single wall under the cursor
 	if _tool_kind == "wall":
 		_update_wall_hover(cell)
@@ -519,6 +551,10 @@ func _cell_quads(c: Vector2i) -> Array:
 # as a drag sweeps across the map.
 func _paint(local: Vector2, drop := false) -> void:
 	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	# Wall mode drag: draw a wall line (routed here via the shared _painting drag path)
+	if _mode == Mode.WALL:
+		_place_wall_at(local)
+		return
 	# after a wall colour was picked, a drag colours the walls it passes over
 	if _tool_kind == "wall":
 		_paint_wall(cell)
@@ -567,6 +603,54 @@ func _erase_structure_at(local: Vector2) -> bool:
 	_reset_highlight()
 	call_deferred("_update_hover") # re-detect the hover now the structure is gone
 	return true
+
+# Wall mode: add a wall on the clicked/dragged cell. add_wall no-ops on a cell that already holds a
+# structure, so a drag over existing walls (or a repeat within one cell) triggers no rebuild.
+func _place_wall_at(local: Vector2) -> void:
+	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	if not _in_bounds(cell):
+		return
+	var obs = get_node_or_null("../Obstacles")
+	if obs == null or not obs.add_wall(cell):
+		return
+	_reapply_map()
+
+# Door mode: add a door on the clicked cell, orienting it to the wall run it bridges (falling back to
+# the R-toggled default in open space). A wall on the cell becomes a doorway. One click = one undo.
+func _place_door_at(local: Vector2) -> void:
+	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	if not _in_bounds(cell):
+		return
+	var obs = get_node_or_null("../Obstacles")
+	if obs == null:
+		return
+	var orient: String = obs.wall_run_orientation(cell)
+	if orient == "":
+		orient = _door_orient
+	if not obs.add_door(cell, orient):
+		return
+	_reapply_map()
+	EditHistory.commit("door")
+
+# rebuild the level after a structure was added, through the same MapIO path erase/resize/load use,
+# so lighting, floors and shadows recompute together (a newly enclosed room turns indoors). Undo is
+# committed by the caller (per-gesture for walls, per-click for doors), not here.
+func _reapply_map() -> void:
+	_restore_faded()
+	MapIO.apply_serialized(MapIO.serialize(), true)
+	call_deferred("_update_hover")
+
+# Wall/Door placement hover: a plain green cell cursor over any in-bounds cell showing where the next
+# wall or door lands. No drop-preview sprite yet (walls/doors have no lifted tile art), just the cell.
+func _update_structure_placement_hover(cell: Vector2i) -> void:
+	_clear_room_hover()
+	_restore_faded()
+	_preview.hide_preview()
+	if not _in_bounds(cell):
+		_cursor.hide_cursor()
+		return
+	_cursor.set_erasing(false) # green add cursor
+	_cursor.show_rect(Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL))
 
 # set one quarter's material ("" erases it back to grass). Returns whether anything changed,
 # so a drag that stays inside the same quarter doesn't trigger a redundant rebuild.
