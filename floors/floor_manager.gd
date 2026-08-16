@@ -501,7 +501,8 @@ func _update_hover() -> void:
 		_restore_faded()
 		return
 	_fade_obstacles_at(cell)
-	_cursor.set_erasing(_mode == Mode.ERASE) # green while adding terrain, red while erasing
+	# terrain paint is a ground edit (orange); erase is destructive (red)
+	_cursor.set_role(PaintCursor.Role.ERASE if _mode == Mode.ERASE else PaintCursor.Role.GROUND)
 	if _mode == Mode.FINE:
 		var q := Vector2i(floori(local.x / HALF), floori(local.y / HALF))
 		var r := Rect2(q.x * HALF, q.y * HALF, HALF, HALF)
@@ -693,7 +694,7 @@ func _update_structure_placement_hover(cell: Vector2i) -> void:
 	if not _in_bounds(cell):
 		_cursor.hide_cursor()
 		return
-	_cursor.set_erasing(false) # green add cursor
+	_cursor.set_role(PaintCursor.Role.ADD) # green: placing a wall/door is additive
 	_cursor.show_rect(Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL))
 
 # set one quarter's material ("" erases it back to grass). Returns whether anything changed,

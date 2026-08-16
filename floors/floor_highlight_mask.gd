@@ -14,6 +14,14 @@ class_name FloorHighlightMask
 
 const MASK_BIT := 1 << 19
 
+# coloured-highlight palette (ROADMAP "Coloured highlight system"): the mask outline is tinted by
+# ACTION. show_floor uses GROUND (orange), show_walls uses WALLS (purple); callers may override (e.g.
+# a door would pass DOORS blue). Red stays the shader default for erase. Kept in sync with the square
+# paint_cursor's role colours. Blue (doors) and yellow (shadow) ship with those features.
+const GROUND := Color(0.95, 0.55, 0.15) # ground / terrain / floor edits
+const WALLS := Color(0.70, 0.45, 0.90)  # wall edits
+const DOORS := Color(0.30, 0.70, 0.95)  # door edits (reserved; doors aren't mask-highlighted yet)
+
 var _mask_vp: SubViewport
 var _key: Node2D      # floor key, below the walls (they occlude it, tracing visible floor)
 var _wall_key: Node2D # wall key, above the walls (highlights the wall geometry itself)
@@ -70,25 +78,34 @@ func _ready() -> void:
 	_overlay.add_child(rect)
 	add_child(_overlay)
 
-# show the highlight for a room's floor shape (interior cells + room-facing wall quads)
-func show_floor(cells: Dictionary, quads: Array) -> void:
+# apply an action colour to the outline shader (the coloured-highlight palette)
+func _set_color(c: Color) -> void:
+	if _mat:
+		_mat.set_shader_parameter("hl_color", c)
+
+# show the highlight for a room's floor shape (interior cells + room-facing wall quads). Ground
+# edits, so the outline is ORANGE unless the caller overrides (e.g. erase would pass red).
+func show_floor(cells: Dictionary, quads: Array, color: Color = GROUND) -> void:
 	if _key == null or not _key.is_inside_tree():
-		call_deferred("show_floor", cells, quads) # key is added deferred on the first frame
+		call_deferred("show_floor", cells, quads, color) # key is added deferred on the first frame
 		return
 	_key.set_shape(cells, quads)
 	if _wall_key and _wall_key.is_inside_tree():
 		_wall_key.set_shape({}, []) # floor and wall highlights are mutually exclusive
+	_set_color(color)
 	_activate()
 
 # show the wall highlight for a set of wall-piece rects (World-local coords). Only the wall
 # geometry lights up; ground and shadows are absent from the mask viewport, so they are excluded.
-func show_walls(rects: Array) -> void:
+# Wall edits, so the outline is PURPLE unless the caller overrides (e.g. a door would pass blue).
+func show_walls(rects: Array, color: Color = WALLS) -> void:
 	if _wall_key == null or not _wall_key.is_inside_tree():
-		call_deferred("show_walls", rects)
+		call_deferred("show_walls", rects, color)
 		return
 	_wall_key.set_shape({}, rects)
 	if _key and _key.is_inside_tree():
 		_key.set_shape({}, [])
+	_set_color(color)
 	_activate()
 
 func _activate() -> void:

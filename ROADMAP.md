@@ -48,10 +48,14 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
    built. The editor camera (pan/zoom/fit, Home to recenter) is DONE. **Contextual right-click menu
    DONE 2026-08-16** (see the As-built note under "Right-click menu overhaul"): the popup now shows
    only the section for the clicked target (Floor Textures on a floor cell, Wall Colour on a wall/door
-   cell), Grid stays regardless, and the floor heading is the descriptive "Floor Textures". Still to
-   do: the future "Floor Colours" tint submenu (ships with Coloured floors, item 7), wall *materials*
-   (item 7), and the rest of the coloured-highlight palette (orange/purple/blue/yellow). See
-   "Authoring surface", "Right-click menu overhaul" and "Coloured highlight system" as-built notes.
+   cell), Grid stays regardless, and the floor heading is the descriptive "Floor Textures".
+   **Coloured-highlight palette: orange (ground), purple (walls), green (add), red (erase) DONE
+   2026-08-16** on both hover surfaces (the mask outline shader + the square paint cursor); see the
+   "Coloured highlight system" as-built. Still to do: the future "Floor Colours" tint submenu (ships
+   with Coloured floors, item 7), wall *materials* (item 7), and the last two palette colours, **blue
+   (doors)** and **yellow (shadow)**, which each need an unbuilt feature (door-rect highlight; shadow
+   toggle). See "Authoring surface", "Right-click menu overhaul" and "Coloured highlight system"
+   as-built notes.
 5. **Terrain placement UX (select, then hover-preview, then click-to-drop). DONE 2026-08-16.**
    Selecting a terrain no longer auto-places; it arms a brush that shows a lifted preview sprite over
    the hovered cell and drops with an animation on click. Highlights clear when the cursor leaves the
@@ -1593,9 +1597,27 @@ affected edge row/column: **green** for the will-be-added band (drawn just outsi
 void) and **red** for the will-be-removed edge band. The tool strip drives it on button hover.
 Verified via the capture harness `GQ_EDGEBAND="left:add"` on a fitted map. **Marching-ants for the
 Magic Wand is now DONE** (`floors/selection_overlay.gd`; see the Authoring surface as-built note).
-Still to do: orange (ground recolour of the existing floor mask), purple (walls), blue/cyan (doors),
-and yellow (shadow). This edge band and the ants are plain `_draw`; the room/wall *hover* highlights
-stay on the FloorHighlightMask shader path, whose colour becomes a per-action parameter.
+This edge band and the ants are plain `_draw`; the room/wall *hover* highlights stay on the
+FloorHighlightMask shader path, whose colour is now a per-action parameter (below).
+
+**As-built (2026-08-16): ORANGE (ground), PURPLE (walls), GREEN (add), RED (erase) done for the
+hover highlights.** The palette colour is now driven by the active action on both hover surfaces.
+- **Mask outline (`floors/floor_outline.gdshader` + `floor_highlight_mask.gd`).** The shader gained a
+  `hl_color` uniform (default red preserved) applied at the edge (solid) and fill (low) alphas.
+  `show_floor` sets it **orange** (ground edits), `show_walls` sets it **purple** (wall edits); both
+  take an optional colour override, so a door will pass **blue** (`DOORS`) once doors are
+  mask-highlighted. Palette constants `GROUND`/`WALLS`/`DOORS` live on `FloorHighlightMask`.
+- **Square paint cursor (`floors/paint_cursor.gd`, now `class_name PaintCursor`).** `set_erasing(bool)`
+  became `set_role(Role)` with three roles: **GROUND** (orange, terrain/floor paint), **ADD** (green,
+  additive placement of walls/doors/objects), **ERASE** (red, destructive). Terrain paint reads as a
+  ground edit (orange), not "adding" (green) which the spec reserves for placing structures/objects.
+  `floor_manager.gd` picks GROUND vs ERASE for Cell/Fine paint, and ADD for Wall/Door placement.
+- **Verified** headless by `dev/test_highlight_color.gd` / `.tscn` (7 checks): show_floor→orange,
+  show_walls→purple, the override→blue reach the shader `hl_color`, and the three cursor roles map to
+  the right colours; erase/undo/context-menu tests still pass.
+- **Still to do:** blue/cyan for **doors** (needs a door-rect mask highlight, not yet built) and
+  yellow for the **shadow** toggle (needs the shadow/lighting toggle, item 7 area). Green already
+  covers edge-add (the EdgeHighlight band) and structure placement.
 
 Replace the single red hover highlight with a **colour-coded highlight** that tells the user what
 kind of action they are about to take. Final palette (all confirmed with the user 2026-08-16):
