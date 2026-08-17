@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bidach16olvee"]
+
+[ext_resource type="Script" path="res://dev/test_box_select.gd" id="1"]
+
+[node name="TestBoxSelect" type="Node"]
+script = ExtResource("1")

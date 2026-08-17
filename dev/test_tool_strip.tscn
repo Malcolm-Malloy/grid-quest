@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bidsb7ulwy2ae"]
+
+[ext_resource type="Script" path="res://dev/test_tool_strip.gd" id="1"]
+
+[node name="TestToolStrip" type="Node"]
+script = ExtResource("1")

@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://tvvb85rtxtto"]
+
+[ext_resource type="Script" path="res://dev/test_highlight_color.gd" id="1"]
+
+[node name="TestHighlightColor" type="Node"]
+script = ExtResource("1")

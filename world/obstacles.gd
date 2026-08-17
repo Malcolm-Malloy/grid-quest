@@ -40,6 +40,10 @@ var gate_script: Script
 # per-cell wall colour (tint over the stone). Only non-white cells are stored; MapIO persists it.
 var wall_colors := {} # Vector2i cell -> Color
 
+# per-cell wall material (which face/cap texture pair). Only non-"stone" cells are stored (stone is
+# the default); MapIO persists it. Parallel to and independent of wall_colors.
+var wall_materials := {} # Vector2i cell -> String ("wood" / "slate"; "stone" = default = unstored)
+
 func _ready() -> void:
 	add_to_group("obstacles") # so MapIO can find the world root to save/rebuild
 	wall_segment_script = load("res://world/wall_segment.gd")
@@ -143,6 +147,7 @@ func build_world() -> void:
 	# colour the freshly spawned walls once they are actually in the tree (they were added
 	# deferred above, so this deferred call runs after them)
 	_apply_wall_colors.call_deferred()
+	_apply_wall_materials.call_deferred()
 
 # Builds the whole structure's shadow, once, after the map is known. Rather than one
 # polygon per cell (which overlap and read as layered pieces), it casts ONE shadow
@@ -265,6 +270,7 @@ func remove_structure(cell: Vector2i) -> String:
 	if blocked_cells.has(cell):
 		blocked_cells.erase(cell)
 		wall_colors.erase(cell) # drop any tint stored for the gone wall
+		wall_materials.erase(cell) # ...and its material
 		return "wall"
 	for i in gate_cells.size():
 		if gate_cells[i]["cell"] == cell:
@@ -294,6 +300,7 @@ func add_door(cell: Vector2i, orientation: String) -> bool:
 			return false
 	blocked_cells.erase(cell) # a wall under the new door becomes a doorway
 	wall_colors.erase(cell)   # drop any tint stored for the replaced wall
+	wall_materials.erase(cell) # ...and its material
 	gate_cells.append({"cell": cell, "orientation": orientation, "open": false, "swing": false})
 	return true
 
@@ -455,3 +462,44 @@ func apply_wall_colors(list: Array) -> void:
 	for a in list:
 		wall_colors[Vector2i(int(a[0]), int(a[1]))] = Color(a[2], a[3], a[4])
 	_apply_wall_colors()
+
+# --- wall materials (per-cell face/cap texture pair; parallel to wall colours above) ---
+
+func get_wall_material(cell: Vector2i) -> String:
+	return wall_materials.get(cell, "stone")
+
+# set one wall cell's material ("stone" resets it to the default and drops the entry)
+func set_wall_material(cell: Vector2i, material: String) -> void:
+	if material == "stone":
+		wall_materials.erase(cell)
+	else:
+		wall_materials[cell] = material
+	_apply_wall_materials()
+
+# set the material of every wall of the building `cell` belongs to
+func material_building(cell: Vector2i, material: String) -> void:
+	_material_cells(building_cells(cell), material)
+
+func _material_cells(cells: Dictionary, material: String) -> void:
+	for c in cells:
+		if material == "stone":
+			wall_materials.erase(c)
+		else:
+			wall_materials[c] = material
+	_apply_wall_materials()
+
+# push wall_materials onto the spawned wall segments so they redraw with their materials
+func _apply_wall_materials() -> void:
+	for w in get_tree().get_nodes_in_group("walls"):
+		var mats: Array = []
+		for c in w.cells():
+			mats.append(get_wall_material(c))
+		w.cell_materials = mats
+		w.queue_redraw()
+
+# replace all wall materials from a saved list of [cx, cy, name] (used by MapIO on load)
+func apply_wall_materials(list: Array) -> void:
+	wall_materials.clear()
+	for a in list:
+		wall_materials[Vector2i(int(a[0]), int(a[1]))] = String(a[2])
+	_apply_wall_materials()

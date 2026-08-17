@@ -32,6 +32,14 @@ const HALF := 16 # a quarter is 16px; a cell is four independently-set quarters
 
 # reference grid: a distinct-but-restrained blue, toggled from the menu (off by default)
 const GRID_ID := 100
+# right-click-menu ACTION ids (single items, not swatch ranges). All < 300 so they are matched by
+# explicit equality in _on_menu_id BEFORE the range branches (and before the MENU-index fallthrough).
+const ERASE_ID := 101       # erase the selection if one exists, else the clicked target
+const BUILD_WALL_ID := 102  # build a wall on the clicked (empty) cell
+const BUILD_DOOR_ID := 103  # build a door on the clicked (empty) cell
+const DOOR_FLIP_ID := 104   # flip a door's orientation
+const DOOR_OPEN_ID := 105   # toggle a door's open-by-default
+const DOOR_SWING_ID := 106  # toggle a door's swing side
 const GRID_COLOR := Color(0.38, 0.64, 0.95, 0.4)
 
 # authoring modes, selected from the persistent tool strip (ui/tool_strip.gd), no longer the popup:
@@ -48,18 +56,46 @@ const GRID_COLOR := Color(0.38, 0.64, 0.95, 0.4)
 #   SELECT- click a door or wall to load it into the properties inspector (no map edit itself).
 # Cell/Fine/Erase paint directly on click/drag; Wand builds a selection the menu then fills. See
 # ROADMAP "Authoring surface" (mode rename), "Applying edits to a selection" and "Wall editing".
-enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR, SELECT }
+enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR, SELECT, BOX }
 
+# each material maps to an ARRAY of pattern variants (index 0 = default, matches the pre-pattern
+# single texture). The active pattern per quarter is stored in _quad_pattern (parallel to _quad_mat /
+# _quad_tint), so pattern is an axis distinct from material and colour. A stale pattern index (e.g. a
+# quarter that was herringbone wood, then painted concrete) is clamped to the material's range at draw.
 var textures := {
-	"wood": preload("res://floors/wood_floor.png"),
-	"concrete": preload("res://floors/concrete_floor.png"),
-	"tile": preload("res://floors/tile_floor.png"),
-	"carpet": preload("res://floors/carpet_floor.png"),
+	"wood": [preload("res://floors/wood_floor.png"), preload("res://floors/wood_diagonal.png")],
+	"concrete": [preload("res://floors/concrete_floor.png")],
+	"tile": [preload("res://floors/tile_floor.png"), preload("res://floors/tile_diamond.png")],
+	"carpet": [preload("res://floors/carpet_floor.png"), preload("res://floors/carpet_argyle.png")],
 }
+# human names for each material's pattern variants, aligned by index with `textures`. Drives the
+# per-material Pattern submenu (rebuilt per right-click from the clicked quarter's material).
+const PATTERN_NAMES := {
+	"wood": ["Planks", "Diagonal"],
+	"concrete": ["Plain"],
+	"tile": ["Square", "Diamond"],
+	"carpet": ["Solid", "Argyle"],
+}
+# the grass base, so a quarter that carries a floor TINT but no material still draws (a tinted
+# patch of grass): _rebuild emits it as a tinted grass fill. Matches grid_background/shadow_manager.
+const GRASS := preload("res://world/ground_grass.png")
 
 # popup id -> [label, material]; "" is the grass base (the eraser)
 const MENU := [
 	["Grass", ""], ["Wood", "wood"], ["Concrete", "concrete"], ["Tile", "tile"], ["Carpet", "carpet"],
+]
+
+# floor patterns: a per-quarter pattern index into the material's `textures` variant array, separate
+# from the colour tint. Menu id is PATTERN_BASE_ID + index. Base is 700 so it sits above every other
+# id range and is matched FIRST in _on_menu_id. The submenu is rebuilt per right-click (material-aware).
+const PATTERN_BASE_ID := 700
+
+# wall materials (the face/cap texture pair, separate from the colour tint). Stone is the default.
+# Menu id is WALL_MAT_BASE_ID + index. Base is 600 so it sits above every other id range (floor 0-4,
+# scopes 200+, walls 300+, floor colours 400+, picker 500), and is matched BEFORE them in _on_menu_id.
+const WALL_MAT_BASE_ID := 600
+const WALL_MATERIALS := [
+	["Stone", "stone"], ["Wood", "wood"], ["Slate", "slate"],
 ]
 
 # wall colours (a tint over the stone). Natural = white = reset. Menu id is WALL_BASE_ID + index.
@@ -74,28 +110,78 @@ const WALL_COLORS := [
 	["Purple", Color(0.66, 0.45, 0.8)],
 ]
 
+# floor colours: a multiply TINT over whatever texture (or grass) is at the quarter, parallel to
+# WALL_COLORS. Natural = white = reset (erases the tint). Menu id is FLOOR_COLOR_BASE_ID + index.
+# Slice 1 = the 8 fixed "fun" swatches; slice 2 adds the full colour PICKER (arbitrary tint, below).
+# Still deferred: the 8 material-aware swatches (a per-material colour table; wants a design pass).
+# The colour values match WALL_COLORS where they overlap so the two palettes read as one system.
+const FLOOR_COLOR_BASE_ID := 400
+const FLOOR_PICKER_ID := 500 # "Custom..." opens the colour picker; checked before the 400+ swatches
+const FLOOR_COLORS := [
+	["Natural", Color.WHITE],
+	["Red", Color(0.85, 0.3, 0.28)],
+	["Orange", Color(0.9, 0.58, 0.3)],
+	["Yellow", Color(0.9, 0.82, 0.35)],
+	["Green", Color(0.42, 0.72, 0.42)],
+	["Blue", Color(0.4, 0.55, 0.85)],
+	["Purple", Color(0.66, 0.45, 0.8)],
+	["Pink", Color(0.9, 0.55, 0.7)],
+	["Grey", Color(0.55, 0.55, 0.58)],
+]
+
 @onready var room_light = get_node("../RoomLight")
 
 # Storage is per 16px quarter: _quad_mat is the SOURCE OF TRUTH (what MapIO saves). Everything
 # else is derived in _rebuild. A room fill (set_room_style) just writes all four quarters of every
 # cell in the room, so nothing built on the old per-room model breaks.
 var _quad_mat := {}   # quarter coord (Vector2i, 16px grid) -> material name; the whole floor
-var _base_fills: Array = [] # [Rect2, Texture2D], one per painted quarter (derived from _quad_mat)
+var _quad_tint := {}  # quarter coord (Vector2i, 16px grid) -> Color; a multiply tint over the floor.
+					  # Parallel to _quad_mat and also SOURCE OF TRUTH (MapIO saves it). White/absent
+					  # = no tint. A quarter may carry a tint with no material (a tinted grass patch).
+var _quad_pattern := {} # quarter coord (Vector2i, 16px grid) -> int pattern index into the material's
+					  # `textures` variant array. Parallel to _quad_mat and also SOURCE OF TRUTH (MapIO
+					  # saves it). Absent / 0 = the default pattern. Only meaningful with a material.
+var _base_fills: Array = [] # [Rect2, Texture2D, Color], one per painted/tinted quarter (from _quad_mat/_quad_tint)
 var _menu: PopupMenu
 var _pending := Vector2.ZERO # local (World-space) position of the last right-click, for the menu
-var _tool_kind := "floor"    # "floor" (paint _brush) or "wall" (colour with _wall_color)
+var _tool_kind := "floor"    # "floor" (paint _brush), "wall" (colour _wall_color), "wall_mat" (material
+							 # _wall_mat) or "floor_color" (tint _floor_color)
 var _brush := "wood"         # active floor material ("" = grass eraser)
+var _armed := false          # Cell/Fine only: is a material armed to drop? Cleared on entering Cell/
+							 # Fine so the mode never starts placeable; set true when a material is picked
+							 # from the Floor Textures menu. Until then Cell/Fine show no drop-preview and
+							 # a click places nothing (the user selects a material first).
 var _wall_color := Color.WHITE # active wall colour tint (white = natural / reset)
+var _wall_mat := "stone"     # active wall material ("stone" = default)
+var _pattern := 0            # active floor pattern index (for the "pattern" tool drag)
+# Build Wall brush: the colour + material that Wall-mode placement stamps onto each wall it lays, set
+# via the "Build Wall" configurator submenu (ROADMAP "Build Wall configurator flow"). White/stone =
+# natural, so the plain Wall tool is unchanged until the brush is configured.
+var _wall_brush_color := Color.WHITE
+var _wall_brush_mat := "stone"
+var _build_wall_sub: PopupMenu # the Build Wall configurator (colour + material + Start), built in _ready
+var _floor_color := Color.WHITE # active floor tint (white = natural / reset the tint)
+var _picker_popup: PopupPanel   # the "Custom..." floor-colour picker popup
+var _color_picker: ColorPicker  # its ColorPicker (live-previews the tint as you drag)
+var _picker_applied := false    # a preview was applied during the current picker session (commit on close)
+var _suppress_picker := false   # guard so setting the picker's start colour doesn't count as an edit
 var _mode: Mode = Mode.WAND  # active authoring mode (set by the tool strip)
 var _door_orient := "horizontal" # DOOR mode: orientation used when the cell has no wall run (R flips)
 var _painting := false       # true while the left button is held, for drag painting
+# Box-select (Mode.BOX): drag a rectangle to select every quarter inside it, regardless of material or
+# room. Combines with the current selection per the drag-start modifier (Shift add / Alt subtract).
+var _box_active := false      # true while a box drag is in progress
+var _box_start := Vector2i.ZERO # the cell the drag began on
+var _box_op := "replace"      # "replace" / "add" / "subtract", captured from the modifier at press
+var _box_base := {}           # selection quads snapshot at drag start (the base add/subtract build on)
 var _cursor: Node2D          # the Cell/Fine square paint cursor (see paint_cursor.gd)
 var _preview: Node2D         # the lifted terrain drop-preview sprite (see terrain_preview.gd)
 var _selection: Node2D       # marching-ants selection overlay (see selection_overlay.gd)
 var _mouse_inside := true    # false while the OS cursor is off the game window; hides all highlights
 # Magic Wand selection state, so a repeat click on the same selection grows its scope:
 var _sel_kind := ""          # "" none, "floor" (quarters) or "wall" (cells)
-var _sel_quads := {}         # floor selection: quarter Vector2i (16px grid) -> true
+var _sel_quads := {}         # floor selection FILL set: quarter Vector2i (16px grid) -> true (incl. the
+							 # under-wall ring for fills; the overlay subtracts wall sprites for display)
 var _sel_cells := {}         # wall selection: cell Vector2i (32px grid) -> true
 var _sel_level := 0          # grow level: floor 1=patch 2=room; wall 1=run 2=building
 var _faded: Array = []       # [node, original_modulate] of obstacles dimmed under the cursor
@@ -104,7 +190,8 @@ var _grid_on := false
 const INVALID_CELL := Vector2i(-9999, -9999) # "no cell" sentinel for the dedupe trackers below
 var _hover_cell := INVALID_CELL   # raw mouse cell last seen (room-mask dedupe)
 var _wall_hover := INVALID_CELL   # wall cell currently highlighted (dedupe)
-var _whole_hover := INVALID_CELL  # cell the combined Whole highlight is for (dedupe)
+var _whole_hover_key := ""        # descriptor of the current Whole highlight target (sub-cell dedupe):
+								  # "w:<cell>" a building, "r:<cell>" a room, "" nothing
 
 # the hover highlight is drawn by the mask system (FloorHighlightMask): we just detect which
 # room the mouse is over and hand it that room's floor shape; it renders the pixel-exact fill
@@ -120,13 +207,15 @@ func _ready() -> void:
 	# Floor materials and wall colours sit in submenus so the top menu stays short (a flat list
 	# of all of them plus scopes overflowed the screen). Submenu items share _on_menu_id since
 	# every id is namespaced (floor 0-4, walls 300+, scopes 200+, grid 100).
+	# The two section submenus are built once as children of _menu. The TOP-LEVEL items are (re)built
+	# per right-click in _apply_menu_context so only the section for the clicked target shows (Godot's
+	# PopupMenu has no set_item_hidden, so contextual = rebuild the top level). See ROADMAP item 4.
 	var floor_sub := PopupMenu.new()
 	floor_sub.name = "floor_sub"
 	for i in MENU.size():
 		floor_sub.add_item(MENU[i][0], i)
 	floor_sub.id_pressed.connect(_on_menu_id)
 	_menu.add_child(floor_sub)
-	_menu.add_submenu_item("Floor", "floor_sub")
 
 	var wall_sub := PopupMenu.new()
 	wall_sub.name = "wall_sub"
@@ -134,12 +223,74 @@ func _ready() -> void:
 		wall_sub.add_item(WALL_COLORS[i][0], WALL_BASE_ID + i)
 	wall_sub.id_pressed.connect(_on_menu_id)
 	_menu.add_child(wall_sub)
-	_menu.add_submenu_item("Wall Colour", "wall_sub")
 
-	# mode selection lives on the tool strip now, so the popup is purely contextual: materials,
-	# wall colours and the grid toggle. It fills the active selection when one exists.
-	_menu.add_separator()
-	_menu.add_check_item("Grid", GRID_ID)
+	# Wall Material: the face/cap texture swap (Stone/Wood/Slate), shown beside Wall Colour on a
+	# structure cell. Ids namespaced at WALL_MAT_BASE_ID+, routed through the shared _on_menu_id.
+	var wall_mat_sub := PopupMenu.new()
+	wall_mat_sub.name = "wall_mat_sub"
+	for i in WALL_MATERIALS.size():
+		wall_mat_sub.add_item(WALL_MATERIALS[i][0], WALL_MAT_BASE_ID + i)
+	wall_mat_sub.id_pressed.connect(_on_menu_id)
+	_menu.add_child(wall_mat_sub)
+
+	# Pattern: a MATERIAL-AWARE submenu shown beside Floor Textures/Colours on a floor cell. Its items
+	# are rebuilt per right-click from the clicked quarter's material (see _apply_menu_context), so it
+	# lists that material's pattern variants (e.g. wood -> Planks/Diagonal). Ids namespaced at
+	# PATTERN_BASE_ID+, routed through the shared _on_menu_id.
+	var pattern_sub := PopupMenu.new()
+	pattern_sub.name = "pattern_sub"
+	pattern_sub.id_pressed.connect(_on_menu_id)
+	_menu.add_child(pattern_sub)
+
+	# Door: shown on a door cell (rebuilt per right-click from the door's state, see
+	# _rebuild_door_submenu). Mirrors the inspector's door controls. Ids are the DOOR_* action ids.
+	var door_sub := PopupMenu.new()
+	door_sub.name = "door_sub"
+	door_sub.id_pressed.connect(_on_menu_id)
+	_menu.add_child(door_sub)
+
+	# Build Wall configurator: pick a colour + material (radio checkables that KEEP the menu open), then
+	# "Start Building" arms a draggable wall brush and closes. Local id scheme (colour i, material 100+j,
+	# start 999), routed to _on_build_wall_id, NOT _on_menu_id, so it needs no global id range.
+	var build_wall_sub := PopupMenu.new()
+	build_wall_sub.name = "build_wall_sub"
+	build_wall_sub.hide_on_checkable_item_selection = false # picking colour/material keeps it open
+	build_wall_sub.add_separator("Colour")
+	for i in WALL_COLORS.size():
+		build_wall_sub.add_radio_check_item(WALL_COLORS[i][0], i)
+	build_wall_sub.add_separator("Material")
+	for j in WALL_MATERIALS.size():
+		build_wall_sub.add_radio_check_item(WALL_MATERIALS[j][0], 100 + j)
+	build_wall_sub.add_separator()
+	build_wall_sub.add_item("Start Building (drag to place)", 999)
+	build_wall_sub.id_pressed.connect(_on_build_wall_id)
+	_menu.add_child(build_wall_sub)
+	_build_wall_sub = build_wall_sub
+	_sync_build_wall_checks() # show the current brush as checked
+
+	# Floor Colours: a tint submenu shown beside Floor Textures on a floor cell (the two share the
+	# floor-cell branch of _apply_menu_context). Ids are namespaced (FLOOR_COLOR_BASE_ID+), so it
+	# routes through the same _on_menu_id like the other submenus.
+	var floor_color_sub := PopupMenu.new()
+	floor_color_sub.name = "floor_color_sub"
+	for i in FLOOR_COLORS.size():
+		floor_color_sub.add_item(FLOOR_COLORS[i][0], FLOOR_COLOR_BASE_ID + i)
+	floor_color_sub.add_separator()
+	floor_color_sub.add_item("Custom...", FLOOR_PICKER_ID) # opens the full colour picker
+	floor_color_sub.id_pressed.connect(_on_menu_id)
+	_menu.add_child(floor_color_sub)
+
+	# the "Custom..." floor-colour picker: a ColorPicker in a popup that live-previews the tint on the
+	# clicked target as you drag, committing one undo entry when it closes (see _open_floor_picker).
+	_picker_popup = PopupPanel.new()
+	_color_picker = ColorPicker.new()
+	_color_picker.edit_alpha = false # tints are opaque multiplies; alpha would just dim confusingly
+	_color_picker.custom_minimum_size = Vector2(280, 0)
+	_picker_popup.add_child(_color_picker)
+	_color_picker.color_changed.connect(_on_floor_picker_changed)
+	_picker_popup.popup_hide.connect(_on_floor_picker_closed)
+	add_child(_picker_popup)
+
 	_menu.id_pressed.connect(_on_menu_id)
 	add_child(_menu)
 	# the Cell/Fine square paint cursor; Wand uses the mask preview + selection overlay instead
@@ -185,21 +336,64 @@ func _process(_delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 		var local := get_local_mouse_position()
-		if not _in_bounds(Vector2i(floori(local.x / CELL), floori(local.y / CELL))):
+		var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+		# Cell/Fine: a right-click while a material is armed just cancels the brush (removes the floating
+		# drop-preview graphic), no menu. A second right-click (now un-armed) opens the menu as usual.
+		# See ROADMAP "Editor UX revisions" -> right-click disarms in Cell/Fine.
+		if (_mode == Mode.CELL or _mode == Mode.FINE) and _armed:
+			_armed = false
+			_preview.hide_preview() # drop the lifted tile immediately (the square cursor stays)
+			get_viewport().set_input_as_handled()
+			return
+		# a right-click off the map, or off the current selection, deselects (rather than opening the
+		# menu). A right-click INSIDE the selection falls through to open the menu, so it can still act
+		# on the selection. See ROADMAP "Editor UX revisions" -> deselect a Wand selection.
+		if _selection.has_selection() and (not _in_bounds(cell) or not _click_in_selection(local)):
+			_clear_selection()
+			get_viewport().set_input_as_handled()
+			return
+		if not _in_bounds(cell):
 			return # right-clicked off the map
 		_pending = local
-		_menu.set_item_checked(_menu.get_item_index(GRID_ID), _grid_on)
+		_apply_menu_context(cell) # rebuilds the top level for the clicked target + sets Grid's check
 		_menu.position = Vector2i(get_viewport().get_mouse_position())
+		_menu.reset_size() # re-fit after the rebuild so the popup isn't sized for a stale menu
 		_menu.popup()
 		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		# clicking off the map deselects the current selection (any mode), per "Editor UX revisions"
+		# -> deselect a Wand selection ("clicking off the map would logically deselect").
+		if event.pressed and _selection.has_selection():
+			var lc := get_local_mouse_position()
+			if not _in_bounds(Vector2i(floori(lc.x / CELL), floori(lc.y / CELL))):
+				_clear_selection()
+				get_viewport().set_input_as_handled()
+				return
 		if _mode == Mode.WAND:
-			# the wand selects (click to grow); it never paints directly
+			# the wand selects (click to grow); it never paints directly. Shift adds / Alt subtracts,
+			# per "Editor UX revisions" -> additive/subtractive selection.
 			if event.pressed:
 				var local := get_local_mouse_position()
 				if _in_bounds(Vector2i(floori(local.x / CELL), floori(local.y / CELL))):
-					_wand_click(local)
+					_wand_click(local, _sel_op(event))
 					get_viewport().set_input_as_handled()
+			return
+		if _mode == Mode.BOX:
+			# drag a rectangle: press starts it, motion (below) grows it, release finalizes. The modifier
+			# at press decides replace / add / subtract against the current selection.
+			if event.pressed:
+				var local := get_local_mouse_position()
+				var cell := _clamp_cell(Vector2i(floori(local.x / CELL), floori(local.y / CELL)))
+				if _in_bounds(cell):
+					_box_active = true
+					_box_start = cell
+					_box_op = _sel_op(event)
+					_box_base = _sel_quads.duplicate() if (_sel_kind == "floor" and _box_op != "replace") else {}
+					_update_box(cell)
+					get_viewport().set_input_as_handled()
+			elif _box_active:
+				_box_active = false # selection already committed into _sel_quads during the drag
+				get_viewport().set_input_as_handled()
 			return
 		if _mode == Mode.SELECT:
 			# selecting an object never edits the map; it loads the inspector. No drag.
@@ -241,6 +435,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion:
 		if _painting:
 			_paint(get_local_mouse_position())
+		elif _box_active:
+			var l := get_local_mouse_position()
+			_update_box(_clamp_cell(Vector2i(floori(l.x / CELL), floori(l.y / CELL))))
 		_update_hover()
 
 # Esc clears the current Magic Wand selection (also cleared by starting a new selection elsewhere).
@@ -252,31 +449,169 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if event.keycode == KEY_ESCAPE and _selection.has_selection():
 		_clear_selection()
 		get_viewport().set_input_as_handled()
+	elif event.keycode == KEY_DELETE and _selection.has_selection():
+		# Delete erases the current selection (ROADMAP "Editor UX revisions" -> Erase = also the Delete key)
+		_erase_selection()
+		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_R and _mode == Mode.DOOR:
 		_door_orient = "vertical" if _door_orient == "horizontal" else "horizontal"
 		call_deferred("_update_hover")
 		get_viewport().set_input_as_handled()
+
+# contextual right-click menu: rebuild the top level so ONLY the section for what was clicked shows.
+# A wall/door cell (the structure layer) gets the Wall Colour submenu; any other cell is floor, so
+# gets Floor Textures (descriptive heading, kept distinct from the future "Floor Colours" tint). The
+# Grid toggle is a tool setting and stays regardless. PopupMenu has no set_item_hidden in Godot 4, so
+# contextual visibility = clear + re-add the relevant items each right-click.
+func _apply_menu_context(cell: Vector2i) -> void:
+	var obs = get_node_or_null("../Obstacles")
+	var is_door: bool = obs != null and not obs.door_at(cell).is_empty()
+	var is_wall: bool = obs != null and obs.is_blocked(cell) # a real wall (doors are not blocked)
+	_menu.clear()
+	# structure section: a DOOR gets Door options; a WALL gets Wall Colour + Material (ROADMAP "Editor
+	# UX revisions" -> Wall/Door contextual menu: walls show Wall + Terrain, doors show Door + Terrain).
+	if is_door:
+		_rebuild_door_submenu(cell)
+		_menu.add_submenu_item("Door", "door_sub")
+	elif is_wall:
+		_menu.add_submenu_item("Wall Colour", "wall_sub")
+		_menu.add_submenu_item("Wall Material", "wall_mat_sub")
+	# terrain section: the ground under a wall/door is editable, so the Floor submenus now show on EVERY
+	# cell (the "terrain option" the notes ask for on walls and doors), not only on bare floor cells.
+	_menu.add_submenu_item("Floor Textures", "floor_sub")
+	_menu.add_submenu_item("Floor Colours", "floor_color_sub")
+	_maybe_add_pattern()
+	_menu.add_separator()
+	# action section: Build Wall/Door on an empty cell (ROADMAP "Editor UX revisions" -> Wall/Door into
+	# the menu), and Erase everywhere (acts on the selection if one exists, else the clicked target).
+	if not (is_door or is_wall):
+		_menu.add_submenu_item("Build Wall", "build_wall_sub") # configurator: colour + material, then Start
+		_menu.add_item("Build Door", BUILD_DOOR_ID)
+	_menu.add_item("Erase", ERASE_ID)
+	_menu.add_separator()
+	_menu.add_check_item("Grid", GRID_ID)
+	_menu.set_item_checked(_menu.get_item_index(GRID_ID), _grid_on)
+
+# add the material-aware Pattern submenu for the clicked quarter's material, when that material has more
+# than one variant (grass/none has none). Rebuilt each right-click. Shared by every cell's terrain section.
+func _maybe_add_pattern() -> void:
+	var pq := Vector2i(floori(_pending.x / HALF), floori(_pending.y / HALF))
+	var mat: String = _quad_mat.get(pq, "")
+	var variants: int = textures[mat].size() if textures.has(mat) else 0
+	if variants > 1:
+		var psub: PopupMenu = _menu.get_node("pattern_sub")
+		psub.clear()
+		var names: Array = PATTERN_NAMES.get(mat, [])
+		for i in variants:
+			psub.add_item(names[i] if i < names.size() else "Pattern %d" % (i + 1), PATTERN_BASE_ID + i)
+		_menu.add_submenu_item("Pattern", "pattern_sub")
+
+# rebuild the Door submenu from the door on `cell` (state-reflecting check items, like the inspector)
+func _rebuild_door_submenu(cell: Vector2i) -> void:
+	var obs = get_node_or_null("../Obstacles")
+	var d: Dictionary = obs.door_at(cell) if obs != null else {}
+	var ds: PopupMenu = _menu.get_node("door_sub")
+	ds.clear()
+	ds.add_item("Flip Orientation", DOOR_FLIP_ID)
+	ds.add_check_item("Open by default", DOOR_OPEN_ID)
+	ds.set_item_checked(ds.get_item_index(DOOR_OPEN_ID), bool(d.get("open", false)))
+	ds.add_check_item("Swing (alt side)", DOOR_SWING_ID)
+	ds.set_item_checked(ds.get_item_index(DOOR_SWING_ID), bool(d.get("swing", false)))
 
 func _on_menu_id(id: int) -> void:
 	if id == GRID_ID:
 		set_grid(not _grid_on)
 		return
 	var cell := Vector2i(floori(_pending.x / CELL), floori(_pending.y / CELL))
+	# action items (all < 300, matched here before the swatch-range branches and the MENU fallthrough)
+	if id == ERASE_ID:
+		_menu_erase(cell)
+		return
+	if id == BUILD_WALL_ID:
+		var obsw = get_node_or_null("../Obstacles")
+		if obsw != null and obsw.add_wall(cell):
+			_reapply_map()
+			EditHistory.commit("wall")
+		_reset_highlight()
+		return
+	if id == BUILD_DOOR_ID:
+		_place_door_at(_pending) # commits internally, no-ops if a door is already there
+		_reset_highlight()
+		return
+	if id == DOOR_FLIP_ID or id == DOOR_OPEN_ID or id == DOOR_SWING_ID:
+		_edit_door(cell, id)
+		return
+	if id >= PATTERN_BASE_ID:
+		# a floor pattern. Mirrors the floor-tint branch: apply to the active floor selection, else the
+		# clicked target at the current grain (Wand -> room, Cell -> cell, Fine -> quarter). Arms
+		# _tool_kind = "pattern" so a left-drag keeps applying it (see _paint -> _paint_floor_pattern).
+		_tool_kind = "pattern"
+		_pattern = id - PATTERN_BASE_ID
+		if _apply_floor_pattern(_pattern):
+			_rebuild()
+			EditHistory.commit("floor pattern") # one menu apply = one undo step
+		_reset_highlight()
+		return
+	if id >= WALL_MAT_BASE_ID:
+		# a wall material. Mirrors the wall-colour branch below: fill the active wall selection if one
+		# exists; otherwise material the wall under the click (whole building in Wand, single segment in
+		# Cell/Fine). Arms _tool_kind = "wall_mat" so a left-drag keeps applying it (see _paint).
+		_tool_kind = "wall_mat"
+		_wall_mat = WALL_MATERIALS[id - WALL_MAT_BASE_ID][1]
+		var did_mat := false
+		if _sel_kind == "wall" and _selection.has_selection():
+			_fill_wall_material_selection(_wall_mat)
+			did_mat = true
+		else:
+			var obs_m = get_node_or_null("../Obstacles")
+			# is_blocked (a real wall), not has_structure: doors keep stone (their own art), so on a
+			# door this is a no-op.
+			if obs_m != null and obs_m.is_blocked(cell):
+				if _mode == Mode.WAND:
+					obs_m.material_building(cell, _wall_mat)
+				else:
+					obs_m.set_wall_material(cell, _wall_mat)
+				did_mat = true
+		if did_mat:
+			EditHistory.commit("wall material") # one menu apply = one undo step
+		_reset_highlight()
+		return
+	if id == FLOOR_PICKER_ID:
+		_open_floor_picker() # "Custom..." -> the full colour picker (arbitrary tint)
+		return
+	if id >= FLOOR_COLOR_BASE_ID:
+		# a floor tint. Fill the active floor selection if one exists; otherwise tint what was
+		# clicked at the current grain (Wand -> whole room, Cell -> the cell, Fine -> the quarter).
+		# Mirrors the wall-colour branch below. Leaves _tool_kind = "floor_color" armed so a
+		# left-drag keeps tinting (see _paint) with the orange ground cursor (see _update_hover).
+		_tool_kind = "floor_color"
+		_floor_color = FLOOR_COLORS[id - FLOOR_COLOR_BASE_ID][1]
+		if _apply_floor_tint(_floor_color):
+			_rebuild()
+			EditHistory.commit("floor colour") # one menu tint = one undo step
+		_reset_highlight()
+		return
 	if id >= WALL_BASE_ID:
 		# a wall colour. Fill the active wall selection if one exists; otherwise colour the wall
 		# under the click (the whole building in Wand mode, a single segment in Cell/Fine).
 		_tool_kind = "wall"
 		_wall_color = WALL_COLORS[id - WALL_BASE_ID][1]
+		var did_edit := false
 		if _sel_kind == "wall" and _selection.has_selection():
 			_fill_wall_selection(_wall_color)
+			did_edit = true
 		else:
 			var obs = get_node_or_null("../Obstacles")
+			# is_blocked (a real wall), not has_structure: doors keep their own independent colour
+			# (unbuilt), so the wall tint only applies to walls. On a door this is a no-op.
 			if obs != null and obs.is_blocked(cell):
 				if _mode == Mode.WAND:
 					obs.color_building(cell, _wall_color)
 				else:
 					obs.set_wall_color(cell, _wall_color)
-		EditHistory.commit("wall colour") # one menu paint = one undo step
+				did_edit = true
+		if did_edit:
+			EditHistory.commit("wall colour") # one menu paint = one undo step
 		_reset_highlight()
 		return
 	# a floor material. Fill the active floor selection if one exists; otherwise, in Wand mode fill
@@ -284,9 +619,13 @@ func _on_menu_id(id: int) -> void:
 	# brush and the user clicks the target to drop it (ROADMAP "Terrain placement UX").
 	_tool_kind = "floor"
 	_brush = MENU[id][1]
+	_armed = true # a material was explicitly chosen: Cell/Fine may now drop it
 	if _sel_kind == "floor" and _selection.has_selection():
+		var drop_rects := _selection_drop_rects() # capture the shape before the highlight resets
 		_fill_floor_selection(_brush)
 		EditHistory.commit("paint") # one menu fill = one undo step
+		if _brush != "" and textures.has(_brush):
+			_preview.play_shape_drop(drop_rects, _mat_tex(_brush, 0)) # animate the whole shape dropping in
 		_reset_highlight()
 	elif _mode == Mode.WAND:
 		set_room_style(cell, _brush) # convenience room fill; may no-op outside a room
@@ -297,6 +636,47 @@ func _on_menu_id(id: int) -> void:
 		# preview of the freshly-armed material appears over the cursor immediately.
 		call_deferred("_update_hover")
 
+# --- floor colour: shared apply + the "Custom..." picker ---
+
+# apply `color` as the floor tint to the right-clicked target, at the current grain: the active
+# floor selection, else the clicked room (Wand) / quarter (Fine) / cell (Cell). Returns whether any
+# quarter changed. Shared by the preset swatches and the live colour picker.
+func _apply_floor_tint(color: Color) -> bool:
+	var cell := Vector2i(floori(_pending.x / CELL), floori(_pending.y / CELL))
+	if _sel_kind == "floor" and _selection.has_selection():
+		return _tint_selection(color)
+	elif _mode == Mode.WAND:
+		return _tint_room(cell, color)
+	elif _mode == Mode.FINE:
+		return _write_tint(Vector2i(floori(_pending.x / HALF), floori(_pending.y / HALF)), color)
+	else: # Cell / Erase -> the whole cell
+		return _tint_cell(cell, color)
+
+# open the colour picker seeded from the current tint (or a default), previewing live on the target
+func _open_floor_picker() -> void:
+	_tool_kind = "floor_color"
+	_picker_applied = false
+	_suppress_picker = true # setting .color must not count as a user edit
+	_color_picker.color = _floor_color if _floor_color != Color.WHITE else Color(0.85, 0.3, 0.28)
+	_suppress_picker = false
+	_picker_popup.popup_centered()
+
+# live preview: each drag in the picker re-tints the target with the new colour
+func _on_floor_picker_changed(c: Color) -> void:
+	if _suppress_picker:
+		return
+	_floor_color = c
+	if _apply_floor_tint(c):
+		_rebuild()
+		_picker_applied = true
+
+# picker closed: the whole session commits as ONE undo entry (or nothing if never previewed)
+func _on_floor_picker_closed() -> void:
+	if _picker_applied:
+		EditHistory.commit("floor colour")
+		_picker_applied = false
+	_reset_highlight()
+
 # --- authoring mode (driven by the tool strip) ---
 
 # called by the tool strip. Switching mode drops transient hover; leaving the wand re-arms the floor
@@ -306,8 +686,13 @@ func set_mode(mode: int) -> void:
 	if _mode == mode:
 		return
 	_mode = mode as Mode
+	_box_active = false # never carry a box drag across a mode switch
 	if _mode != Mode.WAND:
 		_tool_kind = "floor"
+	# Cell/Fine must not start with a material armed to drop: the user picks one from the menu first
+	# (ROADMAP "Editor UX revisions" -> Cell/Fine must not pre-arm a material).
+	if _mode == Mode.CELL or _mode == Mode.FINE:
+		_armed = false
 	_reset_highlight()
 	call_deferred("_update_hover")
 
@@ -318,13 +703,92 @@ func mode() -> int:
 
 # a wand click either starts a new selection or grows the current one (patch -> whole room for a
 # floor, run -> whole building for a wall). See ROADMAP "Magic Wand".
-func _wand_click(local: Vector2) -> void:
+func _wand_click(local: Vector2, op := "replace") -> void:
 	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var q := Vector2i(floori(local.x / HALF), floori(local.y / HALF))
 	var obs = get_node_or_null("../Obstacles")
-	if obs != null and obs.is_blocked(cell):
-		_wand_wall(obs, cell)
+	var is_wall: bool = obs != null and obs.is_blocked(cell)
+	if op == "replace":
+		# plain click: new selection, or grow-on-repeat (patch -> room, run -> building)
+		if is_wall:
+			_wand_wall(obs, cell)
+		else:
+			_wand_floor(cell, q)
+	elif is_wall:
+		# Shift/Alt: add or subtract the clicked wall run (no growing while compositing)
+		_modify_wall_selection(obs.line_cells(cell), op)
 	else:
-		_wand_floor(cell, Vector2i(floori(local.x / HALF), floori(local.y / HALF)))
+		_modify_floor_selection(_with_ring(_patch_quads(cell, q)), op)
+	_refresh_selection_overlay()
+
+# the selection compositing op for a mouse event: Alt subtracts, Shift adds, plain replaces.
+func _sel_op(event: InputEvent) -> String:
+	if event.alt_pressed:
+		return "subtract"
+	if event.shift_pressed:
+		return "add"
+	return "replace"
+
+# clamp a cell to the map so a box drag never runs off the edge
+func _clamp_cell(cell: Vector2i) -> Vector2i:
+	var gb = get_node_or_null("../GridBackground")
+	if gb == null:
+		return cell
+	return Vector2i(clampi(cell.x, 0, gb.grid_width - 1), clampi(cell.y, 0, gb.grid_height - 1))
+
+# union (add) or difference (subtract) a floor `region` (quarter set) into the current selection,
+# switching the selection kind to floor if it was a wall selection.
+func _modify_floor_selection(region: Dictionary, op: String) -> void:
+	if _sel_kind != "floor":
+		_sel_kind = "floor"
+		_sel_quads = {}
+		_sel_cells = {}
+	_sel_level = 0 # a composited selection has no single grow level
+	if op == "subtract":
+		for k in region:
+			_sel_quads.erase(k)
+	else:
+		for k in region:
+			_sel_quads[k] = true
+	if _sel_quads.is_empty():
+		_sel_kind = ""
+
+func _modify_wall_selection(region: Dictionary, op: String) -> void:
+	if _sel_kind != "wall":
+		_sel_kind = "wall"
+		_sel_cells = {}
+		_sel_quads = {}
+	_sel_level = 0
+	if op == "subtract":
+		for k in region:
+			_sel_cells.erase(k)
+	else:
+		for k in region:
+			_sel_cells[k] = true
+	if _sel_cells.is_empty():
+		_sel_kind = ""
+
+# box-select: set the selection to the rectangle from _box_start to `cur` (all quarters of every cell
+# inside), composited onto _box_base per _box_op. Called live during the drag.
+func _update_box(cur: Vector2i) -> void:
+	var lo := Vector2i(mini(_box_start.x, cur.x), mini(_box_start.y, cur.y))
+	var hi := Vector2i(maxi(_box_start.x, cur.x), maxi(_box_start.y, cur.y))
+	var region := {}
+	for cy in range(lo.y, hi.y + 1):
+		for cx in range(lo.x, hi.x + 1):
+			for cq in _cell_quads(Vector2i(cx, cy)):
+				region[cq] = true
+	var result: Dictionary = _box_base.duplicate()
+	if _box_op == "subtract":
+		for k in region:
+			result.erase(k)
+	else: # add, or replace (whose base is empty)
+		for k in region:
+			result[k] = true
+	_sel_cells = {}
+	_sel_level = 0
+	_sel_quads = result
+	_sel_kind = "floor" if not result.is_empty() else ""
 	_refresh_selection_overlay()
 
 func _wand_floor(cell: Vector2i, q: Vector2i) -> void:
@@ -332,14 +796,27 @@ func _wand_floor(cell: Vector2i, q: Vector2i) -> void:
 	if _sel_kind == "floor" and _sel_quads.has(q) and _sel_level == 1:
 		var cells: Dictionary = room_light.room_floor_cells(cell)
 		if not cells.is_empty():
-			_sel_quads = _room_quads(cells)
+			_sel_quads = _room_quads(cells) # interior + under-wall ring (the overlay subtracts walls)
 			_sel_level = 2
 		return
-	# otherwise start a new patch: the connected same-material quarters touching the click
+	# otherwise start a new patch: the connected same-material quarters touching the click, PLUS the
+	# ring around them, so the patch also hugs the visible wood on the adjacent wall tiles (the overlay
+	# subtracts the wall sprites), consistent with the whole-room grow.
 	_sel_kind = "floor"
 	_sel_cells = {}
-	_sel_quads = _patch_quads(cell, q)
+	_sel_quads = _with_ring(_patch_quads(cell, q))
 	_sel_level = 1
+
+# add the room-facing wall/door ring quarters around a quarter set, so a selection reaches the
+# visible floor that shows on the surrounding wall tiles (the ants hug it, the fill reaches under).
+func _with_ring(quads: Dictionary) -> Dictionary:
+	var cells := {}
+	for q in quads:
+		cells[Vector2i(floori(q.x / 2.0), floori(q.y / 2.0))] = true
+	var out: Dictionary = quads.duplicate()
+	for r in room_light.wall_ring_quads(cells):
+		out[Vector2i(floori(r.position.x / HALF), floori(r.position.y / HALF))] = true
+	return out
 
 func _wand_wall(obs, cell: Vector2i) -> void:
 	# repeat click on the run grows it to the whole building's connected walls
@@ -393,7 +870,10 @@ func _room_quads(cells: Dictionary) -> Dictionary:
 
 func _refresh_selection_overlay() -> void:
 	if _sel_kind == "floor":
-		_selection.set_floor(_sel_quads)
+		# trace the full fill set (interior + under-wall ring) MINUS the surrounding wall sprites, so
+		# the ants hug the VISIBLE wood exactly: interior plus the ring slivers that show on the wall
+		# tiles where the narrow cap doesn't cover them. Verified by rasterising the geometry.
+		_selection.set_floor(_sel_quads, _floor_occluders())
 	elif _sel_kind == "wall":
 		var obs = get_node_or_null("../Obstacles")
 		var rects: Array = obs.wall_piece_rects(_sel_cells) if obs != null else []
@@ -401,12 +881,44 @@ func _refresh_selection_overlay() -> void:
 	else:
 		_selection.clear()
 
+# the wall sprite rects that cover the floor selection, so the overlay can subtract them and trace
+# the visible floor. Gathers every wall in the selection's cell bounding box (expanded by one cell,
+# since a wall's front face droops down into the cell below), then their cap/face piece rects. Only
+# real walls occlude here (doors are separate nodes and keep their own handling).
+func _floor_occluders() -> Array:
+	var obs = get_node_or_null("../Obstacles")
+	if obs == null or _sel_quads.is_empty():
+		return []
+	var minc := Vector2i(1 << 30, 1 << 30)
+	var maxc := Vector2i(-(1 << 30), -(1 << 30))
+	for q in _sel_quads:
+		var c := Vector2i(floori(q.x / 2.0), floori(q.y / 2.0)) # quarter -> owning cell
+		minc.x = mini(minc.x, c.x); minc.y = mini(minc.y, c.y)
+		maxc.x = maxi(maxc.x, c.x); maxc.y = maxi(maxc.y, c.y)
+	var walls := {}
+	for cx in range(minc.x - 1, maxc.x + 2):
+		for cy in range(minc.y - 1, maxc.y + 2):
+			var cc := Vector2i(cx, cy)
+			if obs.is_blocked(cc):
+				walls[cc] = true
+	return obs.wall_piece_rects(walls)
+
 func _clear_selection() -> void:
 	_sel_kind = ""
 	_sel_quads = {}
 	_sel_cells = {}
 	_sel_level = 0
 	_selection.clear()
+
+# does the world-local point `local` fall inside the current selection? Floor selections are keyed by
+# 16px quarter, wall selections by 32px cell. Used to decide whether a right-click acts on the
+# selection (inside) or deselects it (outside), per "Editor UX revisions" -> deselect a Wand selection.
+func _click_in_selection(local: Vector2) -> bool:
+	if _sel_kind == "floor":
+		return _sel_quads.has(Vector2i(floori(local.x / HALF), floori(local.y / HALF)))
+	elif _sel_kind == "wall":
+		return _sel_cells.has(Vector2i(floori(local.x / CELL), floori(local.y / CELL)))
+	return false
 
 func _fill_floor_selection(mat: String) -> void:
 	var valid := mat != "" and textures.has(mat)
@@ -417,16 +929,34 @@ func _fill_floor_selection(mat: String) -> void:
 			_quad_mat.erase(q)
 	_rebuild()
 
+# world-space quarter rects of the current floor selection, EXCLUDING quarters under a wall/door (the
+# selection's under-structure ring), so the shape-drop animation lands on visible floor only and does
+# not draw a lifted tile over a wall. Used to animate a selection fill (see play_shape_drop).
+func _selection_drop_rects() -> Array:
+	var obs = get_node_or_null("../Obstacles")
+	var out: Array = []
+	for q in _sel_quads:
+		var cell := Vector2i(floori(q.x / 2.0), floori(q.y / 2.0)) # 2 quarters per 32px cell axis
+		if obs != null and obs.has_structure(cell):
+			continue
+		out.append(Rect2(q.x * HALF, q.y * HALF, HALF, HALF))
+	return out
+
 func _fill_wall_selection(color: Color) -> void:
 	var obs = get_node_or_null("../Obstacles")
 	if obs != null:
 		obs._color_cells(_sel_cells, color)
 
+func _fill_wall_material_selection(material: String) -> void:
+	var obs = get_node_or_null("../Obstacles")
+	if obs != null:
+		obs._material_cells(_sel_cells, material)
+
 # hide every highlight so a fresh edit reads clearly; they return on the next mouse move
 func _reset_highlight() -> void:
 	_hover_cell = INVALID_CELL
 	_wall_hover = INVALID_CELL
-	_whole_hover = INVALID_CELL
+	_whole_hover_key = ""
 	_mask.hide_floor()
 	_cursor.hide_cursor()
 	_preview.hide_preview()
@@ -462,12 +992,19 @@ func _update_hover() -> void:
 	if _mode == Mode.WAND:
 		_update_whole_hover(cell)
 		return
+	if _mode == Mode.BOX:
+		# box-select draws its rectangle during the drag (marching-ants overlay); no paint cursor/preview
+		_clear_room_hover()
+		_cursor.hide_cursor()
+		_preview.hide_preview()
+		_restore_faded()
+		return
 	# Wall / Door placement and Select: a green cell cursor marks the target cell
 	if _mode == Mode.WALL or _mode == Mode.DOOR or _mode == Mode.SELECT:
 		_update_structure_placement_hover(cell)
 		return
-	# after a wall colour is picked, outline the single wall under the cursor
-	if _tool_kind == "wall":
+	# after a wall colour or material is picked, outline the single wall under the cursor
+	if _tool_kind == "wall" or _tool_kind == "wall_mat":
 		_update_wall_hover(cell)
 		return
 	# Cell / Fine / Erase: the square paint cursor over paintable ground, and any obstacle over that
@@ -479,7 +1016,8 @@ func _update_hover() -> void:
 		_restore_faded()
 		return
 	_fade_obstacles_at(cell)
-	_cursor.set_erasing(_mode == Mode.ERASE) # green while adding terrain, red while erasing
+	# terrain paint is a ground edit (orange); erase is destructive (red)
+	_cursor.set_role(PaintCursor.Role.ERASE if _mode == Mode.ERASE else PaintCursor.Role.GROUND)
 	if _mode == Mode.FINE:
 		var q := Vector2i(floori(local.x / HALF), floori(local.y / HALF))
 		var r := Rect2(q.x * HALF, q.y * HALF, HALF, HALF)
@@ -493,10 +1031,13 @@ func _update_hover() -> void:
 # arm the lifted drop-preview over `rect` when a real material is armed in a placement mode; Erase
 # (removal) and the grass eraser show only the square cursor, no floating tile.
 func _show_preview(rect: Rect2) -> void:
-	if _mode == Mode.ERASE or not textures.has(_brush):
+	# the floor-colour and pattern tools re-texture/tint an existing floor, so they show only the
+	# square cursor, no lifted tile (there is nothing being dropped). Same for Erase, the grass eraser,
+	# and an un-armed Cell/Fine (no material picked yet).
+	if _mode == Mode.ERASE or _tool_kind == "floor_color" or _tool_kind == "pattern" or not _armed or not textures.has(_brush):
 		_preview.hide_preview()
 		return
-	_preview.arm(textures[_brush])
+	_preview.arm(_mat_tex(_brush, 0))
 	_preview.show_at(rect)
 
 # clear the mask highlight and reset the dedupe cells so a later hover recomputes cleanly
@@ -506,31 +1047,43 @@ func _clear_room_hover() -> void:
 	_hover_cell = INVALID_CELL
 	_mask.hide_floor()
 
-# Whole scope (either tool): outline the ONE thing under the cursor. Over a wall it outlines that
-# building's walls; over a room floor it outlines that room's floor. Never both at once, and it
-# works regardless of which tool is active, so moving between wall and floor swaps the highlight.
+# Whole scope (either tool): outline the ONE thing under the cursor. Over a wall's STONE it outlines
+# that building's walls; over a room floor (incl. the floor part of a wall cell, where the ring wood
+# shows) it outlines that room's floor. Never both at once. Sub-cell aware: hovering the exposed
+# floor of a wall cell highlights the room, not the wall (per user request).
 func _update_whole_hover(cell: Vector2i) -> void:
-	if cell == _whole_hover:
+	var local := get_local_mouse_position()
+	var obs = get_node_or_null("../Obstacles")
+	var on_stone: bool = obs != null and _over_wall(cell, local)
+	# which room to highlight when not over stone: this cell if it is a room floor, else the adjacent
+	# room whose ring wood the cursor is sitting on (the floor part of a wall/door cell).
+	var room_seed := INVALID_CELL
+	if not on_stone:
+		if room_light.is_enclosed_floor(cell):
+			room_seed = cell
+		else:
+			room_seed = _adjacent_room_cell(cell, local)
+	var key := ("w:" + str(cell)) if on_stone else (("r:" + str(room_seed)) if room_seed != INVALID_CELL else "")
+	if key == _whole_hover_key:
 		return
-	_whole_hover = cell
+	_whole_hover_key = key
 	_cursor.hide_cursor()
 	_restore_faded()
 	_hover_cell = INVALID_CELL
 	_wall_hover = INVALID_CELL
-	var obs = get_node_or_null("../Obstacles")
-	if obs != null and obs.is_blocked(cell):
+	if on_stone:
 		_mask.show_walls(obs.wall_piece_rects(obs.building_cells(cell)))
-	elif room_light.is_enclosed_floor(cell):
-		var room_cells: Dictionary = room_light.room_floor_cells(cell)
+	elif room_seed != INVALID_CELL:
+		var room_cells: Dictionary = room_light.room_floor_cells(room_seed)
 		_mask.show_floor(room_cells, room_light.wall_ring_quads(room_cells))
 	else:
 		_mask.hide_floor()
 
-# wall tool: outline the wall the cursor is over (Cell = one segment, Whole = the whole building)
-# via the mask, so only the wall geometry lights up (no ground, no shadows). Deduped by cell.
+# wall tool: outline the wall the cursor is over via the mask (no ground, no shadows). Only lights up
+# when the cursor is over the actual STONE geometry, not the exposed floor part of a wall cell.
 func _update_wall_hover(cell: Vector2i) -> void:
 	var obs = get_node_or_null("../Obstacles")
-	if obs == null or not obs.is_blocked(cell):
+	if obs == null or not _over_wall(cell, get_local_mouse_position()):
 		if _wall_hover != INVALID_CELL:
 			_wall_hover = INVALID_CELL
 			_mask.hide_floor()
@@ -542,6 +1095,33 @@ func _update_wall_hover(cell: Vector2i) -> void:
 	_clear_room_hover()
 	_restore_faded()
 	_mask.show_walls(obs.wall_piece_rects({cell: true}))
+
+# true only when `local` (World-space) sits on the actual wall STONE of `cell` (its cap/face rects),
+# not the exposed floor part of a wall cell. Used so hovering the visible floor of a wall cell does
+# not light up the wall.
+func _over_wall(cell: Vector2i, local: Vector2) -> bool:
+	var obs = get_node_or_null("../Obstacles")
+	if obs == null or not obs.is_blocked(cell):
+		return false
+	for r in obs.wall_piece_rects({cell: true}):
+		if r.has_point(local):
+			return true
+	return false
+
+# the enclosed-floor room cell nearest `local` among `cell`'s orthogonal neighbours, or INVALID_CELL
+# if none: the room whose ring wood the cursor is over when hovering the floor part of a wall/door.
+func _adjacent_room_cell(cell: Vector2i, local: Vector2) -> Vector2i:
+	var best := INVALID_CELL
+	var best_d := INF
+	for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		var n: Vector2i = cell + d
+		if room_light.is_enclosed_floor(n):
+			var c := Vector2(n.x * CELL + CELL / 2.0, n.y * CELL + CELL / 2.0)
+			var dist := local.distance_squared_to(c)
+			if dist < best_d:
+				best_d = dist
+				best = n
+	return best
 
 # --- floor styles ---
 
@@ -566,7 +1146,22 @@ func _paint(local: Vector2, drop := false) -> void:
 	if _tool_kind == "wall":
 		_paint_wall(cell)
 		return
+	# after a wall material was picked, a drag applies it to the walls it passes over
+	if _tool_kind == "wall_mat":
+		_paint_wall_material(cell)
+		return
+	# after a floor colour was picked, a drag tints the cells/quarters it passes over
+	if _tool_kind == "floor_color":
+		_paint_floor_color(local)
+		return
+	# after a floor pattern was picked, a drag re-patterns the cells/quarters it passes over
+	if _tool_kind == "pattern":
+		_paint_floor_pattern(local)
+		return
 	if not _paintable(cell):
+		return
+	# Cell/Fine place nothing until a material is armed (picked from the menu); Erase is always active.
+	if _mode != Mode.ERASE and not _armed:
 		return
 	# Erase writes grass ("") over the cell; Cell/Fine write the active brush.
 	var mat := "" if _mode == Mode.ERASE else _brush
@@ -591,6 +1186,125 @@ func _paint_wall(cell: Vector2i) -> void:
 	if obs == null or not obs.is_blocked(cell):
 		return
 	obs.set_wall_color(cell, _wall_color)
+
+# wall-material tool drag: apply the active _wall_mat to the single wall segment under the cursor.
+# No-op off a wall. Whole-building materialling is done from the menu (Wand mode) or a selection.
+func _paint_wall_material(cell: Vector2i) -> void:
+	var obs = get_node_or_null("../Obstacles")
+	if obs == null or not obs.is_blocked(cell):
+		return
+	obs.set_wall_material(cell, _wall_mat)
+
+# floor-colour tool drag: tint the cell (Cell mode) or quarter (Fine mode) under the cursor with
+# the active _floor_color. No-op off the map. Whole-room / selection tinting is done from the menu.
+func _paint_floor_color(local: Vector2) -> void:
+	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	if not _paintable(cell):
+		return
+	var changed := false
+	if _mode == Mode.FINE:
+		changed = _write_tint(Vector2i(floori(local.x / HALF), floori(local.y / HALF)), _floor_color)
+	else: # Cell (or any non-Fine grain) -> the whole cell
+		changed = _tint_cell(cell, _floor_color)
+	if changed:
+		_rebuild()
+
+# pattern-tool drag: apply the active _pattern to the cell (Cell mode) or quarter (Fine mode) under
+# the cursor. No-op off the map or over a quarter with no material (_write_pattern guards that).
+func _paint_floor_pattern(local: Vector2) -> void:
+	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	if not _paintable(cell):
+		return
+	var changed := false
+	if _mode == Mode.FINE:
+		changed = _write_pattern(Vector2i(floori(local.x / HALF), floori(local.y / HALF)), _pattern)
+	else: # Cell (or any non-Fine grain) -> the whole cell
+		changed = _pattern_cell(cell, _pattern)
+	if changed:
+		_rebuild()
+
+# set one quarter's tint (Natural/white erases the entry, so the floor reads its plain material).
+# Returns whether anything changed, so a drag inside one quarter doesn't trigger a redundant rebuild.
+func _write_tint(q: Vector2i, color: Color) -> bool:
+	if color == Color.WHITE:
+		if not _quad_tint.has(q):
+			return false
+		_quad_tint.erase(q)
+		return true
+	if _quad_tint.get(q) == color:
+		return false
+	_quad_tint[q] = color
+	return true
+
+# tint all four quarters of a cell; returns true if any changed.
+func _tint_cell(cell: Vector2i, color: Color) -> bool:
+	var changed := false
+	for q in _cell_quads(cell):
+		changed = _write_tint(q, color) or changed
+	return changed
+
+# tint a whole room: interior floor quarters plus the room-facing wall/door ring, matching how a
+# room material fill reaches under the walls (_write_room). No-op (returns false) outside a room.
+func _tint_room(cell: Vector2i, color: Color) -> bool:
+	var cells: Dictionary = room_light.room_floor_cells(cell)
+	if cells.is_empty():
+		return false
+	var changed := false
+	for c in cells:
+		for q in _cell_quads(c):
+			changed = _write_tint(q, color) or changed
+	for rect in room_light.wall_ring_quads(cells):
+		var q := Vector2i(floori(rect.position.x / HALF), floori(rect.position.y / HALF))
+		changed = _write_tint(q, color) or changed
+	return changed
+
+# tint every quarter of the active floor selection (the Magic Wand marching-ants set).
+func _tint_selection(color: Color) -> bool:
+	var changed := false
+	for q in _sel_quads:
+		changed = _write_tint(q, color) or changed
+	return changed
+
+# --- floor patterns: the same grain dispatch as tints, over _quad_pattern instead of _quad_tint.
+# _write_pattern is a no-op on a quarter with no material, so grass quarters are skipped automatically.
+
+func _pattern_cell(cell: Vector2i, idx: int) -> bool:
+	var changed := false
+	for q in _cell_quads(cell):
+		changed = _write_pattern(q, idx) or changed
+	return changed
+
+func _pattern_room(cell: Vector2i, idx: int) -> bool:
+	var cells: Dictionary = room_light.room_floor_cells(cell)
+	if cells.is_empty():
+		return false
+	var changed := false
+	for c in cells:
+		for q in _cell_quads(c):
+			changed = _write_pattern(q, idx) or changed
+	for rect in room_light.wall_ring_quads(cells):
+		var q := Vector2i(floori(rect.position.x / HALF), floori(rect.position.y / HALF))
+		changed = _write_pattern(q, idx) or changed
+	return changed
+
+func _pattern_selection(idx: int) -> bool:
+	var changed := false
+	for q in _sel_quads:
+		changed = _write_pattern(q, idx) or changed
+	return changed
+
+# apply pattern `idx` to the right-clicked target at the current grain (mirrors _apply_floor_tint):
+# a floor selection, else Wand -> whole room, Fine -> the quarter, Cell -> the whole cell.
+func _apply_floor_pattern(idx: int) -> bool:
+	var cell := Vector2i(floori(_pending.x / CELL), floori(_pending.y / CELL))
+	if _sel_kind == "floor" and _selection.has_selection():
+		return _pattern_selection(idx)
+	elif _mode == Mode.WAND:
+		return _pattern_room(cell, idx)
+	elif _mode == Mode.FINE:
+		return _write_pattern(Vector2i(floori(_pending.x / HALF), floori(_pending.y / HALF)), idx)
+	else: # Cell / Erase -> the whole cell
+		return _pattern_cell(cell, idx)
 
 # Erase mode: remove the wall or door on the clicked cell (the structure layer, topmost after any
 # object). Rebuilds the level through the same MapIO path load/resize use, so lighting, floors and
@@ -620,7 +1334,43 @@ func _place_wall_at(local: Vector2) -> void:
 	var obs = get_node_or_null("../Obstacles")
 	if obs == null or not obs.add_wall(cell):
 		return
+	# stamp the armed Build Wall brush onto the new wall (set the source-of-truth dicts BEFORE the
+	# rebuild so serialize carries them). Natural white / stone leave the wall plain.
+	if _wall_brush_color != Color.WHITE:
+		obs.wall_colors[cell] = _wall_brush_color
+	if _wall_brush_mat != "stone":
+		obs.wall_materials[cell] = _wall_brush_mat
 	_reapply_map()
+
+# --- Build Wall configurator (right-click "Build Wall" submenu) ---
+
+# reflect the current wall brush (_wall_brush_color / _wall_brush_mat) as the checked radio items
+func _sync_build_wall_checks() -> void:
+	if _build_wall_sub == null:
+		return
+	for i in WALL_COLORS.size():
+		_build_wall_sub.set_item_checked(_build_wall_sub.get_item_index(i), WALL_COLORS[i][1] == _wall_brush_color)
+	for j in WALL_MATERIALS.size():
+		_build_wall_sub.set_item_checked(_build_wall_sub.get_item_index(100 + j), WALL_MATERIALS[j][1] == _wall_brush_mat)
+
+func _on_build_wall_id(id: int) -> void:
+	if id == 999:
+		_arm_wall_build() # done configuring: enter Wall mode with the brush, close the menu
+		return
+	if id >= 100:
+		_wall_brush_mat = WALL_MATERIALS[id - 100][1]
+	else:
+		_wall_brush_color = WALL_COLORS[id][1]
+	_sync_build_wall_checks() # update the ticks in place (the menu stays open for more options)
+
+# arm the draggable wall brush: switch to Wall mode (so a drag draws a wall line carrying the brush),
+# light the strip's Wall radio to match, and close the menu so the user can drop tiles in place.
+func _arm_wall_build() -> void:
+	set_mode(Mode.WALL)
+	var ts = get_tree().get_first_node_in_group("tool_strip")
+	if ts != null and ts.has_method("reflect_mode"):
+		ts.reflect_mode(Mode.WALL)
+	_menu.hide()
 
 # Door mode: add a door on the clicked cell, orienting it to the wall run it bridges (falling back to
 # the R-toggled default in open space). A wall on the cell becomes a doorway. One click = one undo.
@@ -662,6 +1412,81 @@ func _reapply_map() -> void:
 	MapIO.apply_serialized(MapIO.serialize(), true)
 	call_deferred("_update_hover")
 
+# --- right-click menu: Door edits (mirror the inspector, one undo each) ---
+func _edit_door(cell: Vector2i, id: int) -> void:
+	var obs = get_node_or_null("../Obstacles")
+	var d: Dictionary = obs.door_at(cell) if obs != null else {}
+	if d.is_empty():
+		return
+	if id == DOOR_FLIP_ID:
+		var flipped := "vertical" if d["orientation"] == "horizontal" else "horizontal"
+		obs.set_door_orientation(cell, flipped)
+		MapIO.apply_serialized(MapIO.serialize(), true) # structural: respawn the gate
+		EditHistory.commit("door orientation")
+	elif id == DOOR_OPEN_ID:
+		obs.set_door_open(cell, not bool(d.get("open", false)))
+		EditHistory.commit("door open")
+	elif id == DOOR_SWING_ID:
+		obs.set_door_swing(cell, not bool(d.get("swing", false)))
+		EditHistory.commit("door swing")
+
+# --- right-click menu / Delete key: Erase ---
+# Erase acts on the current selection when there is one, else on the clicked target. Delete (see
+# _unhandled_key_input) is the selection-only entry point. See ROADMAP "Editor UX revisions" -> Erase.
+func _menu_erase(cell: Vector2i) -> void:
+	if _selection.has_selection():
+		_erase_selection()
+	else:
+		_erase_single(cell)
+
+# erase the whole active selection: floor quarters back to grass (clearing material/pattern/tint), or
+# every wall in a wall selection. One undo entry; the selection is cleared afterwards.
+func _erase_selection() -> void:
+	if _sel_kind == "floor":
+		for q in _sel_quads:
+			_quad_mat.erase(q)
+			_quad_pattern.erase(q)
+			_quad_tint.erase(q)
+		_rebuild()
+		EditHistory.commit("erase")
+	elif _sel_kind == "wall":
+		var obs = get_node_or_null("../Obstacles")
+		var any := false
+		if obs != null:
+			for c in _sel_cells:
+				if obs.remove_structure(c) != "":
+					any = true
+		if any:
+			_restore_faded()
+			MapIO.apply_serialized(MapIO.serialize(), true)
+			EditHistory.commit("erase")
+	_clear_selection()
+	_reset_highlight()
+	call_deferred("_update_hover")
+
+# erase the single clicked target: remove a wall/door if one is there, else clear the cell's ground.
+func _erase_single(cell: Vector2i) -> void:
+	var obs = get_node_or_null("../Obstacles")
+	if obs != null and obs.has_structure(cell):
+		obs.remove_structure(cell)
+		_restore_faded()
+		MapIO.apply_serialized(MapIO.serialize(), true)
+		EditHistory.commit("erase")
+		_reset_highlight()
+		call_deferred("_update_hover")
+		return
+	var changed := false
+	for q in _cell_quads(cell):
+		if _quad_mat.has(q) or _quad_pattern.has(q) or _quad_tint.has(q):
+			_quad_mat.erase(q)
+			_quad_pattern.erase(q)
+			_quad_tint.erase(q)
+			changed = true
+	if changed:
+		_rebuild()
+		EditHistory.commit("erase")
+	_reset_highlight()
+
 # Wall/Door placement hover: a plain green cell cursor over any in-bounds cell showing where the next
 # wall or door lands. No drop-preview sprite yet (walls/doors have no lifted tile art), just the cell.
 func _update_structure_placement_hover(cell: Vector2i) -> void:
@@ -671,7 +1496,7 @@ func _update_structure_placement_hover(cell: Vector2i) -> void:
 	if not _in_bounds(cell):
 		_cursor.hide_cursor()
 		return
-	_cursor.set_erasing(false) # green add cursor
+	_cursor.set_role(PaintCursor.Role.ADD) # green: placing a wall/door is additive
 	_cursor.show_rect(Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL))
 
 # set one quarter's material ("" erases it back to grass). Returns whether anything changed,
@@ -685,6 +1510,7 @@ func _write_quad(q: Vector2i, mat: String) -> bool:
 	if not _quad_mat.has(q):
 		return false
 	_quad_mat.erase(q)
+	_quad_pattern.erase(q) # grass carries no pattern; drop the orphaned index
 	return true
 
 # cells you may paint on: any cell inside the grid, walls included (the ground under a wall or
@@ -755,6 +1581,7 @@ func _write_room(cells: Dictionary, style: String) -> void:
 			_quad_mat[q] = style
 		else:
 			_quad_mat.erase(q)
+			_quad_pattern.erase(q) # grass carries no pattern
 
 # replace all floors from a v1 per-room style list (used by the MapIO v1->v2 load migration).
 # Must run AFTER RoomLight has rebuilt, since the room a style fills is found by flood fill.
@@ -777,13 +1604,64 @@ func apply_quads(list: Array) -> void:
 		_quad_mat[Vector2i(int(a[0]), int(a[1]))] = mat
 	_rebuild()
 
+# replace all floor patterns from a saved list [[qx, qy, index], ...] (used by MapIO on load). Only
+# meaningful over quarters that also carry a material; a stale index is clamped at draw. Does NOT
+# rebuild: apply_quads/apply_tints (which run around it) do, and the caller ends with a rebuild.
+func apply_patterns(list: Array) -> void:
+	_quad_pattern.clear()
+	for a in list:
+		var idx := int(a[2])
+		if idx != 0:
+			_quad_pattern[Vector2i(int(a[0]), int(a[1]))] = idx
+
+# set one quarter's pattern index (0 erases the entry back to the default pattern). Returns whether
+# anything changed. A no-op if the quarter has no material (pattern only means something over one).
+func _write_pattern(q: Vector2i, idx: int) -> bool:
+	if not _quad_mat.has(q):
+		return false
+	var cur: int = _quad_pattern.get(q, 0)
+	if cur == idx:
+		return false
+	if idx == 0:
+		_quad_pattern.erase(q)
+	else:
+		_quad_pattern[q] = idx
+	return true
+
+# the pattern index at 16px quarter `q` (0 = default). Read by the shadow restamp so a door-open
+# relight redraws the same pattern the base_fills use.
+func floor_pattern_at_quad(q: Vector2i) -> int:
+	return _quad_pattern.get(q, 0)
+
+# replace all floor tints from a v5 list [[qx, qy, r, g, b], ...] (used by MapIO on load). An
+# empty list (a pre-v5 map) simply clears any tints. Must run AFTER apply_quads so the rebuild
+# draws tints over the materials just restored.
+func apply_tints(list: Array) -> void:
+	_quad_tint.clear()
+	for a in list:
+		_quad_tint[Vector2i(int(a[0]), int(a[1]))] = Color(float(a[2]), float(a[3]), float(a[4]))
+	_rebuild()
+
 # _quad_mat is the whole floor (interior + under-wall quarters written by room fills), so the
 # render is a straight one-rect-per-quarter pass. No room/uniformity derivation: laying a tile
 # changes only that quarter and never disturbs the under-wall ground already stored.
+# the texture for material `mat` at pattern index `pattern`, clamped to the material's variant range
+# (so a stale pattern index left over from a different material never indexes out of bounds).
+func _mat_tex(mat: String, pattern: int) -> Texture2D:
+	var variants: Array = textures[mat]
+	return variants[clampi(pattern, 0, variants.size() - 1)]
+
 func _rebuild() -> void:
 	_base_fills = []
 	for q in _quad_mat:
-		_base_fills.append([Rect2(q.x * HALF, q.y * HALF, HALF, HALF), textures[_quad_mat[q]]])
+		var rect := Rect2(q.x * HALF, q.y * HALF, HALF, HALF)
+		_base_fills.append([rect, _mat_tex(_quad_mat[q], _quad_pattern.get(q, 0)), _quad_tint.get(q, Color.WHITE)])
+	# a quarter carrying a tint but NO material is a tinted patch of grass: draw the grass base
+	# under the tint so the recolour shows (an unpainted quarter isn't in _quad_mat above).
+	for q in _quad_tint:
+		if _quad_mat.has(q):
+			continue
+		_base_fills.append([Rect2(q.x * HALF, q.y * HALF, HALF, HALF), GRASS, _quad_tint[q]])
 	_redraw_floor_layers()
 
 func _redraw_floor_layers() -> void:
@@ -803,4 +1681,9 @@ func base_fills() -> Array:
 # source of truth the door-open shadow pass restamps from, so it matches the indoor base_fills
 # exactly (every painted quarter, interior or under a wall/door).
 func floor_tex_at_quad(q: Vector2i):
-	return textures[_quad_mat[q]] if _quad_mat.has(q) else null
+	return _mat_tex(_quad_mat[q], _quad_pattern.get(q, 0)) if _quad_mat.has(q) else null
+
+# the multiply tint at 16px quarter `q` (white = none), so the door-open shadow restamp tints the
+# floor the same way base_fills does (see shadow_manager._stamp_floor).
+func floor_tint_at_quad(q: Vector2i) -> Color:
+	return _quad_tint.get(q, Color.WHITE)

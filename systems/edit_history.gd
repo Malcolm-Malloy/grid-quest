@@ -68,6 +68,7 @@ func commit(_action: String = "") -> void:
 	_baseline = after
 	_redo.clear() # a fresh edit invalidates the redo trail
 	_emit()
+	MapIO.mark_dirty() # a real edit means unsaved changes (drives autosave + the menu marker)
 
 func undo() -> bool:
 	if _undo.is_empty():
@@ -76,6 +77,7 @@ func undo() -> bool:
 	_baseline = _undo.pop_back()
 	_reapply(_baseline)
 	_emit()
+	MapIO.mark_dirty() # undoing changes the live map away from the last-saved state
 	return true
 
 func redo() -> bool:
@@ -85,6 +87,7 @@ func redo() -> bool:
 	_baseline = _redo.pop_back()
 	_reapply(_baseline)
 	_emit()
+	MapIO.mark_dirty() # redoing also moves the live map off the last-saved state
 	return true
 
 # Make the current live map the baseline and clear all history. Call on load / new map.

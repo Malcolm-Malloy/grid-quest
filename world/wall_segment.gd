@@ -18,6 +18,19 @@ var seg_x_start: float = 0.0
 # entries default to white (natural stone). Set by Obstacles from its wall_colors store.
 var cell_colors: Array = []
 
+# one material name per covered cell (top to bottom); picks the face/cap texture pair for that cell.
+# Missing or short entries default to "stone". Set by Obstacles from its wall_materials store, parallel
+# to cell_colors: a wall carries an independent colour tint AND material per cell.
+var cell_materials: Array = []
+
+# material name -> [face_texture, cap_texture]. Stone is the default/legacy pair. Wood and slate are
+# style swaps (ROADMAP "Terrain patterns and material variants" -> wall materials).
+const MATERIALS := {
+	"stone": [preload("res://world/stone_face.png"), preload("res://world/stone_cap.png")],
+	"wood": [preload("res://world/wood_face.png"), preload("res://world/wood_cap.png")],
+	"slate": [preload("res://world/slate_face.png"), preload("res://world/slate_cap.png")],
+}
+
 var face_texture := preload("res://world/stone_face.png")
 var cap_texture := preload("res://world/stone_cap.png")
 
@@ -56,6 +69,14 @@ func covers_cell(cell: Vector2i) -> bool:
 
 func _cell_color(i: int) -> Color:
 	return cell_colors[i] if i >= 0 and i < cell_colors.size() else Color.WHITE
+
+# the material name for cell `i` (default "stone" when unset/short)
+func _cell_material(i: int) -> String:
+	return cell_materials[i] if i >= 0 and i < cell_materials.size() else "stone"
+
+# the [face, cap] texture pair for cell `i`'s material (falls back to stone for an unknown name)
+func _cell_textures(i: int) -> Array:
+	return MATERIALS.get(_cell_material(i), MATERIALS["stone"])
 
 # horizontal extent of the drawn body as [x_start, width], honouring an explicit
 # corner override when one is set
@@ -109,16 +130,17 @@ func _draw() -> void:
 	var cap_origin := Vector2(x_start, cap_top)
 	var face_origin := Vector2(x_start, cap_bottom)
 
-	# cap: one slice per cell, so each cell can carry its own colour
+	# cap: one slice per cell, so each cell can carry its own colour AND material
 	for i in run_length:
 		var slice_top: float = cap_top if i == 0 else top_edge + i * CELL_SIZE
 		var slice_bottom: float = cap_bottom if i == run_length - 1 else top_edge + (i + 1) * CELL_SIZE
 		if slice_bottom > slice_top:
-			_stamp(cap_texture, Rect2(x_start, slice_top, width, slice_bottom - slice_top), cap_origin, _cell_color(i))
+			_stamp(_cell_textures(i)[1], Rect2(x_start, slice_top, width, slice_bottom - slice_top), cap_origin, _cell_color(i))
 
-	# front face: only the bottom cell shows one (the run is seen edge-on), tinted darker
+	# front face: only the bottom cell shows one (the run is seen edge-on), tinted darker, in the
+	# bottom cell's material
 	var fc := _cell_color(run_length - 1)
-	_stamp(face_texture, Rect2(x_start, cap_bottom, width, face_height), face_origin,
+	_stamp(_cell_textures(run_length - 1)[0], Rect2(x_start, cap_bottom, width, face_height), face_origin,
 			Color(fc.r * FACE_SHADE, fc.g * FACE_SHADE, fc.b * FACE_SHADE, 1.0))
 
 # draw `tex` into `dst` sampling it tiled from `origin`, tinted by `color`. Tiling by a fixed
