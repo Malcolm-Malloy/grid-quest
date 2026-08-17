@@ -8,7 +8,7 @@ extends Node
 # Maps live in user://maps/<name>.json (persistent, writable, cross-platform). Writes are
 # atomic (temp file, then rename) so a crash mid-save can't corrupt an existing map.
 
-const VERSION := 4 # v4: per-door authored open+swing; v3: per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
+const VERSION := 7 # v7: per-quarter floor patterns; v6: per-cell wall materials; v5: per-quarter floor tints; v4: per-door authored open+swing; v3: per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
 const DIR := "user://maps"
 const LAST_FILE := "user://last_map.txt" # remembers the map to reload on next launch
 
@@ -16,12 +16,33 @@ const LAST_FILE := "user://last_map.txt" # remembers the map to reload on next l
 # its GQ_LOAD tests stay deterministic.
 var auto_load := true
 
+# --- current map + unsaved-changes (dirty) state, for the New / Save / autosave flow ---
+const CELL := 32                 # cell size in px, for a blank map's centred spawn
+const AUTOSAVE_SEC := 30.0       # autosave a NAMED map this often while it has unsaved edits
+signal dirty_changed(is_dirty: bool) # so the menu can show/clear the unsaved marker live
+signal autosaved(map_name: String)   # so the menu can flash an "autosaved" note
+var dirty := false               # true when the live map has edits not yet written to disk
+var autosave_enabled := true
+var _current := ""               # current map NAME in memory ("" = unsaved / new); the menu's "current"
+var _autosave_accum := 0.0
+
 func _ready() -> void:
 	await get_tree().process_frame # let the main scene's world finish building first
 	if auto_load:
 		var last := get_last()
 		if last != "" and FileAccess.file_exists(_path(last)):
 			load_map(last)
+
+# autosave loop: while a NAMED map has unsaved edits, write it to disk every AUTOSAVE_SEC. A new
+# (unnamed) map is never autosaved silently; the menu's unsaved-warning guards against losing it.
+func _process(delta: float) -> void:
+	if not autosave_enabled or _current == "" or not dirty:
+		_autosave_accum = 0.0
+		return
+	_autosave_accum += delta
+	if _autosave_accum >= AUTOSAVE_SEC:
+		if save_map(_current): # save_map clears dirty and resets the accumulator
+			autosaved.emit(_current)
 
 # --- node lookup (works whether the scene root is main.tscn or the capture harness) ---
 
@@ -55,6 +76,19 @@ func serialize() -> Dictionary:
 	for c in obs.wall_colors:
 		var col: Color = obs.wall_colors[c]
 		wall_colors.append([c.x, c.y, col.r, col.g, col.b])
+	# per-quarter floor tints as [qx, qy, r, g, b]; sparse (only tinted quarters are stored)
+	var floor_tints: Array = []
+	for q in fm._quad_tint:
+		var fcol: Color = fm._quad_tint[q]
+		floor_tints.append([q.x, q.y, fcol.r, fcol.g, fcol.b])
+	# per-cell wall materials as [cx, cy, name]; sparse (only non-stone cells are stored)
+	var wall_materials: Array = []
+	for c in obs.wall_materials:
+		wall_materials.append([c.x, c.y, obs.wall_materials[c]])
+	# per-quarter floor patterns as [qx, qy, index]; sparse (only non-default indices are stored)
+	var floor_patterns: Array = []
+	for q in fm._quad_pattern:
+		floor_patterns.append([q.x, q.y, fm._quad_pattern[q]])
 
 	return {
 		"version": VERSION,
@@ -64,6 +98,9 @@ func serialize() -> Dictionary:
 		"doors": doors,
 		"quads": quads,
 		"wall_colors": wall_colors,
+		"wall_materials": wall_materials,
+		"floor_tints": floor_tints,
+		"floor_patterns": floor_patterns,
 	}
 
 # apply a serialize()-shaped dict onto the live level without touching disk. Used by
@@ -113,12 +150,34 @@ func _apply(data: Dictionary, keep_player := false) -> void:
 			floors.append({"cell": Vector2i(int(f["cell"][0]), int(f["cell"][1])), "style": f["style"]})
 		fm.apply_floors(floors)
 
+	# 4a-pre. floor patterns (v7+). Set BEFORE apply_tints because apply_tints ends with the rebuild
+	# that draws them; apply_patterns itself does not rebuild. A pre-v7 map has no "floor_patterns"
+	# key, so apply_patterns([]) clears to all-default.
+	var fpat: Array = []
+	for a in data.get("floor_patterns", []):
+		fpat.append([int(a[0]), int(a[1]), int(a[2])])
+	fm.apply_patterns(fpat)
+
+	# 4a. floor tints (v5+; runs after the materials above so the rebuild draws tints over them).
+	# A pre-v5 map has no "floor_tints" key, so apply_tints([]) just clears any stale tints.
+	var ftints: Array = []
+	for a in data.get("floor_tints", []):
+		ftints.append([int(a[0]), int(a[1]), float(a[2]), float(a[3]), float(a[4])])
+	fm.apply_tints(ftints)
+
 	# 4b. wall colours (walls exist after apply_map; build_world's deferred _apply_wall_colors
 	# paints the freshly spawned segments once they are in the tree)
 	var wcols: Array = []
 	for a in data.get("wall_colors", []):
 		wcols.append([int(a[0]), int(a[1]), float(a[2]), float(a[3]), float(a[4])])
 	obs.apply_wall_colors(wcols)
+
+	# 4c. wall materials (v6+; same deferred-paint story as wall colours). A pre-v6 map has no
+	# "wall_materials" key, so apply_wall_materials([]) just clears to all-stone.
+	var wmats: Array = []
+	for a in data.get("wall_materials", []):
+		wmats.append([int(a[0]), int(a[1]), String(a[2])])
+	obs.apply_wall_materials(wmats)
 
 	# 5. player spawn (skipped for undo/redo so history leaves the player where it stands)
 	if not keep_player:
@@ -151,6 +210,8 @@ func save_map(map_name: String) -> bool:
 		DirAccess.remove_absolute(path)
 	DirAccess.rename_absolute(tmp, path) # atomic swap in place of the old map
 	_set_last(map_name)
+	_current = map_name
+	_clear_dirty()
 	return true
 
 func load_map(map_name: String) -> bool:
@@ -166,8 +227,10 @@ func load_map(map_name: String) -> bool:
 		push_warning("MapIO: %s was saved by a newer version" % path)
 	_apply(data)
 	_set_last(map_name)
+	_current = map_name
 	# a loaded map is a fresh baseline: undo history from the previous map must not carry over
 	EditHistory.reset()
+	_clear_dirty()
 	return true
 
 # the map reloaded on next launch (last one saved or loaded)
@@ -198,3 +261,44 @@ func delete_map(map_name: String) -> void:
 	var path := _path(map_name)
 	if FileAccess.file_exists(path):
 		DirAccess.remove_absolute(path)
+	if map_name == _current:
+		_current = "" # the current map was deleted from under us; it is now unsaved
+
+# --- current map + unsaved-changes (dirty) state ---
+
+# the current map's NAME in memory, or "" when the map is new/unsaved. Authoritative for the menu's
+# "current" (get_last() is only the on-disk pointer for launch-reload, which lags a new/unsaved map).
+func current() -> String:
+	return _current
+
+# mark the live map as having unsaved edits. Called from EditHistory on every committed edit / undo /
+# redo, the single choke point through which all authoring changes pass.
+func mark_dirty() -> void:
+	if not dirty:
+		dirty = true
+		dirty_changed.emit(true)
+
+func _clear_dirty() -> void:
+	_autosave_accum = 0.0
+	if dirty:
+		dirty = false
+		dirty_changed.emit(false)
+
+# start a fresh blank map: a grass grid at the default size, spawn centred, no walls/doors/floors.
+# Unsaved until the user names it (Save As), so _current is cleared and the map is not dirty.
+func new_map() -> void:
+	_apply(_blank_map())
+	_current = ""
+	EditHistory.reset()
+	_clear_dirty()
+
+func _blank_map() -> Dictionary:
+	var w := 48
+	var h := 32
+	return {
+		"version": VERSION,
+		"grid": {"width": w, "height": h},
+		"spawn": {"x": w * CELL / 2.0, "y": h * CELL / 2.0},
+		"walls": [], "doors": [], "quads": [], "wall_colors": [], "wall_materials": [], "floor_tints": [],
+		"floor_patterns": [],
+	}

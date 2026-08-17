@@ -10,12 +10,18 @@ var _name_edit: LineEdit
 var _list: VBoxContainer
 var _current_lbl: Label
 var _save_btn: Button
+var _status_lbl: Label            # transient note ("Autosaved", "Saved")
+var _confirm: ConfirmationDialog  # unsaved-changes warning before New / Load
+var _pending: Callable            # the action to run once the user confirms discarding edits
 
 func _ready() -> void:
 	layer = 100 # above the game and the floor-highlight overlay (layer 90)
 	process_mode = Node.PROCESS_MODE_ALWAYS # keep working while the game is paused
 	visible = false
 	_build_ui()
+	# live-update the current-map label's unsaved marker, and flash a note when autosave fires
+	MapIO.dirty_changed.connect(func(_d): if visible: _refresh_current_label())
+	MapIO.autosaved.connect(func(_n): _flash("Autosaved"))
 
 func _build_ui() -> void:
 	var bg := ColorRect.new()
@@ -37,16 +43,32 @@ func _build_ui() -> void:
 	title.text = "Maps"
 	vb.add_child(title)
 
-	# current map + overwrite button
+	# current map + overwrite button + New
 	var cur_row := HBoxContainer.new()
 	_current_lbl = Label.new()
 	_current_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cur_row.add_child(_current_lbl)
+	var new_btn := Button.new()
+	new_btn.text = "New"
+	new_btn.pressed.connect(_on_new)
+	cur_row.add_child(new_btn)
 	_save_btn = Button.new()
 	_save_btn.text = "Save"
 	_save_btn.pressed.connect(_on_save_current)
 	cur_row.add_child(_save_btn)
 	vb.add_child(cur_row)
+
+	# transient status note (autosaved / saved), sits under the current-map row
+	_status_lbl = Label.new()
+	_status_lbl.modulate = Color(0.6, 0.85, 0.6)
+	vb.add_child(_status_lbl)
+
+	# unsaved-changes warning, shown before New / Load discard the live map
+	_confirm = ConfirmationDialog.new()
+	_confirm.dialog_text = "You have unsaved changes. Discard them?"
+	_confirm.title = "Unsaved changes"
+	_confirm.confirmed.connect(func(): if _pending.is_valid(): _pending.call())
+	add_child(_confirm)
 
 	# save as a new named map
 	var save_row := HBoxContainer.new()
@@ -84,10 +106,11 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_S and (event.ctrl_pressed or event.meta_pressed):
 		# quick re-save of the current map, no menu needed
-		var cur := MapIO.get_last()
+		var cur := MapIO.current()
 		if cur != "":
 			MapIO.save_map(cur)
 			if visible:
+				_flash("Saved")
 				_refresh()
 		get_viewport().set_input_as_handled()
 
@@ -107,8 +130,8 @@ func _close() -> void:
 	get_tree().paused = false
 
 func _refresh() -> void:
-	var cur := MapIO.get_last()
-	_current_lbl.text = "Current: " + (cur if cur != "" else "(unsaved)")
+	_refresh_current_label()
+	var cur := MapIO.current()
 	_save_btn.disabled = cur == "" # nothing to overwrite until first save/load
 	for c in _list.get_children():
 		c.queue_free()
@@ -128,10 +151,36 @@ func _refresh() -> void:
 		row.add_child(del_btn)
 		_list.add_child(row)
 
+# the "Current: <name> *" label, with a trailing * when there are unsaved edits
+func _refresh_current_label() -> void:
+	var cur := MapIO.current()
+	var mark := " *" if MapIO.dirty else ""
+	_current_lbl.text = "Current: " + (cur if cur != "" else "(unsaved)") + mark
+
+# briefly show a status note (autosaved / saved), then clear it
+func _flash(msg: String) -> void:
+	_status_lbl.text = msg
+	get_tree().create_timer(2.0).timeout.connect(func(): if is_instance_valid(_status_lbl): _status_lbl.text = "")
+
+# run `action` now, or after confirming if the live map has unsaved edits (New / Load discard it)
+func _confirm_if_dirty(action: Callable) -> void:
+	if MapIO.dirty:
+		_pending = action
+		_confirm.popup_centered()
+	else:
+		action.call()
+
+func _on_new() -> void:
+	_confirm_if_dirty(func():
+		MapIO.new_map()
+		_flash("New map")
+		_refresh())
+
 func _on_save_current() -> void:
-	var cur := MapIO.get_last()
+	var cur := MapIO.current()
 	if cur != "":
 		MapIO.save_map(cur) # overwrites in place
+		_flash("Saved")
 		_refresh()
 
 func _on_save_as() -> void:
@@ -140,11 +189,14 @@ func _on_save_as() -> void:
 		return
 	MapIO.save_map(n) # becomes the current map
 	_name_edit.text = ""
+	_flash("Saved")
 	_refresh()
 
 func _on_load(map_name: String) -> void:
-	MapIO.load_map(map_name)
-	_close()
+	# discard-warning first: loading replaces the live map and its unsaved edits
+	_confirm_if_dirty(func():
+		MapIO.load_map(map_name)
+		_close())
 
 func _on_delete(map_name: String) -> void:
 	MapIO.delete_map(map_name)

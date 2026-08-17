@@ -64,6 +64,40 @@ func play_drop(rect: Rect2) -> void:
 	_tween.parallel().tween_method(_set_alpha, 0.95, 0.0, 0.13)
 	_tween.tween_callback(_rest)
 
+# --- custom-shape drop: a Magic Wand SELECTION fill "drops" the whole floor shape into the room
+# (ROADMAP "Editor UX revisions" -> custom-shape hover/drop). The real floor commits underneath; this
+# overlay animates the fill material's tiles falling into every selected quarter at once and fading,
+# so it reads as the shape dropping in. Kept in its own state so it never disturbs the single-tile hover.
+var _shape_rects: Array = []  # world-space quarter rects of the dropped shape
+var _shape_tex: Texture2D
+var _shape_lift := 0.0
+var _shape_alpha := 0.0
+var _shape_tween: Tween
+
+func play_shape_drop(rects: Array, tex: Texture2D) -> void:
+	if tex == null or rects.is_empty():
+		return
+	_shape_rects = rects
+	_shape_tex = tex
+	if _shape_tween != null and _shape_tween.is_running():
+		_shape_tween.kill()
+	_shape_tween = create_tween()
+	_shape_tween.tween_method(_set_shape_lift, DROP_LIFT, 0.0, 0.15).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	_shape_tween.parallel().tween_method(_set_shape_alpha, 0.9, 0.0, 0.17)
+	_shape_tween.tween_callback(_clear_shape)
+
+func _set_shape_lift(v: float) -> void:
+	_shape_lift = v
+	queue_redraw()
+
+func _set_shape_alpha(v: float) -> void:
+	_shape_alpha = v
+	queue_redraw()
+
+func _clear_shape() -> void:
+	_shape_rects = []
+	queue_redraw()
+
 func _set_lift(v: float) -> void:
 	_lift = v
 	queue_redraw()
@@ -78,6 +112,7 @@ func _rest() -> void:
 	queue_redraw()
 
 func _draw() -> void:
+	_draw_shape() # the custom-shape drop draws independently of the single-tile hover state
 	if not _shown or _tex == null:
 		return
 	# contact shadow on the ground, tightening as the tile nears the floor, so the height reads
@@ -88,3 +123,11 @@ func _draw() -> void:
 	# so it shows the exact pixels that will land in this cell
 	var dst := Rect2(_rect.position - Vector2(0, _lift), _rect.size)
 	draw_texture_rect_region(_tex, dst, GridBackground.tiled_src(_rect), Color(1, 1, 1, _alpha))
+
+func _draw_shape() -> void:
+	if _shape_rects.is_empty() or _shape_tex == null:
+		return
+	var col := Color(1, 1, 1, _shape_alpha)
+	for r in _shape_rects:
+		var dst := Rect2(r.position - Vector2(0, _shape_lift), r.size)
+		draw_texture_rect_region(_shape_tex, dst, GridBackground.tiled_src(r), col)

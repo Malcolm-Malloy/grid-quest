@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bfey0epb4fxto"]
+
+[ext_resource type="Script" path="res://dev/test_floor_color.gd" id="1"]
+
+[node name="TestFloorColor" type="Node"]
+script = ExtResource("1")

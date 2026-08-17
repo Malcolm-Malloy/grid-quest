@@ -1,10 +1,11 @@
 extends CanvasLayer
 
-# The persistent editor tool strip (left side). First occupant: the Map Size control, which
-# grows/shrinks the map at each edge via MapEdit and previews the affected row/column on the
-# GridBackground (green = will be added, red = will be removed) while a button is hovered. The
-# mode tools (Magic Wand / Cell Selector / Fine Details / Erase) will be added to this same
-# strip later; this is the foundation they hang on. See ROADMAP "Right-click menu overhaul".
+# The persistent editor tool strip (left side). Laid out as collapsible ACCORDION sections (ROADMAP
+# "Editor UX revisions" -> accordion left menu): a "Tools" section (the authoring-mode radio group,
+# expanded by default) and an "Advanced" section (the Map Size edge controls, collapsed by default so
+# the strip stays short for most users, per "remove Map Size from the menu -> Advanced"). Recenter sits
+# below, always visible. Map Size grows/shrinks the map at each edge via MapEdit and previews the
+# affected row/column on the GridBackground (green = will be added, red = will be removed) on hover.
 
 const EDGES := ["top", "bottom", "left", "right"]
 
@@ -12,9 +13,10 @@ const EDGES := ["top", "bottom", "left", "right"]
 # order MUST match that enum since set_mode receives the raw index. The strip owns mode selection now
 # (it moved off the right-click popup); each has a single-key shortcut. F is Fine Details, so camera
 # recenter dropped F and keeps Home (see camera_follow.gd).
-enum { M_WAND, M_CELL, M_FINE, M_ERASE, M_WALL, M_DOOR, M_SELECT }
+enum { M_WAND, M_CELL, M_FINE, M_ERASE, M_WALL, M_DOOR, M_SELECT, M_BOX }
 const MODES := [
 	["Magic Wand (W)", M_WAND, KEY_W],
+	["Box Select (B)", M_BOX, KEY_B],
 	["Cell Selector (C)", M_CELL, KEY_C],
 	["Fine Details (F)", M_FINE, KEY_F],
 	["Erase (E)", M_ERASE, KEY_E],
@@ -22,12 +24,23 @@ const MODES := [
 	["Door (D)", M_DOOR, KEY_D],
 	["Select (S)", M_SELECT, KEY_S],
 ]
+# which modes get a visible button on the strip. ERASE moved fully into the right-click menu + Delete
+# key (note: "Erase ... in the right click menu instead"), so it has no strip button (E still works).
+# Wall/Door stay on the strip AS WELL as the menu (note: "wall and door ... in the right menu as well"),
+# because their DRAG gesture (drag to draw a wall LINE) has no menu equivalent and needs a reachable mode.
+const STRIP_MODES := [M_WAND, M_BOX, M_CELL, M_FINE, M_WALL, M_DOOR, M_SELECT]
 var _mode_buttons := {} # mode int -> Button, so a keyboard shortcut can light the right radio
+var _sections := {}     # section title -> {"header": Button, "content": VBoxContainer}, for the
+						# accordion (and so a test can check collapse/expand)
+var _level_dd: OptionButton       # the Level picker (switch which saved map is edited)
+var _level_confirm: ConfirmationDialog # unsaved-changes guard before a Level switch loads
+var _pending_level := ""          # the map a confirmed Level switch will load
 
 func _ready() -> void:
 	# the tool strip is editor-only chrome: show it in EDIT, hide it in PLAY (see EditorMode)
 	visible = EditorMode.is_edit()
 	EditorMode.changed.connect(func(_m): visible = EditorMode.is_edit())
+	add_to_group("tool_strip") # so tests / other nodes can find the strip
 
 	var panel := PanelContainer.new()
 	panel.position = Vector2(8, 8)
@@ -37,34 +50,57 @@ func _ready() -> void:
 	vb.add_theme_constant_override("separation", 4)
 	panel.add_child(vb)
 
-	# --- authoring modes (radio group) ---
-	var tools_title := Label.new()
-	tools_title.text = "Tools"
-	vb.add_child(tools_title)
+	# --- Level picker: switch which saved map is being edited (ROADMAP "Editor UX revisions" -> level
+	# dropdown). Lists user://maps; picking a different one loads it (guarded if there are unsaved edits).
+	var level_row := HBoxContainer.new()
+	var level_lbl := Label.new()
+	level_lbl.text = "Level"
+	level_row.add_child(level_lbl)
+	_level_dd = OptionButton.new()
+	_level_dd.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_level_dd.item_selected.connect(_on_level_selected)
+	_level_dd.get_popup().about_to_popup.connect(_refresh_levels) # freshen the list on each open
+	level_row.add_child(_level_dd)
+	vb.add_child(level_row)
+	vb.add_child(HSeparator.new())
+
+	_level_confirm = ConfirmationDialog.new()
+	_level_confirm.dialog_text = "You have unsaved changes. Discard them and load?"
+	_level_confirm.title = "Unsaved changes"
+	_level_confirm.confirmed.connect(func(): _load_level(_pending_level))
+	_level_confirm.canceled.connect(_refresh_levels) # cancel restores the dropdown to the current map
+	add_child(_level_confirm)
+
+	# --- Tools accordion section (expanded): the SELECTION-mode radio group (action modes live in the
+	# right-click menu now; see STRIP_MODES) ---
+	var tools := _add_section(vb, "Tools", true)
 	var grp := ButtonGroup.new()
 	for m in MODES:
+		if not (m[1] in STRIP_MODES):
+			continue
 		var b := Button.new()
 		b.text = m[0]
 		b.toggle_mode = true
 		b.button_group = grp
 		b.pressed.connect(_on_mode_pressed.bind(m[1]))
-		vb.add_child(b)
+		tools.add_child(b)
 		_mode_buttons[m[1]] = b
 	_mode_buttons[M_WAND].button_pressed = true # Magic Wand is the default, matching FloorManager
-	vb.add_child(HSeparator.new())
+	_refresh_levels()
 
+	# --- Advanced accordion section (collapsed): the Map Size edge controls ---
+	var adv := _add_section(vb, "Advanced", false)
 	var title := Label.new()
 	title.text = "Map Size"
-	vb.add_child(title)
+	adv.add_child(title)
 
 	# hover-add mode: when on, hovering just outside an edge previews + click-adds that row/column.
-	# ON by default (user decision 2026-08-16); this toggle moves to an "advanced options" section
-	# later, so most users never see it. Setting button_pressed after connecting fires the handler,
-	# which activates MapSizeTool.
+	# ON by default (user decision 2026-08-16). Setting button_pressed after connecting fires the
+	# handler, which activates MapSizeTool.
 	var hover := CheckButton.new()
 	hover.text = "Hover-add"
 	hover.toggled.connect(_on_hover_toggled)
-	vb.add_child(hover)
+	adv.add_child(hover)
 	hover.button_pressed = true
 
 	for edge in EDGES:
@@ -75,13 +111,35 @@ func _ready() -> void:
 		row.add_child(lbl)
 		row.add_child(_edge_button("+", edge, "add"))
 		row.add_child(_edge_button("−", edge, "remove")) # minus sign
-		vb.add_child(row)
+		adv.add_child(row)
 
+	# --- Recenter (standalone, always visible below the accordion) ---
 	vb.add_child(HSeparator.new())
 	var recenter := Button.new()
 	recenter.text = "Recenter (Home)"
 	recenter.pressed.connect(_recenter)
 	vb.add_child(recenter)
+
+# add a collapsible accordion section to `parent`: a header button that folds its content VBox. Returns
+# the content VBox for the caller to fill. `expanded` sets the initial state. A ▾/▸ arrow shows state.
+func _add_section(parent: Node, title: String, expanded: bool) -> VBoxContainer:
+	var header := Button.new()
+	header.toggle_mode = true
+	header.button_pressed = expanded
+	header.text = _section_label(title, expanded)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 4)
+	content.visible = expanded
+	header.toggled.connect(func(on: bool):
+		content.visible = on
+		header.text = _section_label(title, on))
+	parent.add_child(header)
+	parent.add_child(content)
+	_sections[title] = {"header": header, "content": content}
+	return content
+
+func _section_label(title: String, expanded: bool) -> String:
+	return ("▾ " if expanded else "▸ ") + title
 
 func _edge_button(text: String, edge: String, mode: String) -> Button:
 	var b := Button.new()
@@ -125,6 +183,46 @@ func _on_mode_pressed(mode: int) -> void:
 	var fm := get_node_or_null("../World/FloorManager")
 	if fm and fm.has_method("set_mode"):
 		fm.set_mode(mode)
+
+# light the radio button for `mode` without re-triggering set_mode. Used when the mode is changed from
+# elsewhere (e.g. FloorManager arming the Wall brush from the Build Wall menu) so the strip stays in sync.
+func reflect_mode(mode: int) -> void:
+	if _mode_buttons.has(mode):
+		_mode_buttons[mode].button_pressed = true # setter does not emit pressed, so no recursion
+
+# --- Level picker ---
+
+# rebuild the dropdown from user://maps, selecting the current map (or a leading "(unsaved)" entry when
+# the live map has never been saved). Setting OptionButton.selected does not emit item_selected, so this
+# never recurses into a load.
+func _refresh_levels() -> void:
+	if _level_dd == null:
+		return
+	_level_dd.clear()
+	var cur := MapIO.current()
+	var sel_idx := 0
+	if cur == "":
+		_level_dd.add_item("(unsaved)")
+	for map_name in MapIO.list_maps():
+		_level_dd.add_item(map_name)
+		if map_name == cur:
+			sel_idx = _level_dd.item_count - 1
+	_level_dd.selected = sel_idx
+
+func _on_level_selected(idx: int) -> void:
+	var map_name := _level_dd.get_item_text(idx)
+	if map_name == "(unsaved)" or map_name == MapIO.current():
+		return
+	if MapIO.dirty:
+		_pending_level = map_name # confirm before discarding unsaved edits
+		_level_confirm.popup_centered()
+	else:
+		_load_level(map_name)
+
+func _load_level(map_name: String) -> void:
+	if map_name != "" and map_name != "(unsaved)":
+		MapIO.load_map(map_name)
+	_refresh_levels()
 
 # light the matching radio and switch the mode, for the keyboard shortcuts below
 func _select_mode(mode: int) -> void:

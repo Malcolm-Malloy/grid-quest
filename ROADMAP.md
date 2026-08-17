@@ -70,6 +70,10 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
 7. **Coloured floors plus terrain and wall pattern and material options.** Tinting (presets, then
    picker) plus pattern variants (carpet, grass, tile, wood patterns) and wall/fence materials
    (wood, slate, stone). See "Coloured floors", "Terrain patterns and material variants".
+   *Progress:* Coloured floors slice 1 (fun swatches) + slice 2 (picker) DONE; **WALL materials
+   (Stone/Wood/Slate) DONE 2026-08-17**; **FLOOR terrain patterns (real pattern axis) DONE 2026-08-17**
+   (both under "Terrain patterns and material variants" -> As built). Still to do here: fence materials,
+   grass patterns, and the deferred material-aware floor swatch row.
 8. **Ground layer phase 2: auto-matching plus better edging.** Polish; hard 16px seams acceptable
    until then.
 
@@ -291,6 +295,32 @@ questions to answer, roughly in dependency order:
   the last saved/loaded map (`user://last_map.txt`); the capture harness disables this unless
   `GQ_AUTOLOAD=1`. To add a saveable property, edit `MapIO.serialize` + `_apply` in one place
   and bump `version` if the change is breaking.
+- **Persistence & library, slice 1 (BUILT 2026-08-17): New Map, dirty tracking, unsaved warning,
+  autosave.** Built on the existing save/load menu. What changed:
+  - **Current-map + dirty state in MapIO.** `_current` is the in-memory current map NAME ("" = new/
+    unsaved), authoritative for the menu (get_last() is only the on-disk launch-reload pointer, which
+    lags a new map). `dirty` flags unsaved edits; `dirty_changed`/`autosaved` signals drive the menu.
+    `save_map`/`load_map` set `_current` and clear dirty; `delete_map` clears `_current` if it was the
+    deleted map.
+  - **Dirty is hooked at the ONE choke point:** `EditHistory.commit()` (on a real change) plus
+    `undo()`/`redo()` call `MapIO.mark_dirty()`. So every authoring tool marks unsaved automatically,
+    no per-tool work, same pattern as undo/redo.
+  - **New Map:** `MapIO.new_map()` applies a blank map (grass grid 48x32, centred spawn, no walls/
+    doors/floors/tints) via the normal `_apply` path, clears `_current`, resets EditHistory, clears
+    dirty. Menu "New" button, guarded by the unsaved-changes warning.
+  - **Autosave:** `MapIO._process` writes a NAMED, dirty map to disk every `AUTOSAVE_SEC` (30s) and
+    emits `autosaved`; an unnamed/new map is never silently autosaved (the warning protects it).
+    `autosave_enabled` gates it (tests drive `_process` manually).
+  - **Menu (`ui/save_load_menu.gd`):** New button; "Current: <name> *" unsaved marker (live via
+    `dirty_changed`); a `ConfirmationDialog` "discard unsaved changes?" before New and Load; a
+    transient status flash ("Saved"/"Autosaved"/"New map").
+  - **Verified headless** (`dev/test_persistence.tscn`, 16 checks): save sets current + clears dirty,
+    an edit sets dirty, undo keeps dirty, save clears it, autosave clears a named dirty map on the
+    tick, New yields a blank 48x32 map with no walls/doors/quads and unsaved+clean, autosave skips an
+    unnamed map, delete-current clears the pointer. Full suite still green. Menu UI itself is code-only
+    (no render), verified by parse + logic.
+  - **Deferred to slice 2:** map thumbnails (need a render, which hangs headless here), folders/
+    categories, quit-time unsaved warning, export/import for sharing.
 - Character save (live position, facing, inventory) as a separate JSON section/file reusing
   the same MapIO atomic-write + versioning path.
 - Whole-game saves, so the player can eventually collect items that persist.
@@ -339,9 +369,46 @@ painted at room, cell or quarter grain:
   entry. With no selection, a floor material fills the clicked room and a wall colour the clicked
   building (Wand mode), or paints/colours the clicked cell (Cell/Fine). The selection persists
   across mode switches and after a fill, so it is a reusable target.
+- **Wand ants now hug the real geometry, walls AND rooms (FIXED 2026-08-16).** Two related fixes from
+  user screenshots:
+  - **Walls:** the ants used to trace wall *cells* (blocky 32px squares) floating off the drawn walls.
+    Now `selection_overlay.set_wall` outlines the UNION of the actual cap/face `piece_rects` via
+    `_rect_union_edges` (coordinate-compress the rect edges into a non-uniform sub-grid, mark sub-cells
+    whose centre is inside any rect, emit sub-cell edges bordering an unfilled neighbour). Interior
+    seams cancel, so the ants hug the wall silhouette.
+  - **Rooms:** the resolved model (after several misses, settled by RASTERISING the geometry to PNGs
+    and viewing them, since the live renderer hangs headless). The room floor is painted UNDER the
+    walls (ring quarters) so a fill reaches under them, and the wood shows on the wall tiles wherever
+    the narrow 11px cap does not cover the 16px ring quarter. So the ants must trace the VISIBLE wood =
+    `(interior + ring) MINUS wall sprites`. The overlay computes exactly that:
+    `region = union(fill rects) MINUS union(wall piece rects)` via
+    `selection_overlay._region_from_rects(include, exclude)` (coordinate-compression; a sub-cell kept
+    only if its centre is in a fill rect and in NO wall rect), fed the selection's `_sel_quads` plus
+    `floor_manager._floor_occluders()` (surrounding wall `piece_rects`, selection cell-bbox expanded by
+    1 for drooping faces). Both grow levels now include the ring: the whole-room grow uses `_room_quads`
+    (interior + ring); the patch adds its ring via `_with_ring(_patch_quads(...))`, so a single-click
+    patch also hugs the wall-tile wood, consistent with the grow. Rasterised A/B check confirmed
+    interior-only MISSED the wall-tile wood while interior+ring-minus-walls hugs it (incl. doorway
+    notches). Wall selections still trace the real cap/face silhouette (`_rect_union_edges`).
+    Remaining minor: doors are separate nodes, not in the occluders, so the ants can poke into a
+    doorway where the door sprite would cover the wood (noted; add gates to `_floor_occluders` later).
+  Verified headlessly (`dev/test_selection_overlay`, 11 checks: union edges incl. shared-edge
+  cancellation / wall-like L / aligned merge / true perimeter, PLUS rect subtraction: visible-rect
+  perimeter, no ants on the fully-occluded edge, ants on the wall's bottom edge, fully-occluded floor
+  empty). Live-visual confirm still pending (renders hang headless here).
+- **Wall hover is sub-cell aware (added 2026-08-17).** Hovering a wall cell used to light up the wall
+  no matter where in the cell the cursor was, including the exposed FLOOR part of the cell (the ring
+  wood that shows past the narrow cap). Now the wall highlight only fires when the cursor is over the
+  actual STONE geometry: `floor_manager._over_wall(cell, local)` tests the point against the wall's
+  `piece_rects`. Applied to both the Wand `_update_whole_hover` and the wall-tool `_update_wall_hover`.
+  For the Wand, hovering the floor part of a wall/door cell now highlights the ADJACENT ROOM's floor
+  instead (via `_adjacent_room_cell`, the nearest enclosed-floor orthogonal neighbour), since that ring
+  wood belongs to that room. The whole-hover dedupe moved from a bare cell to a `_whole_hover_key`
+  descriptor ("w:<cell>" / "r:<cell>" / "") so it re-evaluates as the cursor crosses stone/floor within
+  one cell.
 - **Caveats and still-deferred items (each its own roadmap section):** Erase only clears *floor*
-  material for now; wall/object removal (the topmost-first cell-occupancy model) is not built. The
-  wand's ants trace wall *cells* (32px), not per-wall-piece geometry. Outdoors (no enclosed room) a
+  material for now; wall/object removal (the topmost-first cell-occupancy model) is not built.
+  Outdoors (no enclosed room) a
   floor patch is just the clicked cell. Whole-map (a 3rd grow level), additive/subtractive Shift/Alt
   modifiers, box-select, and copy/paste are not built. The popup lost its Scope radios but is not
   yet *contextually* filtered (floor-only vs wall-only submenus). Selection-fill is verified by code
@@ -605,6 +672,57 @@ Open scope this pulls in:
 - Per-texture colour tinting of the floor textures (for example, recolour the tiles orange).
   Starts as presets, with a full colour picker later.
 
+### As built: slice 1, the 8 "fun" swatches (BUILT 2026-08-16)
+Slice 1 landed per the first-slice plan below. A floor **tint** (a multiply colour over whatever
+texture, or grass, is at a quarter) is now stored per 16px quarter in `_quad_tint`, parallel to and
+independent of `_quad_mat`, and is a MapIO source of truth. What was touched:
+- **`floors/floor_manager.gd`**: `FLOOR_COLORS` (Natural plus 8 fixed fun swatches: Red, Orange,
+  Yellow, Green, Blue, Purple, Pink, Grey) at `FLOOR_COLOR_BASE_ID = 400`; a `floor_color_sub` submenu
+  built in `_ready`; `_apply_menu_context` shows **"Floor Colours"** beside "Floor Textures" on a floor
+  cell (structure cells unchanged); a `_on_menu_id` branch for `id >= FLOOR_COLOR_BASE_ID` (checked
+  BEFORE the wall branch, since 400 > 300) that tints the active floor selection, or the clicked room
+  (Wand), cell (Cell) or quarter (Fine), as one `EditHistory.commit`. It arms
+  `_tool_kind = "floor_color"` so a left-drag keeps tinting (via `_paint` -> `_paint_floor_color`) with
+  the orange GROUND cursor and no drop-preview. Helpers: `_write_tint` (Natural/white erases the
+  entry), `_tint_cell` / `_tint_room` (interior plus wall-ring, like `_write_room`) / `_tint_selection`,
+  `apply_tints`, `floor_tint_at_quad`.
+- **Rendering**: `_rebuild` emits `[rect, tex, tint]` fills (union of `_quad_mat` and `_quad_tint`; a
+  tinted-but-unpainted quarter draws a tinted **grass** fill via the new `GRASS` preload).
+  `grid_background._draw` passes `f[2]` as the `draw_texture_rect_region` modulate;
+  `shadow_manager._stamp_floor` reads `floor_tint_at_quad` so tints survive the door-open / lit-room
+  restamp too.
+- **`systems/map_io.gd`**: VERSION 4 to **5**; `floor_tints` serialized as sparse `[qx, qy, r, g, b]`;
+  `_apply` step 4a calls `fm.apply_tints` after materials (a pre-v5 file has no key, so tints clear).
+- **`floors/floor_highlight_mask.gd`**: unchanged (orange GROUND hover was already correct).
+- **Verified headless** (`dev/test_floor_color.tscn`, 23 checks, all pass): tint at cell/quarter/room
+  grain including the under-wall ring, Natural reset, tinted-grass fill, MapIO v5 round-trip idempotent,
+  v4 back-compat, and undo/redo. `test_context_menu` / `test_erase` / `test_undo` still green. NOT yet
+  visually confirmed in a live run (renders hang headless here), so hand to the user like Coloured walls.
+- **Deferred to slice 2+** (unchanged): the 8 material-aware swatches (per-material table plus row
+  swap), the full colour picker, and wall *materials*.
+
+### As built: slice 2, the full colour PICKER (BUILT 2026-08-17)
+The arbitrary-colour picker landed; the material-aware swatch row is still deferred (see below).
+- **`floors/floor_manager.gd`:** the Floor Colours submenu gains a separator + **"Custom..."** item
+  (`FLOOR_PICKER_ID = 500`, handled in `_on_menu_id` BEFORE the 400+ swatch range). It opens a
+  `ColorPicker` in a `PopupPanel` built in `_ready` (alpha off; tints are opaque multiplies).
+- **Live preview, one undo entry.** `_on_floor_picker_changed` re-tints the right-clicked target on
+  every drag via the shared `_apply_floor_tint(color)` (selection / room / cell / quarter dispatch,
+  extracted from the swatch branch so both paths are identical); `_on_floor_picker_closed` commits the
+  whole session as ONE `EditHistory` step (or nothing if never previewed). `_suppress_picker` guards
+  the programmatic start-colour set so seeding the picker isn't counted as an edit.
+- **Verified headless** (`dev/test_floor_color.tscn`, now 28 checks): the shared `_apply_floor_tint`
+  tints the clicked cell's 4 quarters; a suppressed picker change does NOT tint; a real picker change
+  tints live and flags commit-on-close. Full suite green. Menu/popup UI itself is code-only (no render).
+- **Still deferred (wants a design pass with the user, NOT invented unilaterally):** the material-
+  aware swatches. A per-material colour table built by rebuilding `floor_color_sub` per right-click
+  from the clicked cell's material. **Count is per-material, NOT a fixed 8 (revised 2026-08-17 from the
+  notes):** "make an amount that makes sense based on the real-world material", so wood shows however
+  many wood tones read as sensible, metal its own set, grass its greens, and so on, rather than padding
+  every material to exactly 8. Deferred because it is many hand-picked multiply tints (an art/colour
+  decision, and multiply can only darken, so a "light oak" over a mid texture can't be hit by tint
+  alone). Revisit with the user, likely alongside wall *materials* (wood/slate/stone, still deferred).
+
 ### Colour palette: 16 swatches, half material-aware (decided 2026-08-16)
 The preset palette is **16 swatches in two groups of 8**:
 - **8 realistic, material-aware swatches** that **change based on the material/terrain being
@@ -623,7 +741,7 @@ The preset palette is **16 swatches in two groups of 8**:
   contextual colours); selecting a material/terrain swaps that row. The fun group is a constant. This
   pairs with "Terrain patterns and material variants" (pattern axis) and the material tiers.
 
-### First-slice build plan (mapped 2026-08-16, next-session kickoff)
+### First-slice build plan (mapped 2026-08-16) BUILT 2026-08-16 (see "As built: slice 1" above)
 Recorded from the item-4 session's loaded context so the next fresh session reads little (read volume
 is the dominant session-cost lever, see [[claude-usage-limits]]). **Slice 1 = the 8 "fun" swatches
 only** (constant palette, defer the material-aware row and the picker). It clones the built
@@ -922,6 +1040,21 @@ still comes first. See [[grid-quest-game-vision]].
   expandable later through the game.
 - **Absorbed-ability slots:** **3 to start**, expandable later. These are distinct from carry
   capacity.
+- **REVISION CONFIRMED (2026-08-17, design pass): ONE unified slot pool that is the player's "build".**
+  The old "two separate systems" is superseded. There is a single pool of **slots (3 to start,
+  expandable later)**, and each slot holds EITHER:
+  - an **Enchantment rune** = a character power that lets you **capture and control one minion** (1
+    rune = 1 minion, 2 runes = 2 minions). It does NOT buff the minion; minions bring their own innate
+    magic (see "Gems AND runes are both the CHARACTER's absorbed powers"); or
+  - a **gem** = one **player-cast spell** (e.g. a Fire gem).
+  So the loadout is a build trade-off between minion-control and personal spells. Worked examples the user
+  gave for a 3-slot build: **2 enchantment runes + 1 fire gem = 2 minions + 1 spell**; **1 rune + 2
+  gems = 1 minion + 2 spells**. Enchantment runes **level up**, and a minion buff **unlocks a special
+  ability at level 5**. This replaces the earlier "2 beasts carry + 3 ability slots" as two separate
+  capacities: minion capacity is now however many Enchantment runes you slot, not a fixed carry number.
+  (Reconcile the old "2 beasts to start" with "3 slots to start": likely you START with 2 enchantment
+  runes filling 2 of 3 slots, per the notes' "2x level-1 Enchantment Stones".) See "Orb system: types,
+  colours, and enchantment" and [[grid-quest-game-vision]].
 
 ### Absorb vs domesticate (core playstyle trade-off)
 The player can play many ways; the central sacrifice is per beast:
@@ -1546,9 +1679,19 @@ Both safety nets, since the user wants maximum protection:
 - Build note: reuses the existing `MapIO` atomic-write path; adds a dirty flag (set on any edit,
   cleared on explicit save) and a recovery-file slot + newer-than check on launch.
 
-## Box-select (rectangular area selection, decided 2026-08-16)
+## Box-select (rectangular area selection, decided 2026-08-16) BUILT 2026-08-17
 A second selection tool alongside the Magic Wand: **drag a rectangle to select every cell inside it,
 regardless of material or room boundaries.**
+
+### As built (2026-08-17)
+`Mode.BOX` (tool-strip button **Box Select (B)**, index 7). Drag: press records the start cell +
+compositing op; motion recomputes the rectangle live; release finalises. `_update_box(cur)` gathers
+every 16px quarter of every cell in the `_box_start`..`cur` rect (clamped to the map by `_clamp_cell`)
+and composites it onto `_box_base` per the op, producing a plain **floor** selection (`_sel_quads`) fed
+to the same marching-ants overlay and selection-fill/erase machinery the Wand uses. So box-select +
+palette = area bucket-fill over an arbitrary rectangle, and box-select + Delete erases it. No paint
+cursor in BOX mode (`_update_hover` clears it; the rectangle is the only feedback). Verified by
+`dev/test_box_select` (replace/add/subtract box math, clamping, wand composite).
 - **Wand = select by material/room** (connected same-material patch, whole room, wall structure);
   **box = select by area** (an arbitrary rectangle of mixed contents). Two complementary ways to
   build a selection.
@@ -1570,7 +1713,14 @@ bucket-fill**, the main payoff of having selections.
   (Cell Selector / Fine Details), per the normal Terrain placement UX. Selection-fill is the override
   when a selection exists.
 
-### Additive / subtractive selection (decided 2026-08-16)
+### Additive / subtractive selection (decided 2026-08-16) BUILT 2026-08-17
+As built: a mouse event's modifier maps to an op via `_sel_op` (Alt -> subtract, Shift -> add, plain ->
+replace). The Magic Wand passes it into `_wand_click(local, op)`: replace keeps the old new-or-grow
+behaviour, while add/subtract union/difference the clicked region (patch+ring for floor, run for wall)
+into the selection via `_modify_floor_selection` / `_modify_wall_selection` (switching selection kind if
+needed, dropping to an empty kind when the set empties). Box-select composites the same way against its
+`_box_base` snapshot. Verified by `dev/test_box_select`.
+
 Selections compose with standard modifiers, working for **both** the Magic Wand and box-select:
 - **Plain click/drag:** replace the selection (new selection).
 - **Shift + click/drag:** **add** the new region to the current selection.
@@ -1850,6 +2000,38 @@ adds the additive side, completing item 6.
   would read as a fat horizontal block). Verified for a door below, beside, and above a corner; the
   default map renders unchanged (its wall cells all take the same branch as before).
 
+## Wall/door notes batch (logged 2026-08-18)
+Three notes from the 2026-08-18 batch, not built yet.
+- **Wall cap rebuild (HIGH PRIORITY, user asked to rank near the top).** There is a perspective bug in
+  the wall cap rendering. When a **cross (+) intersection** of walls is selected (e.g. to recolour), the
+  highlighted cap piece should be **cross-shaped**, but right now the top reads as a **T**, which breaks
+  the perspective. Also the **cap texture appears to clip over the wall pieces below it**. Fix the cap
+  geometry so an intersection's cap matches its true footprint (cross at a +, etc.) and does not overdraw
+  the lower wall faces. Touches `world/wall_segment.gd` (cap geometry / `piece_rects`) and the corner/
+  junction spawning in `world/obstacles.gd`. Rank this above the other editor polish.
+- **Diagonal walls.** Support walls at 45 degrees, not just orthogonal runs. New geometry + placement +
+  shadow/lighting implications; a sizable feature, logged for later.
+- **Adjacent doors/gates merge into one.** When two gates/doors are placed next to each other, the
+  **posts between them are removed** and they render + function as **one big door/gateway**. Needs a
+  merge pass over adjacent gate cells (drop the shared interior posts, treat the run as a single wide
+  opening) in the gate/obstacle build.
+
+## Build Wall configurator flow (BUILT 2026-08-18)
+Makes building walls flow like laying ground: right-click an empty cell -> **Build Wall** opens a
+configurator submenu where you pick a **Colour** and a **Material** (radio checkables that KEEP the menu
+open, via `hide_on_checkable_item_selection = false`), then **Start Building (drag to place)** arms a
+draggable wall brush and closes the menu, so you drag to lay walls carrying that colour + material.
+- As built in `floors/floor_manager.gd`: a `build_wall_sub` submenu (local id scheme: colour `i`,
+  material `100+j`, Start `999`, routed to `_on_build_wall_id`, so it needs no global id range);
+  `_wall_brush_color` / `_wall_brush_mat` brush state synced to the ticks by `_sync_build_wall_checks`;
+  `_arm_wall_build` enters `Mode.WALL`, lights the strip's Wall radio via the new
+  `tool_strip.reflect_mode`, and hides the menu; `_place_wall_at` stamps the brush colour + material
+  onto each wall it lays (natural white / stone leave it plain, so the bare Wall tool is unchanged).
+  The context menu's "Build Wall" is now a submenu (`_apply_menu_context`). Verified by
+  `dev/test_menu_actions` (colour/material arm, Start -> Wall mode, placed wall carries the brush).
+- Note: the wall brush **persists** (the strip Wall button uses the last-configured brush too; defaults
+  natural stone). Build Door is unchanged (single-cell place) for now.
+
 ## Terrain patterns and material variants (logged 2026-08-16)
 Beyond colour, some terrain types get **pattern options that are separate from colour changes**.
 - **Terrain patterns:** e.g. different carpet patterns, short vs long grass, multiple tile and wood
@@ -1861,6 +2043,84 @@ Beyond colour, some terrain types get **pattern options that are separate from c
   building already noted under base building.
 - Menu impact: the right menu gains a pattern/material selector alongside colour. See "Optimise the
   right menu" for keeping this from bloating the menu.
+
+### As built: WALL materials (Stone/Wood/Slate) (BUILT 2026-08-17)
+The wall half of this landed as a self-contained slice, cloning the wall-COLOUR machinery 1:1 with a
+new **material** axis fully independent of the colour tint (a wall carries both a per-cell material AND
+a per-cell tint). Terrain patterns and **fence** materials are still deferred (fences aren't a distinct
+structure yet, only referenced in gate.gd comments). What was touched:
+- **New art:** `world/{wood,slate}_{face,cap}.png`, generated to match the stone pair's dims (32x24
+  face, 32x64 cap) and pixel-art style. Wood is warm brown vertical planks (face) plus horizontal
+  boards (cap); slate is cool blue-grey horizontal courses. Godot `.import` files were generated via a
+  headless `--import` pass (content-hashed UIDs, not hand-written).
+- **`world/wall_segment.gd`:** a `MATERIALS` const (name to `[face, cap]` preloaded pair; stone is the
+  default/legacy), a `cell_materials: Array` parallel to `cell_colors`, and `_cell_material` /
+  `_cell_textures` helpers. `_draw` now picks the face/cap pair per cell (cap already drew per-slice;
+  the bottom-cell face uses that cell's material). An uncoloured stone wall is byte-identical to before.
+- **`world/obstacles.gd`:** `wall_materials := {}` (Vector2i to name; only non-"stone" stored),
+  `get/set_wall_material`, `material_building` / `_material_cells` (bridges door gaps like the colour
+  path), `_apply_wall_materials` (pushes onto the segments), `apply_wall_materials` (MapIO load).
+  `remove_structure` / `add_door` erase the material entry alongside the colour. `_apply_wall_materials`
+  is `call_deferred` in `build_world` right after `_apply_wall_colors`.
+- **`systems/map_io.gd`:** VERSION 5 to **6**; `wall_materials` serialized as sparse `[cx, cy, name]`;
+  `_apply` step 4c calls `obs.apply_wall_materials` (a pre-v6 file has no key, so materials clear).
+  Blank-map template gains `"wall_materials": []`.
+- **`floors/floor_manager.gd`:** `WALL_MATERIALS` (Stone/Wood/Slate) at `WALL_MAT_BASE_ID = 600` (above
+  every other id range, matched FIRST in `_on_menu_id`); a `wall_mat_sub` submenu; `_apply_menu_context`
+  adds **"Wall Material"** beside "Wall Colour" on a structure cell; the 600+ branch materials the active
+  wall selection, or the clicked building (Wand) / segment (Cell/Fine), as one `EditHistory.commit`. Arms
+  `_tool_kind = "wall_mat"` so a left-drag keeps applying (via `_paint` -> `_paint_wall_material`) with
+  the purple wall hover (the `_update_hover` wall branch now covers "wall_mat" too).
+- **`ui/inspector.gd`:** the wall inspector gains a Stone/Wood/Slate material row below the colour row
+  (mirrored `WALL_MATERIALS` const, kept in sync by hand).
+- **`dev/capture.gd`:** new `GQ_WALLMAT="x,y,material;..."` hook (mirrors GQ_DOORSTATE) to set wall
+  materials before a grab.
+- **Verified headless** (`dev/test_wall_material.tscn`, 21 checks, all pass): set/reset at cell plus
+  building grain, the segment picks the right texture pair, MapIO v6 round-trip idempotent, v5
+  back-compat, undo/redo. Full existing suite still green (test_floor_color's hardcoded "version is 5"
+  relaxed to `MapIO.VERSION`). **Visually confirmed** via the capture harness (GQ_WALLMAT): a wood run
+  renders warm brown directly left of a distinct cool-grey slate run, both clearly separate from stone.
+- **Deferred (next in this section):** terrain patterns (carpet/grass/tile/wood style variants, a
+  pattern axis distinct from colour) and **fence** materials (needs a fence structure first).
+
+### As built: FLOOR terrain patterns (real pattern axis) (BUILT 2026-08-17)
+The pattern axis landed as decided (a real per-quarter pattern index, NOT flat extra materials), so a
+floor quarter now carries three independent axes: **material** (`_quad_mat`), **pattern**
+(`_quad_pattern`), and **colour tint** (`_quad_tint`). Patterns are style variants of a material's
+texture, chosen from a material-aware menu. Grass (carpet/long-grass) patterns and the game-mode
+resource gating are still deferred. What was touched:
+- **New art:** `floors/{wood_diagonal,tile_diamond,carpet_argyle}.png`, 128x128 tileable, generated to
+  match each base's palette, using 45-degree structure at period 32 (32 divides 128) so they tile with
+  no seam. `.import` files via a headless `--import` pass. Concrete stays single-pattern (Plain).
+- **`floors/floor_manager.gd`:** `textures` restructured from `name -> Texture` to `name -> [variants]`
+  (index 0 = the old single texture, so a default map is unchanged); a `PATTERN_NAMES` table (per
+  material, aligned by index) drives the menu labels. New `_quad_pattern` storage (SOURCE OF TRUTH,
+  parallel to `_quad_mat`/`_quad_tint`) and a `_mat_tex(mat, pattern)` helper that **clamps** a stale
+  index (e.g. a wood-herringbone quarter later painted concrete) so it never indexes out of range.
+  `_rebuild` / `floor_tex_at_quad` emit `_mat_tex(...)`, so the door-open shadow restamp gets patterns
+  for free (it already reads `floor_tex_at_quad`). Grain helpers `_write_pattern` / `_pattern_cell` /
+  `_pattern_room` / `_pattern_selection` + `_apply_floor_pattern` dispatch mirror the tint ones;
+  `_write_pattern` is a no-op over a quarter with no material, and erasing a quarter to grass
+  (`_write_quad` / `_write_room`) drops its pattern entry. `_paint` gains a `"pattern"` drag branch
+  (`_paint_floor_pattern`); the preview is hidden for the pattern tool (it re-textures in place).
+- **Material-aware menu:** a `pattern_sub` submenu rebuilt **per right-click** from the material at the
+  clicked quarter (ids `PATTERN_BASE_ID = 700`, matched FIRST in `_on_menu_id`, above the 600/400
+  ranges). It only appears when that material has more than one variant, so a grass cell shows no
+  Pattern entry. `_apply_menu_context` adds it on floor cells beside Floor Textures / Floor Colours.
+- **`systems/map_io.gd`:** VERSION 6 -> **7**; `floor_patterns` serialized as sparse `[qx, qy, index]`
+  (only non-default indices); `_apply` step 4a-pre calls `fm.apply_patterns` BEFORE `apply_tints`
+  (whose rebuild draws them). A pre-v7 file has no key, so patterns clear. Blank template gains the key.
+- **`dev/capture.gd`:** new `GQ_PATTERN="x,y,idx;..."` hook (pairs with GQ_FLOOR) to set patterns
+  before a grab.
+- **Verified headless** (`dev/test_floor_pattern.tscn`, 22 checks, all pass): apply at cell / quarter /
+  room grain, no-op over grass, the renderer picks the right variant AND clamps an over-range index,
+  MapIO v7 round-trip idempotent, v6 back-compat, erase-to-grass drops the pattern, undo/redo. Full
+  existing suite still green (test_wall_material's "version is 6" relaxed to `MapIO.VERSION`).
+  **Visually confirmed** via the capture harness: applying diagonal to a wood cell block produces a
+  large localized floor change (~97% of that screen block) over the run-to-run camera-jitter baseline
+  (~38%), on top of the headless proof that `floor_tex_at_quad` returns the variant texture.
+- **Deferred:** grass patterns (short/long, the base "" material has no variant slot yet), more
+  variants per material, and the game-mode resource gating.
 
 ## Optimise the right menu and UI practices (logged 2026-08-16)
 The user asked to analyse the right menu for optimisation and to research good UI practices as the
@@ -1877,6 +2137,83 @@ menu grows (modes, colour, pattern, material, walls, doors, items, creatures). W
 - **Consistency:** one place for mode toggles (Object/Cell/Fine Detail), one for Grid lines, stable
   positions so muscle memory forms.
 - Revisit against real UI references at build time; logged as a design task, not yet decided.
+
+### Editor UX revisions: actions into the right-click menu (logged 2026-08-17, not built)
+A batch of editor-UX notes that mostly **move actions off the left tool strip and into the contextual
+right-click menu**, and fix selection/deselection gaps. Several REVISE earlier decisions; newest intent
+wins. Logged as design tasks, not yet built.
+- **Deselect a Magic Wand selection. DONE 2026-08-17.** Add: **right-clicking anywhere off the current
+  selection** clears it, and **clicking off the map** (left or right) clears it. Both read as "logically
+  deselect". Pairs with the existing Esc. As built: `floor_manager.gd` `_unhandled_input` right-click
+  branch now clears the selection (and skips the menu) when `has_selection` and the click is off-map or
+  outside the selection (new `_click_in_selection` helper, keyed by 16px quarter for floor / 32px cell
+  for wall selections); a right-click INSIDE the selection still opens the menu so it can act on it. The
+  left-click branch clears the selection on any off-map click. Verified by `dev/test_selection_ux`.
+- **Cell Selector / Fine Details must not pre-arm a material. DONE 2026-08-17.** Entering these modes no
+  longer starts with a brush armed to drop; the user picks a material from the Floor Textures menu first.
+  As built: a new `_armed` flag (false by default), cleared whenever `set_mode` enters CELL/FINE and set
+  true when a material is chosen in `_on_menu_id`. While un-armed, `_show_preview` hides the lifted drop
+  tile and `_paint` places nothing in Cell/Fine (Erase is unaffected). Verified by `dev/test_selection_ux`.
+  (The deeper "select the area first, then drop into a custom shape" idea is the separate custom-shape
+  drop item below, still deferred.)
+- **Right-click cancels the armed brush in Cell/Fine. DONE 2026-08-17.** In Cell/Fine, a right-click
+  while a material is armed just **disarms it and removes the floating drop-preview graphic** (no menu);
+  a second right-click, now un-armed, opens the context menu as usual (user decision 2026-08-17:
+  "disarm only, no menu"). As built: the `_unhandled_input` right-click branch checks `(_mode == CELL or
+  FINE) and _armed` first, sets `_armed = false`, hides the preview, and consumes the click. The square
+  hover cursor stays; only the lifted tile goes. Verified by `dev/test_selection_ux`.
+- **Custom-shape hover/drop for Wand selections. DONE 2026-08-17.** Filling a Magic Wand floor selection
+  from the menu now plays a **shape drop**: the fill material's tiles animate falling into every selected
+  quarter at once and fade, revealing the committed floor, so it reads as the whole shape dropping into
+  the room. As built: `terrain_preview.gd` gains a `play_shape_drop(rects, tex)` (its own tween + a
+  `_draw_shape` pass, independent of the single-tile hover); `floor_manager.gd` `_selection_drop_rects`
+  gathers the visible selected-quarter world rects (excluding the under-wall ring so no lifted tile draws
+  over a structure) and the selection-fill branch of `_on_menu_id` triggers it. Verified by
+  `dev/test_selection_ux` (rects exclude the ring; the preview holds the shape after a fill).
+- **Level selection dropdown in the menu. DONE 2026-08-17.** A **Level** OptionButton at the top of the
+  left tool strip lists `user://maps` and shows the current map ("(unsaved)" when never saved). Picking a
+  different one loads it via `MapIO.load_map`, guarded by a ConfirmationDialog when the live map has
+  unsaved edits (cancel restores the dropdown to the current map). The list refreshes on each open
+  (`about_to_popup`). As built in `ui/tool_strip.gd` (`_refresh_levels` / `_on_level_selected` /
+  `_load_level`). Verified by `dev/test_tool_strip`. Complements the existing Maps modal (M key).
+- **Remove Map Size options from the menu; move to an Advanced menu. DONE 2026-08-17.** The Map Size
+  edge grow/shrink controls (hover-add toggle + the four edge +/- rows) now live inside a collapsed
+  **Advanced** accordion section on the left strip, so they are tucked away by default. Recenter stays
+  visible below. See the accordion note next.
+- **Accordion menus for the left menu. DONE 2026-08-17.** The left tool strip (`ui/tool_strip.gd`) is now
+  laid out as collapsible **accordion** sections via a new `_add_section(parent, title, expanded)` helper
+  (header button with a ▾/▸ arrow that folds a content VBox; sections recorded in `_sections` for tests).
+  Two sections: **Tools** (the authoring-mode radio group, expanded) and **Advanced** (Map Size,
+  collapsed). Verified by `dev/test_tool_strip` (8 checks: sections build, Tools expanded / Advanced
+  collapsed, Map Size lives under Advanced, header toggle shows/hides) and by a capture-harness render.
+  **Left-strip button change DONE 2026-08-17 (revised same day):** only **Erase** left the Tools radio
+  (it lives in the right-click menu + Delete key + `E`), matching the note's "Erase ... in the right
+  click menu instead". **Wall and Door STAY on the strip** as well as in the menu (note: "wall and door
+  ... in the right menu as well") because their **drag gesture** (drag to draw a wall LINE) has no menu
+  equivalent and needs a reachable mode; removing them regressed drag-wall-building, so they were put
+  back. `STRIP_MODES` = Wand / Box / Cell / Fine / Wall / Door / Select. All 8 modes keep a keyboard
+  shortcut; `_select_mode` guards the one absent radio button (Erase). Verified by `dev/test_tool_strip`.
+- **Erase moves into the right-click menu. DONE 2026-08-17.** Erase is now an **Erase** item in the
+  right-click menu, acting on **the current selection if there is one, else the clicked target** (a
+  wall/door is removed; a bare floor cell is cleared to grass, dropping material + pattern + tint). Also
+  bound to the **Delete key** (selection-only). As built in `floor_manager.gd`: `_menu_erase` /
+  `_erase_selection` / `_erase_single` helpers (floor selections clear every selected quarter; wall
+  selections `remove_structure` each, then one MapIO rebuild), `ERASE_ID` menu item, `KEY_DELETE` in
+  `_unhandled_key_input`. The left-strip Erase MODE is still present (removing it belongs to the
+  menu-decluttering chunk); this adds the menu path. Verified by `dev/test_menu_actions`.
+- **Wall and Door move into the right-click menu, with a contextual follow-up. DONE 2026-08-17.** A bare
+  cell's menu now offers **Build Wall** and **Build Door** (place on the clicked cell). After building,
+  the tile's menu **matches what is there**: a **wall** shows **Wall Colour + Wall Material + Terrain**
+  (Floor Textures/Colours/Pattern) + Erase; a **door** shows a **Door** submenu (Flip Orientation /
+  Open by default / Swing, mirroring the inspector) + **Terrain** + Erase. Terrain now shows on EVERY
+  cell (the ground under a structure is editable), which also fixed door cells previously showing the
+  inapplicable Wall Colour/Material. As built in `floor_manager.gd`: `BUILD_WALL_ID` / `BUILD_DOOR_ID` /
+  `DOOR_FLIP/OPEN/SWING_ID` handlers, a rebuilt `door_sub` submenu (`_rebuild_door_submenu`), and
+  `_apply_menu_context` restructured into structure + terrain + action sections (`_maybe_add_pattern`
+  extracted). The left-strip Wall/Door MODES remain (menu path is additive). Verified by
+  `dev/test_context_menu` (rewritten for the new sections) + `dev/test_menu_actions`.
+  Still pending in this chunk: removing the Wall/Door/Erase buttons from the left tool strip (pairs with
+  the menu-decluttering + accordion items below).
 
 ### Tooltips on menu and tool options (logged 2026-08-16)
 The user wants **tooltips on menu options**, and each tooltip should **also show the option's
@@ -2027,6 +2364,69 @@ power, that power **is turned into a Power orb** (e.g. **frost orb**, **builder 
   yields an orb the player can see, slot, and level up (materia-style, per Magic and progression).
 - Open questions (deferred): the home-storage mechanism, the exact switching-friction rule,
   and whether orbs are tradeable/droppable.
+
+### Orb system: types, colours, gems and runes, enchantment (logged 2026-08-17, from the notes)
+Expands Power orbs from "absorbed powers become orbs" into a fuller **FF7-materia-style orb system**
+that also folds in enchantment. All below is CONCEPT to log, not built; items marked (proposal) are my
+ideation the user invited ("ideate different colours and types of magic"), to be confirmed, not
+decisions.
+
+- **Power roster: 7 categories, 3 gems + 4 runes (CONFIRMED 2026-08-17 design pass).** All are the
+  CHARACTER's absorbed powers (see the "Gems AND runes" note above). FF7-materia-style.
+  - **Gems (elemental combat spells the player CASTS):** **Attack**, **Defense**, **Healing**.
+  - **Runes (the player's structural powers):** **Enchantment** (capture & control one wild/
+    undomesticated minion, 1 rune = 1 minion), **Summon** (call an already-owned beast from the paddock
+    into battle), **Construction** (build; the "Builder rune", unlocks/boosts the Base building), and
+    **Support** (self/party buffs, e.g. haste, cheaper resources).
+- **Orb COLOUR = its element/gem, NOT its type (CONFIRMED 2026-08-17 design pass).** The gem's natural
+  colour rules (Fire Ruby = red, Frost Sapphire = blue, Lightning Topaz = yellow). TYPE (gem-vs-rune,
+  and which of the 7) is read from the **gem-vs-rune SHAPE plus a small type icon**, not from colour.
+  This matches the gem names the user picked; it means two Attack orbs of different elements look
+  different-coloured, which is intended.
+  - **Keep this DISTINCT from the two existing colour systems:** the item/creature **rarity** ramp
+    (grey/white/green/blue/purple/orange-gold, see "Item rarity and rarity highlight") and the editor
+    **action-highlight** palette. An orb can have BOTH a type colour and a rarity outline; plan so they
+    don't clash (e.g. rarity as the outline, type as the gem body/icon).
+- **Orbs are precious GEM stones and RUNE stones (user-stated, "not sure yet").** Flavour/naming split
+  the user leans toward. **CONFIRMED split (2026-08-17): 3 gems + 4 runes.** Gems = the 3 elemental
+  combat spells (**Attack, Defense, Healing**); runes = the 4 structural powers (**Enchantment,
+  Summon, Construction, Support**). User gem examples: **Fire Ruby, Frost Sapphire, Lightning Topaz**;
+  user rune example: **Builder Rune** (= Construction). Gem-vs-rune is also the SHAPE tell that carries
+  the type (colour carries the element, see the colour note above).
+  - (proposal) extend the gem/element map for the gem spells: Fire = Ruby (red), Frost = Sapphire
+    (blue), Lightning = Topaz (yellow), Earth = Emerald/Jade (green) or Onyx, Arcane = Amethyst
+    (purple), Light/Heal = Diamond/Opal (white). Defense gems could be element-flavoured shields or a
+    single guard gem (open). Rune names (proposal): Builder Rune (Construction), Bond/Trance Rune
+    (Enchantment), Call Rune (Summon), Aegis or Haste Rune (Support).
+- **Sources: absorb + found + bought (CONFIRMED 2026-08-17).** Gems and rune stones come from THREE
+  sources: (1) **absorbing** a beast (the main tie to creature collection, e.g. absorb a Breaker
+  Monkey -> Construction/Builder rune, a fire beast -> Fire Ruby gem); (2) **world loot** (found stones
+  in dungeons/chests); (3) a **vendor** to buy/sell/trade orbs. The 2 starting Enchantment runes are a
+  given/tutorial exception. Implication: this is the richest economy option (loot tables + a shop are
+  their own systems to build later); it also means a power can exist without having sacrificed a
+  companion for it, so the absorb-vs-domesticate fork is one path to power, not the only one.
+- **Gems AND runes are both the CHARACTER's absorbed powers (CONFIRMED 2026-08-17).** Lore: the
+  player **acquires a power (absorb/find/buy) and it lives in a gem OR a rune stone**. The gem/rune
+  split is the KIND of power, NOT self-vs-minion (correcting an earlier wrong "runes empower minions"
+  framing):
+  - **Gems** = elemental combat spells the player casts (Attack, and per the split Defense/Healing).
+  - **Runes** = the player's other/structural powers. The **Enchantment rune** is a character power
+    whose effect is that it **lets you capture and control one wild / undomesticated minion** (1 rune
+    = 1 controllable minion; this is what makes "1 rune = 1 minion, 2 = 2 minions" work). It does NOT
+    buff the minion.
+  - **Minions have their OWN separate innate magic** (attached to the minion, e.g. a Bridge Lizard's
+    bridge power), NOT granted by any rune.
+  - Both gems and runes sit in the ONE unified slot pool ("the build", see "Carry and ability slots"):
+    a loadout is a mix of spells (gems) and structural powers like minion-control (runes). Starting
+    kit: **2x level-1 Enchantment runes** (the notes' "Enchantment Stones").
+  - Still open (next design questions): the exact RUNE roster (is Enchantment its own rune alongside
+    Construction/Support/Summon, or does it overlap Summon/Command?); what an Enchantment rune's level-5
+    special ability is; and whether every power is absorb-sourced or some stones are found/bought.
+- **Open questions (deferred):** the final type list and their exact colours; the full gem/rune to
+  element mapping; how many orb types map to how many gems; whether "Enchantment Stone" is its own
+  class or a use-mode of an orb; and how all this reconciles the combined-slot capacity. Revisit with
+  the user in a design pass. Cross-links: [[grid-quest-game-vision]], Power orbs, Magic and progression
+  (FF7 materia style), Item rarity and rarity highlight, Base building.
 
 ## Karma / morality system (Fable-style, logged 2026-08-15)
 A **Fable-style morality system** that changes how the game plays and how NPCs react: positive,

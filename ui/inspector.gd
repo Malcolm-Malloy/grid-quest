@@ -16,6 +16,9 @@ const WALL_COLORS := [
 	["Orange", Color(0.9, 0.58, 0.3)], ["Purple", Color(0.66, 0.45, 0.8)],
 ]
 
+# wall material list, mirrored from floor_manager.WALL_MATERIALS (kept in sync by hand)
+const WALL_MATERIALS := [["Stone", "stone"], ["Wood", "wood"], ["Slate", "slate"]]
+
 var _kind := ""            # "", "door" or "wall"
 var _cell := Vector2i.ZERO
 var _panel: PanelContainer
@@ -137,3 +140,22 @@ func _build_wall() -> void:
 			inspect_wall(_cell)) # refresh which swatch is current
 		row.add_child(b)
 	_box.add_child(row)
+
+	# material row (Stone/Wood/Slate): the face/cap texture swap, independent of the colour tint above
+	var current_mat: String = obs.get_wall_material(_cell)
+	var mat_row := HBoxContainer.new()
+	mat_row.add_theme_constant_override("separation", 2)
+	for entry in WALL_MATERIALS:
+		var mname: String = entry[0]
+		var mat: String = entry[1]
+		var mb := Button.new()
+		mb.text = mname
+		mb.tooltip_text = mname
+		if mat == current_mat:
+			mb.disabled = true # already the current material
+		mb.pressed.connect(func():
+			obs.set_wall_material(_cell, mat)
+			EditHistory.commit("wall material")
+			inspect_wall(_cell)) # refresh which material is current
+		mat_row.add_child(mb)
+	_box.add_child(mat_row)

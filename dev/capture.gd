@@ -178,6 +178,33 @@ func _ready() -> void:
 				fmsel.set_mode(6) # Mode.SELECT
 				fmsel._select_at(Vector2(int(sp[0]) * 32 + 16, int(sp[1]) * 32 + 16))
 
+	# GQ_PATTERN="x,y,idx;..." sets a floor cell's pattern index (0=default) via the same grain helper
+	# the Pattern menu uses, so the pattern variants can be verified headlessly. Pair with GQ_FLOOR to
+	# lay a material first (pattern is a no-op over grass), e.g. GQ_FLOOR="8,9,wood" GQ_PATTERN="8,9,1".
+	var fpat := OS.get_environment("GQ_PATTERN")
+	if fpat != "":
+		var fmpt := main.get_node_or_null("World/FloorManager")
+		if fmpt:
+			for op in fpat.split(";", false):
+				var f := op.split(",")
+				if f.size() == 3:
+					fmpt._pattern_cell(Vector2i(int(f[0]), int(f[1])), int(f[2]))
+			fmpt._rebuild()
+			await get_tree().process_frame
+
+	# GQ_WALLMAT="x,y,material;..." sets a wall cell's material (stone/wood/slate) via the same
+	# obstacles method the right-click menu + inspector use, so the material textures can be verified
+	# headlessly. Pair with GQ_POS to frame the wall.
+	var wmat := OS.get_environment("GQ_WALLMAT")
+	if wmat != "":
+		var obsm := main.get_node_or_null("World/Obstacles")
+		if obsm:
+			for op in wmat.split(";", false):
+				var f := op.split(",")
+				if f.size() == 3:
+					obsm.set_wall_material(Vector2i(int(f[0]), int(f[1])), f[2])
+			await get_tree().process_frame
+
 	# GQ_SAVE="name" writes the current level to user://maps/name.json (after the setup above)
 	var save_name := OS.get_environment("GQ_SAVE")
 	if save_name != "":

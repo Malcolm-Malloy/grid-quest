@@ -23,20 +23,26 @@ var _edges: Array = []      # [Vector2 a, Vector2 b], axis-aligned, a is the min
 var _phase := 0.0
 var _active := false
 
-# set the selection to a set of floor quarters (Vector2i in the 16px quarter grid)
-func set_floor(quads: Dictionary) -> void:
-	_fill_rects.clear()
+# set the selection to a set of floor quarters (Vector2i in the 16px quarter grid). `occluders` are
+# wall sprite rects that cover the floor (cap/face pieces): the wash + ants trace the VISIBLE floor,
+# i.e. the quarters MINUS the wall pieces, so the outline hugs the floor the player actually sees
+# (including where a wall's drooping front face covers the top of the interior floor).
+func set_floor(quads: Dictionary, occluders: Array = []) -> void:
+	var floor_rects: Array = []
 	for q in quads:
-		_fill_rects.append(Rect2(q.x * HALF, q.y * HALF, HALF, HALF))
-	_edges = _boundary_edges(quads, HALF)
+		floor_rects.append(Rect2(q.x * HALF, q.y * HALF, HALF, HALF))
+	var region := _region_from_rects(floor_rects, occluders)
+	_fill_rects = region["fills"]
+	_edges = region["edges"]
 	_active = not quads.is_empty()
 	queue_redraw()
 
 # set the selection to a set of wall cells (Vector2i in the 32px cell grid); piece_rects are the
-# actual wall geometry to wash, while the ants trace the cell boundary (good enough for v1).
+# actual wall geometry. Both the wash AND the marching ants now trace the real wall silhouette (the
+# union of the cap/face rects), so the ants hug the drawn walls instead of blocky 32px cell squares.
 func set_wall(cells: Dictionary, piece_rects: Array) -> void:
 	_fill_rects = piece_rects.duplicate()
-	_edges = _boundary_edges(cells, CELL)
+	_edges = _rect_union_edges(piece_rects)
 	_active = not cells.is_empty()
 	queue_redraw()
 
@@ -57,22 +63,62 @@ func _process(delta: float) -> void:
 	_phase = fposmod(_phase + delta * SPEED, PERIOD)
 	queue_redraw()
 
-# the outline of a set of grid squares of side `size`: every edge whose neighbour is not selected.
-# Each edge is emitted in the +x (top/bottom) or +y (left/right) direction so `a` is its min end.
-func _boundary_edges(cells: Dictionary, size: int) -> Array:
+# the outline of a UNION of arbitrary axis-aligned rectangles (the wall cap/face pieces), so the
+# ants hug the real wall silhouette rather than the cell grid.
+func _rect_union_edges(rects: Array) -> Array:
+	return _region_from_rects(rects, [])["edges"]
+
+# the VISIBLE region = union(include) MINUS union(exclude), as both a set of sub-cell fill rects
+# (for the wash) and its boundary edges (for the ants). Coordinate-compress every include/exclude
+# rect edge into a non-uniform sub-grid; a sub-cell is visible when its centre lies in some include
+# rect and in NO exclude rect; emit each visible sub-cell edge that borders a non-visible neighbour
+# (in true world coords). Collinear sub-edges stay separate but the world-keyed dash pattern keeps
+# the ants continuous. Runs once per selection (not per frame), so O(sub-cells * rects) is fine at
+# editor scale. Returns {"fills": Array[Rect2], "edges": Array[[Vector2, Vector2]]}.
+func _region_from_rects(include: Array, exclude: Array) -> Dictionary:
+	if include.is_empty():
+		return {"fills": [], "edges": []}
+	var xset := {}
+	var yset := {}
+	for r in include + exclude:
+		xset[r.position.x] = true
+		xset[r.position.x + r.size.x] = true
+		yset[r.position.y] = true
+		yset[r.position.y + r.size.y] = true
+	var xs: Array = xset.keys(); xs.sort()
+	var ys: Array = yset.keys(); ys.sort()
+	var filled := {}
+	var fills: Array = []
+	for i in xs.size() - 1:
+		var cx: float = (xs[i] + xs[i + 1]) * 0.5
+		for j in ys.size() - 1:
+			var cy: float = (ys[j] + ys[j + 1]) * 0.5
+			var p := Vector2(cx, cy)
+			if not _in_any(include, p) or _in_any(exclude, p):
+				continue
+			filled[Vector2i(i, j)] = true
+			fills.append(Rect2(xs[i], ys[j], xs[i + 1] - xs[i], ys[j + 1] - ys[j]))
 	var edges: Array = []
-	for c in cells:
-		var x: float = c.x * size
-		var y: float = c.y * size
-		if not cells.has(c + Vector2i(0, -1)):
-			edges.append([Vector2(x, y), Vector2(x + size, y)])
-		if not cells.has(c + Vector2i(0, 1)):
-			edges.append([Vector2(x, y + size), Vector2(x + size, y + size)])
-		if not cells.has(c + Vector2i(-1, 0)):
-			edges.append([Vector2(x, y), Vector2(x, y + size)])
-		if not cells.has(c + Vector2i(1, 0)):
-			edges.append([Vector2(x + size, y), Vector2(x + size, y + size)])
-	return edges
+	for key in filled:
+		var i: int = key.x
+		var j: int = key.y
+		var x0: float = xs[i]; var x1: float = xs[i + 1]
+		var y0: float = ys[j]; var y1: float = ys[j + 1]
+		if not filled.has(Vector2i(i, j - 1)):
+			edges.append([Vector2(x0, y0), Vector2(x1, y0)])
+		if not filled.has(Vector2i(i, j + 1)):
+			edges.append([Vector2(x0, y1), Vector2(x1, y1)])
+		if not filled.has(Vector2i(i - 1, j)):
+			edges.append([Vector2(x0, y0), Vector2(x0, y1)])
+		if not filled.has(Vector2i(i + 1, j)):
+			edges.append([Vector2(x1, y0), Vector2(x1, y1)])
+	return {"fills": fills, "edges": edges}
+
+func _in_any(rects: Array, p: Vector2) -> bool:
+	for r in rects:
+		if r.has_point(p):
+			return true
+	return false
 
 func _draw() -> void:
 	if not _active:

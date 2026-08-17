@@ -86,10 +86,13 @@ func _draw() -> void:
 func _stamp_floor(fm, qx: int, qy: int) -> void:
 	var r := Rect2(qx * HALF, qy * HALF, HALF, HALF)
 	var tex = fm.floor_tex_at_quad(Vector2i(qx, qy)) if fm else null
+	# a floor tint (white = none) multiplies the restamp too, so a coloured floor stays coloured
+	# where a lit room's wall shadows are wiped and under an open door (matches base_fills).
+	var tint: Color = fm.floor_tint_at_quad(Vector2i(qx, qy)) if fm else Color.WHITE
 	if tex:
-		draw_texture_rect_region(tex, r, GridBackground.tiled_src(r))
+		draw_texture_rect_region(tex, r, GridBackground.tiled_src(r), tint)
 	else:
-		draw_texture_rect_region(ground_texture, r, r)
+		draw_texture_rect_region(ground_texture, r, r, tint)
 
 # true if a global-space point falls inside a drawn shadow piece (player tint test).
 # Empty in room mode, so the player is never tinted while a room is lit.

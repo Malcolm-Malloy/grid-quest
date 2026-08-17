@@ -70,8 +70,9 @@ func _draw() -> void:
 	# FloorManager supplies the [dst_rect, texture] pieces; they tile by world position.
 	var fm := get_node_or_null("../FloorManager")
 	if fm:
+		# f = [dst_rect, texture, tint]; the tint (white = none) multiplies the floor colour
 		for f in fm.base_fills():
-			draw_texture_rect_region(f[1], f[0], tiled_src(f[0]))
+			draw_texture_rect_region(f[1], f[0], tiled_src(f[0]), f[2])
 	# the reference grid draws only when toggled on from the floor menu (off by default so
 	# it doesn't tint the floor textures the rest of the time)
 	if fm and fm.grid_on():
