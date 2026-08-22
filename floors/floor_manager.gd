@@ -168,6 +168,8 @@ var _suppress_picker := false   # guard so setting the picker's start colour doe
 var _mode: Mode = Mode.WAND  # active authoring mode (set by the tool strip)
 var _door_orient := "horizontal" # DOOR mode: orientation used when the cell has no wall run (R flips)
 var _painting := false       # true while the left button is held, for drag painting
+var _walls_dirty := false    # a wall drag added cells this frame; rebuild ONCE in _process instead of
+							 # per motion event (a full map rebuild per cell stutters, see "Investigate lag")
 # Box-select (Mode.BOX): drag a rectangle to select every quarter inside it, regardless of material or
 # room. Combines with the current selection per the drag-start modifier (Shift add / Alt subtract).
 var _box_active := false      # true while a box drag is in progress
@@ -331,6 +333,11 @@ func _on_window_mouse_entered() -> void:
 # tracks the current camera, so re-detecting the hovered cell each frame follows the world. The
 # hover updates are deduped by cell/rect, so a still camera and mouse cost nothing.
 func _process(_delta: float) -> void:
+	# coalesce a wall drag's map rebuilds to at most ONE per frame (each rebuild is a full map re-apply;
+	# doing it per motion event stutters). The walls were already added to the model in _place_wall_at.
+	if _walls_dirty:
+		_walls_dirty = false
+		_reapply_map()
 	_update_hover()
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -415,6 +422,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 			elif _painting:
 				_painting = false
+				if _walls_dirty: # flush the final pending rebuild so the commit captures it
+					_walls_dirty = false
+					_reapply_map()
 				EditHistory.commit("wall")
 			return
 		# Cell / Fine / Erase: left-click and left-drag paint
@@ -1340,7 +1350,7 @@ func _place_wall_at(local: Vector2) -> void:
 		obs.wall_colors[cell] = _wall_brush_color
 	if _wall_brush_mat != "stone":
 		obs.wall_materials[cell] = _wall_brush_mat
-	_reapply_map()
+	_walls_dirty = true # rebuild once in _process (coalesces a fast drag's many cells into one rebuild/frame)
 
 # --- Build Wall configurator (right-click "Build Wall" submenu) ---
 

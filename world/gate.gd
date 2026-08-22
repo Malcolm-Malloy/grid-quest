@@ -80,17 +80,27 @@ func refresh_shadow() -> void:
 # manager to merge with the walls. Each state is a set of [left,right,top,bottom]
 # rects smeared down-right at 45 degrees.
 func shadow_polys() -> Array:
+	# A CLOSED door sits flush inside its wall line, so its shadow should NOT trail off at 45 degrees on
+	# the bottom-left: that cut showed as an uncovered triangle when the door's neighbour was a thin
+	# vertical rail (a corner/closet layout) that could not cover it. Fill it (left edge straight down).
+	# An OPEN door's posts/swung panel are free-standing, so they keep the normal hexagon cut.
+	var flush := not is_open
 	var out: Array = []
 	for rect in _shadow_rects():
 		var l: float = rect[0]
 		var r: float = rect[1]
 		var t: float = rect[2]
 		var b: float = rect[3]
-		out.append(PackedVector2Array([
+		var poly := PackedVector2Array([
 			Vector2(l, t), Vector2(r, t),
 			Vector2(r + SHADOW_CAST, t + SHADOW_CAST), Vector2(r + SHADOW_CAST, b + SHADOW_CAST),
-			Vector2(l + SHADOW_CAST, b + SHADOW_CAST), Vector2(l, b),
-		]))
+		])
+		if flush:
+			poly.append(Vector2(l, b + SHADOW_CAST)) # flush: left edge runs straight down (no cut)
+		else:
+			poly.append(Vector2(l + SHADOW_CAST, b + SHADOW_CAST))
+			poly.append(Vector2(l, b)) # bottom-left 45-degree diagonal
+		out.append(poly)
 	return out
 
 func _shadow_rects() -> Array:

@@ -1019,24 +1019,33 @@ The core game loop, folded in from a Notes batch and resolved with the user. Thi
 creature-collector RPG pillar the north star describes; infrastructure (dev-order steps 1 to 7)
 still comes first. See [[grid-quest-game-vision]].
 
-### Beast states and lifecycle
-- **States:** **Wild** (roaming, hostile), **Subdued** (beaten, during a capture attempt),
-  **Entranced** (captured; occupies a carry slot), **Paddocked** (stored in a paddock, frees the
-  carry slot; "not entranced or wild"). **Companion** = an entranced beast currently set to walk
-  with the player.
-- **Domestication** is a **0 to 100% progress value on any owned beast**, built by walking and
-  fighting together as a companion. At 100% the beast **stays paddocked even if the fences are
-  broken**. (Gradual, not a discrete state.)
+### Creature / minion states and lifecycle
+Canonical glossary + a fill-in form now live in `Design/creature-states.md`; keep this in sync with it.
+- **Entity vs control:** a **Creature** is the entity (what you call one while **wild / free**); a
+  **Minion** is a creature **under your control**.
+- **States:** **Wild** (roaming, hostile), **Subdued** (beaten, capture window open, transient),
+  **Entranced Minion** (mind forced by an **Enchantment Stone the player HOLDS**; obeys), **Contained**
+  / Paddocked (released from the stone into an appropriate paddock; roams the pen peacefully but is wild
+  at heart, turning hostile if the pen is broken or entered, until domesticated), **Loyal Minion**
+  (domesticated to loyalty; obeys willingly, needs no stone and no cage, never reverts). **Companion** =
+  a minion currently out walking with you (fills a carry slot; a deployment role).
+- **Enchantment Stone:** a held item (one of your slots) that controls one creature's mind remotely; it
+  is **never attached to the creature**. Releasing it, or moving it to storage, ends control: safe only
+  when the creature is in appropriate containment (becomes Contained), otherwise it runs / turns Wild.
+- **Domestication:** an **experience-based** progression that rises **ONLY while a creature is Entranced**.
+  At the loyalty experience threshold the creature becomes a Loyal Minion (stays even if fences break). It
+  does NOT rise while Wild or Contained. (Progression, not a state. SUPERSEDES the earlier "built as a
+  companion" wording.)
 
-### Capture (trance magic)
-- Beat the monster in a fight, then attempt to put it in a **trance**. Success chance varies by
-  monster difficulty (harder monsters resist).
-- **On a failed trance, a weighted branch** (weights per monster, set by difficulty): the monster
-  may **run** (encounter ends), **stay subdued** (another attempt possible), or **get up** (back to
-  full fight, beat it down again to retry).
+### Capture (entrancement)
+- Beat the creature in a fight (becomes **Subdued**), then attempt **Entrancement** with a free held
+  Enchantment Stone. Success chance varies by creature difficulty (harder creatures resist).
+- **On a failed attempt, a weighted branch** (weights per creature, set by difficulty): it may **run**
+  (encounter ends), **stay subdued** (another attempt possible), or **get up** (back to full fight, beat
+  it down again to retry).
 
 ### Carry and ability slots (two separate systems)
-- **Trance / companion carry:** **2 beasts to start** (so one companion plus room for one more),
+- **Trance / companion carry:** **2 minions to start** (so one companion plus room for one more),
   expandable later through the game.
 - **Absorbed-ability slots:** **3 to start**, expandable later. These are distinct from carry
   capacity.
@@ -1050,18 +1059,18 @@ still comes first. See [[grid-quest-game-vision]].
   So the loadout is a build trade-off between minion-control and personal spells. Worked examples the user
   gave for a 3-slot build: **2 enchantment runes + 1 fire gem = 2 minions + 1 spell**; **1 rune + 2
   gems = 1 minion + 2 spells**. Enchantment runes **level up**, and a minion buff **unlocks a special
-  ability at level 5**. This replaces the earlier "2 beasts carry + 3 ability slots" as two separate
+  ability at level 5**. This replaces the earlier "2 minions carry + 3 ability slots" as two separate
   capacities: minion capacity is now however many Enchantment runes you slot, not a fixed carry number.
-  (Reconcile the old "2 beasts to start" with "3 slots to start": likely you START with 2 enchantment
+  (Reconcile the old "2 minions to start" with "3 slots to start": likely you START with 2 enchantment
   runes filling 2 of 3 slots, per the notes' "2x level-1 Enchantment Stones".) See "Orb system: types,
   colours, and enchantment" and [[grid-quest-game-vision]].
 
 ### Absorb vs domesticate (core playstyle trade-off)
-The player can play many ways; the central sacrifice is per beast:
+The player can play many ways; the central sacrifice is per minion:
 - **Domesticate:** keep it as a **companion that fights beside you and obeys commands** (e.g. a
   Breaker Monkey breaks walls on instruction). Companions are powerful but **vulnerable: they can
   die permanently in battle**.
-- **Absorb:** take the beast's power **into yourself**. The beast instantly becomes a normal
+- **Absorb:** take the minion's power **into yourself**. The minion instantly becomes a normal
   (powerless) version and is **set free automatically** (future: a release animation and goodbye
   message). Absorb only works on your **walking companions** (one or both). **The absorbed power
   starts at level 1** (note this to the player at absorb time).
@@ -1070,7 +1079,7 @@ The player can play many ways; the central sacrifice is per beast:
 
 ### Magic and progression (Final Fantasy 7 materia style)
 - The character has the usual **RPG stats** and **levels up absorbed powers** materia-style.
-- Beasts have their own **RPG companion stats**, upgradeable along with their magic, so they get
+- Minions have their own **RPG companion stats**, upgradeable along with their magic, so they get
   powerful but stay vulnerable.
 - **Ability scaling example (Breaker Monkey):** level 1 breaks wood fences, level 2 slate walls,
   level 3 stone walls, and so on.
@@ -1097,7 +1106,7 @@ The player can play many ways; the central sacrifice is per beast:
     side-grade peer of Stone rather than exceeding it; fits the house/town look.
   - **Metal Bars:** 5 Iron = 1 Metal Bars (decided 2026-08-16). **Iron** is mined ore. Strength
     **above Stone**, the toughest of the normal (non-industrial) ladder. Trait: **see-through**, so
-    it is ideal for cages/paddocks where you want to watch the contained beast.
+    it is ideal for cages/paddocks where you want to watch the contained creature.
   - **Chainlink:** industrial/"Tradie" tier (see build below), paired with a concrete floor. Future:
     chainlink can be magically electrified, so an electric attack on the fence does half damage to
     anyone on adjacent blocks; a steel floor conducts electricity the same way.
@@ -1123,11 +1132,19 @@ The player can play many ways; the central sacrifice is per beast:
   undying loyalty. Intended pacing: the early game is deliberately hard (scarce resources, building
   containment for starter minions); later, a Builder Bear or absorbing its power feels like an earned
   quality-of-life upgrade.
-- **Minion rarity tiers gate power level (logged 2026-08-16).** Minions of the same type come in
-  tiers that cap how high they upgrade: Basic = L1, Uncommon = L2, Rare = L3, Legendary = L4,
-  Mythical = L5 (special ability). When the player absorbs a power it starts at level 1 and can only
-  reach the level of the minion it was absorbed from, so rarer absorbed minions unlock higher
-  self-power. Ties to the absorb-vs-domesticate fork and materia-style leveling.
+- **Minion rarity tiers gate power level (logged 2026-08-16; refined 2026-08-22).** Minions of the same
+  type come in tiers that cap how high they upgrade: **Basic = L1, Uncommon = L2, Rare = L3, Legendary =
+  L4, Mythical = L5 (special ability).** (5-tier ladder kept as-is 2026-08-22; a Basic/common creature
+  caps at L1. The 2026-08-22 note's "common frog reaches L2" 4-tier idea was NOT taken.) When the player
+  absorbs a power it starts at level 1 and can only reach the level of the minion it was absorbed from, so
+  rarer absorbed minions unlock higher self-power. Ties to the absorb-vs-domesticate fork and materia-
+  style leveling.
+- **Mythical = the unique tier (decided 2026-08-22).** The **top tier (Mythical)** is also the "unique"
+  one: a Mythical creature gets a **preset unique name and a distinct look** on top of its L5 special
+  ability. Legendary vs Unique are **merged** (no separate Unique concept). Examples the user gave under
+  the old "Legendary" wording map to **Mythical**: the **Mythical Horse** is **white** (platinum/gold
+  armour, nature insignia) and the **Mythical Fire Horse** is **black** (black armour, flaming mane/tail).
+  See the "Mythical creatures + more" batch below for their ability ladders.
 - **"Tradie" build (logged 2026-08-16, playstyle).** A Minecraft-like build where the player wants
   all-building buffs; the world morphs toward skyscrapers and a construction-site look. Minions
   unique to this style need industrial barriers (concrete + chainlink) to contain them. Ties to
@@ -1136,15 +1153,48 @@ The player can play many ways; the central sacrifice is per beast:
 
 ### Base defense (wild-monster threat loop)
 - Wild monsters can **roam into the player's land and damage structures and fences**. A wild
-  **Breaker Monkey breaks wood fences**, freeing **undomesticated** paddocked beasts.
-- **Domesticated beasts stay** even if fences break. So **fence upkeep, stronger walls, and
+  **Breaker Monkey breaks wood fences**, freeing **undomesticated** contained creatures.
+- **Loyal minions stay** even if fences break. So **fence upkeep, stronger walls, and
   domestication all matter** as a base-defense dimension.
 
 ### Initial monsters (build these three first; one ability each for now, bosses get multiple later)
 - **Frost Frog:** blue, icy-looking frog that shoots a ball of ice at the player.
-- **Fire Fly:** a dragonfly that shoots fire.
+- **Fire Horse:** a flaming horse that shoots/breathes fire at the player. (Renamed from "Fire Fly"
+  2026-08-18; confirm the exact ability/look.)
 - **Breaker Monkey:** a monkey that knocks down wood fences (and higher-tier walls as its ability
   levels, per the scaling example above).
+
+### Mythical creatures + more (logged 2026-08-22)
+Ability ladders for the two Mythical (top-tier, unique-named, distinct-look) horses, plus new creature
+systems. Mythical unlocks the **special ability at L5**; the level 1 to 4 rungs upgrade the base power.
+
+- **Mythical Horse (a MOUNT).** White, platinum/gold armour, a nature/tree insignia on the front. A big
+  draw for good or balanced builds. Base: **dash 2 spaces unimpeded**.
+  - L1 to L3: movement-speed increase (each rung).
+  - L4: dash can **cross rivers**.
+  - **Special (L5): jumps outdoor walls.**
+- **Mythical Fire Horse (NOT mountable until its special).** Black, black armour, flaming mane and tail.
+  A big draw for a dark-lord / incubus build. Base speed is capped at a **companion horse's L1 speed**.
+  - L1: shoots a **line of flames 2 spaces** in front.
+  - L2: the flames extend to **3 spaces**.
+  - L3: shoots a **fireball** straight forward until it hits an obstacle or travels **8 spaces**, then
+    **explodes** for damage in a **1-tile radius**.
+  - L4: **dash 2 spaces** in front, dealing damage (_note was cut off; confirm the dash damage/effect_).
+  - **Special (L5): becomes mountable, and its dash crosses rivers of LAVA.**
+- **Absorb re-rolls rarity (logged 2026-08-22).** When the player **absorbs** a minion's power the minion
+  becomes a normal **animal** (per the absorb rule) AND its **rarity tier is re-rolled**. So there is a
+  **tiny chance** a common Fire Horse re-rolls up to a **Mythical Horse**. The odds **improve with logical
+  mechanics**: the minion's **domestication level**, whether it reached **loyalty**, and its **current
+  rarity**. Ties absorb into the creature-collection / rarity loop.
+- **Loyal creatures left in the wild (logged 2026-08-22).** A loyal creature of any kind left out in the
+  wild **roams the area you left it in** and **re-follows you when you return**. The danger: it is exposed
+  and **can be killed by wild magic creatures**, who dislike domesticated creatures.
+  - **Death penalty use:** on the player's death, their creatures and orbs are **left on the ground**;
+    the creatures can be **killed before the player gets back** to recover them. A real stakes/loss loop.
+
+### New creature ideas (logged 2026-08-22)
+- **Vinewinder Spider:** a spider made of **leaf magic**, that can **build hedges** (the Hedge tier, 5
+  Seeds = 1 Hedge). A building/utility creature like Builder Bear, but for hedges.
 
 ## Future terrain and world objects (logged 2026-08-13, not specced)
 Future additions the user wants at some point. Not built until asked; captured with light notes on
@@ -2000,17 +2050,102 @@ adds the additive side, completing item 6.
   would read as a fat horizontal block). Verified for a door below, beside, and above a corner; the
   default map renders unchanged (its wall cells all take the same branch as before).
 
+## Editor fixes + build-menu UX (logged 2026-08-22)
+A batch of editor fixes/tweaks plus a build-menu UX direction. Not built yet.
+
+**Fixes / tweaks:**
+- **Colour system cleanup. Greyscale conversion DONE 2026-08-22.** The tintable **material** textures are
+  now neutral greyscale, so a colour tint reads true and the model is orthogonal: **material = the pattern
+  (grey), colour = the tint.** Converted (desaturated in place via luminance): walls `stone/wood/slate`
+  cap+face (6), floors `wood/concrete/tile/carpet` + the pattern variants `wood_diagonal/tile_diamond/
+  carpet_argyle` (7). This also fixed the "cross wall is a different colour" report: the cap and face
+  textures were different hues, and the wall-cap fix exposed the cap hue at junctions; greyscale makes cap
+  and face differ only in brightness (face is shaded 0.62x). **Kept coloured:** `ground_grass.png` (natural
+  outdoor terrain) and the gate/door art (separate assets).
+  - Consequence: wood/tile/carpet now look **grey by default**; tint them for colour (matches "Natural is
+    default"). If a natural-by-default look is wanted (wood auto-brown, etc.), add a **per-material default
+    tint** later (not built).
+  - Still to do: **cull the preset tint colours that look bad** on the grey bases (curate WALL_COLORS /
+    FLOOR_COLORS); decide whether **grass** and **doors/gates** should also go greyscale + tintable.
+- **Rename "rotation" to "orientation"** wherever a texture/asset's rotation is referenced, for
+  consistency with **doors** (which already use "orientation").
+- **Convert wall to door and vice versa.** A menu action to change an existing wall into a door, and a
+  door back into a wall, in place. Extends the contextual Build/Wall/Door menu.
+- **Fix broken shadows** (bug).
+- **Fix the invisible-wall bug** (bug: a wall that blocks/behaves but does not render, or vice versa).
+- **Investigate lag (perf). LEAK FOUND + FIXED 2026-08-22.** Progressive lag while building was a real
+  leak: `obstacles.wall_shadow_polys` is a **member** array that `spawn_shadows()` appended to but **never
+  cleared**. Since every wall placement re-applies the whole map (`_reapply_map` -> `build_world` ->
+  `spawn_shadows`), the array **accumulated stale shadow polys from every prior rebuild forever**, and the
+  shadow union `shadow_manager._merge_all` is **O(n^3)** (pairwise `Geometry2D.merge_polygons` restarting
+  the scan on each merge). So the merge cost blew up as you built. Fix: `wall_shadow_polys.clear()` at the
+  start of `spawn_shadows` (one line), bounding the merge to the current walls only. Verified by
+  `dev/test_shadow_leak` (poly count stays flat across 20+ rebuilds; was growing every time). EditHistory
+  is NOT a leak (capped at 200 small sparse snapshots); `clear_world` frees all nodes each rebuild.
+- **Rebuild optimisations. DONE 2026-08-22.** Measured a full rebuild for a 205-wall house at **6.68 ms**
+  (`dev/bench_rebuild`), ~3 ms of it the shadow merge. Two fixes:
+  - **Coalesce wall-drag rebuilds to one per frame.** A WALL drag fired a full `_reapply_map` **per motion
+    event** (several per frame). Now `_place_wall_at` just adds the wall to the model and sets a
+    `_walls_dirty` flag; `FloorManager._process` does at most **one** rebuild per frame, and the drag
+    release flushes a final one before the undo commit. Live feedback stays (walls appear within a frame),
+    but a fast drag no longer stacks many rebuilds into one frame (the stutter source).
+  - **O(n^3) -> O(n^2) shadow merge.** `shadow_manager._merge_all` rewritten from a full-restart pairwise
+    scan to a single-pass incremental accumulation. Measured: shadow merge **2.98 ms -> 1.33 ms**, full
+    rebuild **6.68 ms -> 5.31 ms** for the same house. Same union result (verified by render).
+  - **Still deferred (bigger):** truly **incremental** wall placement (spawn/free only the affected wall
+    nodes and update only the touched shadow runs + room topology, instead of a full map rebuild per
+    placement). Worth it only if single-click placement on very large maps still lags after the above.
+
+**Build-menu UX (evolves the Build Wall configurator):**
+- **Guided wall placement:** placing a wall asks for **texture, then colour**, with a **preview tile shown
+  in the menu** so you see what you are about to place.
+- **Colour swatches:** offer colours as **small clickable coloured boxes**, not a text list.
+- **Show the current selection.** Any selected menu option gets a **highlight / checkmark** so the user
+  can see what is active. Best-practice suggestion (to confirm): a **filled radio dot** for single-select
+  groups (texture, colour, material) and a **checkmark** for on/off toggles.
+- **Photoshop-style persistent LEFT panel (the key idea).** Rather than living in a right-click submenu,
+  the armed brush's current **texture + colour (+ future options)** sit in the **left panel**, always
+  visible, like Photoshop showing the current font + size. Right-click **Build** arms the tool, then its
+  options appear/are edited in the left panel, so the user sees and changes the selection **without
+  re-opening the right-click menu**. This **revises** the just-built Build Wall configurator (a right-
+  click submenu, BUILT 2026-08-18) toward a persistent left-panel brush inspector; reconcile the two when
+  built. Connects to "Editor layout" (right/left panels) and "Optimise the right menu".
+
 ## Wall/door notes batch (logged 2026-08-18)
 Three notes from the 2026-08-18 batch, not built yet.
-- **Wall cap rebuild (HIGH PRIORITY, user asked to rank near the top).** There is a perspective bug in
-  the wall cap rendering. When a **cross (+) intersection** of walls is selected (e.g. to recolour), the
-  highlighted cap piece should be **cross-shaped**, but right now the top reads as a **T**, which breaks
-  the perspective. Also the **cap texture appears to clip over the wall pieces below it**. Fix the cap
-  geometry so an intersection's cap matches its true footprint (cross at a +, etc.) and does not overdraw
-  the lower wall faces. Touches `world/wall_segment.gd` (cap geometry / `piece_rects`) and the corner/
-  junction spawning in `world/obstacles.gd`. Rank this above the other editor polish.
-- **Diagonal walls.** Support walls at 45 degrees, not just orthogonal runs. New geometry + placement +
-  shadow/lighting implications; a sizable feature, logged for later.
+- **Wall cap "T" at junctions. RESOLVED 2026-08-22 (via greyscale, not geometry).** The junction "T" the
+  user saw was actually a **colour** problem, not geometry: the **cap** (`stone_cap.png`) and **front
+  face** (`stone_face.png`) were different hues (greenish cap vs warmer face), so at a junction the cap's
+  hue stood out as a T shape over the face. The **greyscale texture conversion** (see "Colour system
+  cleanup") fixed it: cap and face are now the same grey, differing only in brightness (face shaded
+  0.62x), so the junction reads as a normal connected wall.
+  - A geometry attempt (a `south_open` flag that dropped the front face where a wall was to the south, so
+    the cap connected) was tried and **reverted**: it removed the walls' 3D **face** on corners AND cross
+    junctions, which the user wants kept. Final rule (and original behaviour): **every wall cell keeps its
+    front face** (straight, corner, and +/T junction), so all walls read as solid 3D bodies.
+    `dev/test_wall_cap` guards this (junction / corner / exposed all return cap + face). No shadow change.
+  - Deferred (optional): a genuinely connected top-cap **cross** at a + would need per-region cap/face
+    (face on the sides, cap-connect in the centre), because a full connected cap and the front face
+    compete for the same cell body. Not worth it now; greyscale made the junction read fine with faces.
+- **Wall connects to a perpendicular door. FIXED 2026-08-22.** Building a closet, a wall tried to corner
+  toward a door that was on the **perpendicular** orientation (e.g. a side wall reaching for the front
+  door). The corner logic in `obstacles.build_world` used `has_structure` (wall OR door) for its neighbour
+  checks, so ANY adjacent door counted as part of the wall line. Fix: a new `_in_wall_line(cell, horizontal)`
+  counts a wall always, but a **door only if its orientation matches the direction** (a "horizontal" door
+  continues a horizontal line, a "vertical" door a vertical line), backed by a `_gate_orient` lookup dict
+  rebuilt per `build_world`. Both the horizontal and vertical passes now use it. Verified by
+  `dev/test_door_orient` (vertical door counts only vertically, horizontal only horizontally; walls both;
+  aligned doorways still connect) and a render (a vertical wall now sits cleanly below a horizontal door
+  instead of cornering into it).
+- **Door shadow triangle on the left. FIXED 2026-08-22.** A closed door's cast shadow (a hexagon smeared
+  down-right, like the walls) has a **bottom-left 45-degree cut**. Normally the wall beside the door covers
+  it, but when the door's neighbour is a **thin vertical rail** (a corner/closet layout) that cut showed as
+  an uncovered triangle. Fix: a CLOSED door is flush in its wall line, so `gate.shadow_polys()` now fills
+  the bottom-left cut (left edge runs straight down); OPEN doors keep the cut (free-standing posts/panel).
+  Confirmed at the geometry level (the closed door now casts a flush pentagon); no regression on the
+  default map's doors. NOTE: the door shadow is drawn by `world/gate.gd` (`shadow_polys`), merged with the
+  wall shadows in `shadow_manager._draw`; a stale unused twin `world/gate_shadow.gd` was **removed**
+  (dead code that briefly misled the fix).
 - **Adjacent doors/gates merge into one.** When two gates/doors are placed next to each other, the
   **posts between them are removed** and they render + function as **one big door/gateway**. Needs a
   merge pass over adjacent gate cells (drop the shared interior posts, treat the run as a single wide
@@ -2299,7 +2434,7 @@ Good candidate for an Artifact/print-ready page when the time comes.
 ## Creature, animal, and ownership terminology (glossary, set 2026-08-15)
 Consolidated naming the user fixed in the notes, so every later section and the code use one
 vocabulary. The dividing line is **magic**: creatures with magic are *monsters/minions* and can be
-entranced; creatures without magic are *animals* and cannot. Extends the 2026-08-14 beast lifecycle
+entranced; creatures without magic are *animals* and cannot. Extends the 2026-08-14 creature lifecycle
 ([[grid-quest-game-vision]]).
 - **Wild Monsters** are wild, magical, hostile creatures roaming the world (the 08-14 "Wild" state).
 - **Entranced Monster** is a Wild Monster the player has captured via trance. **Entrance only works
@@ -2315,7 +2450,7 @@ entranced; creatures without magic are *animals* and cannot. Extends the 2026-08
   character can ride for speed). Compensation idea under consideration: **grant the character one
   extra spell slot per animal companion**, to offset the companion's lack of magic.
 - **Naming (resolved 2026-08-15):** **"Companion"** is the walking-with-you *role*, which either a
-  minion or an animal can fill. Always qualify: **"Minion Companion"** (magical, an entranced beast
+  minion or an animal can fill. Always qualify: **"Minion Companion"** (magical, an entranced creature
   set to walk with you) and **"Loyal Companion"** (non-magical, a Loyal Animal in a slot). The bare
   word "Companion" refers to the role in general. This supersedes the 08-14 unqualified "Companion".
 
@@ -2329,11 +2464,11 @@ based on its Domestication level**:
   surrounding maps (becoming a Wild/released Animal that fills the world, see Karma).
 - **Lower domestication:** it reacts less tamely (flees / wanders off). Exact per-level behaviour
   deferred; the principle is "reaction scales with domestication."
-- Consistent with the 08-14 rule that absorb sets the beast free and the self-power starts at
+- Consistent with the 08-14 rule that absorb sets the creature free and the self-power starts at
   level 1.
 
 ### Power orbs (absorbed powers become orbs, logged 2026-08-16)
-Refines how absorbed powers are represented in the inventory. When the player absorbs a beast's
+Refines how absorbed powers are represented in the inventory. When the player absorbs a creature's
 power, that power **is turned into a Power orb** (e.g. **frost orb**, **builder orb**).
 - **Dedicated orb slots.** Power orbs occupy a **special, dedicated orb slot** in the player's
   inventory, separate from regular item slots.
@@ -2375,7 +2510,7 @@ decisions.
   CHARACTER's absorbed powers (see the "Gems AND runes" note above). FF7-materia-style.
   - **Gems (elemental combat spells the player CASTS):** **Attack**, **Defense**, **Healing**.
   - **Runes (the player's structural powers):** **Enchantment** (capture & control one wild/
-    undomesticated minion, 1 rune = 1 minion), **Summon** (call an already-owned beast from the paddock
+    undomesticated minion, 1 rune = 1 minion), **Summon** (call an already-owned creature from the paddock
     into battle), **Construction** (build; the "Builder rune", unlocks/boosts the Base building), and
     **Support** (self/party buffs, e.g. haste, cheaper resources).
 - **Orb COLOUR = its element/gem, NOT its type (CONFIRMED 2026-08-17 design pass).** The gem's natural
@@ -2399,8 +2534,8 @@ decisions.
     single guard gem (open). Rune names (proposal): Builder Rune (Construction), Bond/Trance Rune
     (Enchantment), Call Rune (Summon), Aegis or Haste Rune (Support).
 - **Sources: absorb + found + bought (CONFIRMED 2026-08-17).** Gems and rune stones come from THREE
-  sources: (1) **absorbing** a beast (the main tie to creature collection, e.g. absorb a Breaker
-  Monkey -> Construction/Builder rune, a fire beast -> Fire Ruby gem); (2) **world loot** (found stones
+  sources: (1) **absorbing** a creature (the main tie to creature collection, e.g. absorb a Breaker
+  Monkey -> Construction/Builder rune, a fire creature -> Fire Ruby gem); (2) **world loot** (found stones
   in dungeons/chests); (3) a **vendor** to buy/sell/trade orbs. The 2 starting Enchantment runes are a
   given/tutorial exception. Implication: this is the richest economy option (loot tables + a shop are
   their own systems to build later); it also means a power can exist without having sacrificed a
@@ -2567,7 +2702,7 @@ Per creature type it counts:
 - **Loyal Animal** of this type unlocked
 - Animals **released into the wild**
 
-Reads directly off the beast-lifecycle events already specced (08-14) plus the terminology above;
+Reads directly off the creature-lifecycle events already specced (08-14) plus the terminology above;
 mostly a persistent tally plus UI. Ties to character/game-save data (Q4). Distant.
 
 ## Multi-character system (the "big twist", logged 2026-08-15, vision-level)
@@ -2624,7 +2759,7 @@ art per the asset rule below.
 - **Player levels (after Absorbing its power, which starts at level 1 per the absorb rule):**
   - *Lvl 1:* the player can **send any chosen minion across a river**.
   - *Lvl 2:* the player can **walk over rivers** themselves.
-- Ties into Water/river-bank terrain (needs passable-over-impassable, like Bridges) and the beast
+- Ties into Water/river-bank terrain (needs passable-over-impassable, like Bridges) and the creature
   ability-leveling system.
 
 ## Meat, cooking, and kitchens (logged 2026-08-15)

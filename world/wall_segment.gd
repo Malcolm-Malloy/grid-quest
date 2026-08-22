@@ -137,8 +137,8 @@ func _draw() -> void:
 		if slice_bottom > slice_top:
 			_stamp(_cell_textures(i)[1], Rect2(x_start, slice_top, width, slice_bottom - slice_top), cap_origin, _cell_color(i))
 
-	# front face: only the bottom cell shows one (the run is seen edge-on), tinted darker, in the
-	# bottom cell's material
+	# front face: the bottom cell shows one (a straight wall, a corner, AND a cross junction, so every wall
+	# keeps its 3D body), tinted darker, in the bottom cell's material.
 	var fc := _cell_color(run_length - 1)
 	_stamp(_cell_textures(run_length - 1)[0], Rect2(x_start, cap_bottom, width, face_height), face_origin,
 			Color(fc.r * FACE_SHADE, fc.g * FACE_SHADE, fc.b * FACE_SHADE, 1.0))

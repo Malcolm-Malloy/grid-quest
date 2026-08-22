@@ -44,6 +44,10 @@ var wall_colors := {} # Vector2i cell -> Color
 # the default); MapIO persists it. Parallel to and independent of wall_colors.
 var wall_materials := {} # Vector2i cell -> String ("wood" / "slate"; "stone" = default = unstored)
 
+# door cell -> orientation ("horizontal"/"vertical"), rebuilt each build_world for O(1) lookup by the
+# corner logic (see _in_wall_line). A door only continues a wall line running in its own orientation.
+var _gate_orient := {}
+
 func _ready() -> void:
 	add_to_group("obstacles") # so MapIO can find the world root to save/rebuild
 	wall_segment_script = load("res://world/wall_segment.gd")
@@ -91,6 +95,11 @@ func build_world() -> void:
 		)
 		get_parent().add_child.call_deferred(gate)
 
+	# door orientation lookup for the corner logic below (rebuilt each map)
+	_gate_orient.clear()
+	for d in gate_cells:
+		_gate_orient[d["cell"]] = d["orientation"]
+
 	# Two independent passes so the two rail types never fight over a cell:
 	#
 	#   1. Horizontal rails (top/bottom of the square): full-width pieces. At a
@@ -103,15 +112,17 @@ func build_world() -> void:
 	#      column. A run starts at the top of a vertical span and extends DOWN
 	#      through every blocked cell, corner cells included, so it physically
 	#      overlaps the corner and the square closes with no grass gap.
-	# Corner/junction decisions use has_structure (wall OR door), not just walls, so a door adjacent
-	# to a corner still forms the L: a door is part of the wall LINE (a doorway in it), so the corner
-	# must turn toward it. Only WALL cells ever spawn a rail; the door cell itself is never drawn over.
+	# Corner/junction decisions treat a neighbour as part of the wall LINE if it is a wall, OR a door whose
+	# ORIENTATION matches the direction (a "horizontal" door lies in a horizontal line, a "vertical" door in
+	# a vertical line). So a wall corners toward a doorway in its OWN line, but not toward a perpendicular
+	# door (e.g. a closet's side wall must not connect to the closet's front door). Only WALL cells ever
+	# spawn a rail; the door cell itself is never drawn over.
 	for cell in blocked_cells:
-		var has_left := has_structure(Vector2i(cell.x - 1, cell.y))
-		var has_right := has_structure(Vector2i(cell.x + 1, cell.y))
+		var has_left := _in_wall_line(Vector2i(cell.x - 1, cell.y), true)
+		var has_right := _in_wall_line(Vector2i(cell.x + 1, cell.y), true)
 		if not (has_left or has_right):
 			continue
-		var has_vertical := has_structure(Vector2i(cell.x, cell.y - 1)) or has_structure(Vector2i(cell.x, cell.y + 1))
+		var has_vertical := _in_wall_line(Vector2i(cell.x, cell.y - 1), false) or _in_wall_line(Vector2i(cell.x, cell.y + 1), false)
 		if has_vertical and has_right and not has_left:
 			# left corner: horizontal arm reaches right, outer (left) edge flush
 			# with the centered vertical rail's left edge
@@ -124,12 +135,12 @@ func build_world() -> void:
 			spawn_segment(cell, 1, 0.0)
 
 	for cell in blocked_cells:
-		# "part of a vertical line" counts a door neighbour (structure), so the wall cell above/below
-		# a door still gets a rail and the corner closes. A door interrupts the RUN though: the rail
-		# only extends over consecutive WALL cells (stops at the door), and a new run starts on the far
-		# side, so a length-1 rail lands on a corner cell that sits against a door.
-		var has_above := has_structure(Vector2i(cell.x, cell.y - 1))
-		var has_below := has_structure(Vector2i(cell.x, cell.y + 1))
+		# "part of a vertical line" counts a wall or a VERTICAL door above/below (an orientation-matched
+		# doorway), so the wall cell above/below a vertical door still gets a rail and the corner closes,
+		# but a perpendicular (horizontal) door does NOT pull a vertical rail. A door interrupts the RUN
+		# though (the rail only extends over consecutive WALL cells, stops at the door, new run on the far side).
+		var has_above := _in_wall_line(Vector2i(cell.x, cell.y - 1), false)
+		var has_below := _in_wall_line(Vector2i(cell.x, cell.y + 1), false)
 		if not (has_above or has_below):
 			continue # not part of any vertical line
 		if blocked_cells.has(Vector2i(cell.x, cell.y - 1)):
@@ -156,11 +167,15 @@ func build_world() -> void:
 var wall_shadow_polys: Array = [] # collected static wall shadow hexagons
 
 func spawn_shadows() -> void:
+	# reset first: build_world/spawn_shadows runs on EVERY map rebuild (every wall placement re-applies the
+	# map), and this array is a member, so without clearing it accumulated stale polys from every prior
+	# rebuild forever, making the shadow merge grow without bound (progressive lag + memory leak).
+	wall_shadow_polys.clear()
 	var structure: Dictionary = {}
 	for c in blocked_cells:
 		structure[c] = true
 	# gate cells are deliberately excluded: each gate casts its OWN shadow (see
-	# gate_shadow.gd) so the cast updates dynamically as it opens and closes,
+	# gate.gd shadow_polys) so the cast updates dynamically as it opens and closes,
 	# while these wall runs stay static
 
 	# horizontal walls: one FULL-WIDTH shadow per left-to-right run
@@ -250,6 +265,15 @@ func make_segment(cell: Vector2i, run_length: int) -> Node2D:
 
 func is_blocked(cell: Vector2i) -> bool:
 	return blocked_cells.has(cell)
+
+# is `cell` part of a wall LINE running in the given direction? A WALL always is. A DOOR is only if its
+# orientation matches: a "horizontal" door lies in a horizontal line, a "vertical" door in a vertical one.
+# This keeps the corner logic from connecting a wall to a perpendicular door. Uses the _gate_orient
+# lookup built in build_world (O(1)); call only during/after a build.
+func _in_wall_line(cell: Vector2i, horizontal: bool) -> bool:
+	if blocked_cells.has(cell):
+		return true
+	return _gate_orient.get(cell, "") == ("horizontal" if horizontal else "vertical")
 
 # --- structure removal (Erase tool) ---
 

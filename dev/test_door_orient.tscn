@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://do8mchbc2wgme"]
+
+[ext_resource type="Script" path="res://dev/test_door_orient.gd" id="1"]
+
+[node name="TestDoorOrient" type="Node"]
+script = ExtResource("1")
