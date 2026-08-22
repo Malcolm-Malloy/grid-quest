@@ -121,6 +121,12 @@ func build_world() -> void:
 		var has_left := _in_wall_line(Vector2i(cell.x - 1, cell.y), true)
 		var has_right := _in_wall_line(Vector2i(cell.x + 1, cell.y), true)
 		if not (has_left or has_right):
+			# no horizontal line-neighbour. If it also has no VERTICAL line-neighbour, the vertical pass
+			# below would skip it too, leaving a cell in blocked_cells (which casts a shadow) with NO wall
+			# node ("shadow shows but the wall doesn't build"). Spawn a standalone thin rail here, matching
+			# the thin shadow spawn_shadows casts for such a lone cell.
+			if not (_in_wall_line(Vector2i(cell.x, cell.y - 1), false) or _in_wall_line(Vector2i(cell.x, cell.y + 1), false)):
+				spawn_segment(cell, 1, 0.0, true)
 			continue
 		var has_vertical := _in_wall_line(Vector2i(cell.x, cell.y - 1), false) or _in_wall_line(Vector2i(cell.x, cell.y + 1), false)
 		if has_vertical and has_right and not has_left:

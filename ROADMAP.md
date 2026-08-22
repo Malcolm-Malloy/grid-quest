@@ -2146,6 +2146,15 @@ Three notes from the 2026-08-18 batch, not built yet.
   default map's doors. NOTE: the door shadow is drawn by `world/gate.gd` (`shadow_polys`), merged with the
   wall shadows in `shadow_manager._draw`; a stale unused twin `world/gate_shadow.gd` was **removed**
   (dead code that briefly misled the fix).
+- **Shadow shows but the wall does not build. FIXED 2026-08-22.** A wall cell with **no wall-LINE
+  neighbour** was skipped by BOTH build passes (the horizontal pass needs a left/right neighbour, the
+  vertical pass an up/down one), yet `spawn_shadows` still cast a shadow from `blocked_cells` for it. So a
+  **lone wall** (or, after the orientation-aware `_in_wall_line` change, a wall whose only neighbour is a
+  **perpendicular door**) rendered as a floating shadow with no node. Fix: `build_world` now spawns a
+  **standalone thin rail** for such orphaned cells (matches the thin shadow already cast). Verified by
+  `dev/test_isolated_wall` (isolated cell, perpendicular-door-only cell, normal wall regression) and a
+  render. Pre-existing for truly isolated cells; the perpendicular-door case became possible after the
+  `_in_wall_line` fix, so this closes both.
 - **Adjacent doors/gates merge into one.** When two gates/doors are placed next to each other, the
   **posts between them are removed** and they render + function as **one big door/gateway**. Needs a
   merge pass over adjacent gate cells (drop the shared interior posts, treat the run as a single wide
