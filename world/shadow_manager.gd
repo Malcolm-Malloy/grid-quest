@@ -114,29 +114,27 @@ func _in_any_room(local: Vector2) -> bool:
 # merges a list of polygons into disjoint boundary (CCW) regions. Holes (CW rings)
 # are dropped; directional cast shadows don't enclose anything, so none arise here.
 func _merge_all(polys: Array) -> Array:
+	# union the shadow polys into non-overlapping regions. Incremental accumulation: each poly is merged
+	# into the existing regions in a single pass, re-checking after each merge because a combined region
+	# grows and may then overlap another. O(n^2) worst case vs the old full-restart-scan's O(n^3), which
+	# mattered on big houses (see "Investigate lag"). Two polys "combine" when their union is a single
+	# outer (CCW) polygon; if they don't overlap, merge_polygons returns both, so nothing is merged.
 	var regions: Array = []
 	for p in polys:
-		regions.append(p)
-	var changed := true
-	while changed:
-		changed = false
-		var n := regions.size()
-		for i in range(n):
-			for j in range(i + 1, n):
-				var m := Geometry2D.merge_polygons(regions[i], regions[j])
+		var cur: PackedVector2Array = p
+		var merged := true
+		while merged:
+			merged = false
+			for i in range(regions.size()):
+				var m := Geometry2D.merge_polygons(cur, regions[i])
 				var ccw: Array = []
-				for p in m:
-					if not Geometry2D.is_polygon_clockwise(p):
-						ccw.append(p)
-				if ccw.size() == 1: # the two overlapped and became one region
-					var newr: Array = []
-					for k in range(n):
-						if k != i and k != j:
-							newr.append(regions[k])
-					newr.append(ccw[0])
-					regions = newr
-					changed = true
+				for q in m:
+					if not Geometry2D.is_polygon_clockwise(q):
+						ccw.append(q)
+				if ccw.size() == 1: # overlapped -> combined into one region
+					cur = ccw[0]
+					regions.remove_at(i)
+					merged = true
 					break
-			if changed:
-				break
+		regions.append(cur)
 	return regions

@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bf5gkso1m0yb5"]
+
+[ext_resource type="Script" path="res://dev/test_wall_cap.gd" id="1"]
+
+[node name="TestWallCap" type="Node"]
+script = ExtResource("1")

@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bf5fxwqrsikb5"]
+
+[ext_resource type="Script" path="res://dev/bench_rebuild.gd" id="1"]
+
+[node name="BenchRebuild" type="Node"]
+script = ExtResource("1")
