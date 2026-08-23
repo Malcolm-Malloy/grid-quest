@@ -1235,15 +1235,30 @@ systems. Mythical unlocks the **special ability at L5**; the level 1 to 4 rungs 
 Future additions the user wants at some point. Not built until asked; captured with light notes on
 where each lands. Universal rule: **every graphic follows the top/front perspective**
 ([[grid-quest-asset-perspective-model]]), so it is not repeated per item below.
-- **Water terrain (impassable). NEXT UP (confirmed 2026-08-23):** the user wants **rivers and bodies
-  of water** as the next feature after the walls-in-the-panel + small-fixes work. A terrain type for
-  rivers AND still bodies (lakes / ponds) the player cannot cross. Slots into the Outdoor terrain
-  roster (alongside Grass, Sand, Snow) but introduces a genuinely **new mechanic: impassable
-  terrain**. Today walls and obstacles block movement; terrain does not, so water needs a per-terrain
-  passability flag and the player collision to respect it. First terrain that blocks. Open questions
-  for the spec: edge/shore rendering where water meets land, whether water tiles autotile into a
-  connected body, animation (still vs flowing), and how it reads under the top/front perspective.
-  Bridges (below) are the crossable companion.
+- **Water terrain (impassable). NEXT UP, SPEC DECIDED 2026-08-23:** the user wants **rivers and bodies
+  of water** (rivers AND still lakes / ponds) the player cannot cross, as the next build. First terrain
+  that blocks movement. Three design decisions locked with the user (all the recommended options):
+  - **Fits as a FLOOR MATERIAL, not a separate layer.** Water becomes a new entry in the floor
+    quarter-tile system (alongside grass/wood/tile/carpet/concrete), so it reuses floor painting,
+    Magic-Wand selection, the Brush panel (incl. tint), and MapIO save/load for free. It carries an
+    **`impassable` flag** (the new mechanic): today only walls/obstacles (`blocked_cells` / gates)
+    block the player; water is the first FLOOR that blocks. Implementation sketch: mark the material
+    impassable in the floor material table; the player's movement/collision check must also reject a
+    target cell whose floor material is impassable (a cell is water if any/most of its quarters are
+    water - decide cell-vs-quarter granularity for collision; cell-level is simplest and matches the
+    32px movement grid). Bump MapIO VERSION if the material set changes the serialized shape.
+  - **Autotile shoreline (can ship flat first).** Water tiles should pick **edge/corner variants where
+    they meet land** so a body reads as a shoreline, not a hard grid edge. Needs shore edge/corner art
+    + neighbour-aware tile selection (a 4- or 8-neighbour autotile lookup over the water quarters). OK
+    to ship a **flat uniform tile first** (hard edge) and add the autotile shoreline as a follow-up
+    slice, to keep the first build focused.
+  - **Still first, animate later.** Ship a **static** water tile (tintable like other floors); add a
+    subtle shimmer/flow animation as a later polish slice (avoids a per-frame update + frame art in
+    the first build).
+  - Still open (not blockers): the actual water ART (procedural PIL like the other floor textures, in
+    the greyscale-tintable style?), whether water is also authorable indoors or outdoor-only, and how
+    the shoreline reads under the top/front perspective ([[grid-quest-asset-perspective-model]]).
+    Bridges (below) are the crossable companion, built after water.
 - **Bridges (cross a river, both directions).** A crossable overlay over water, in **north-south
   and east-west** orientations. Introduces passable-over-impassable: the bridge re-enables
   crossing on cells that water blocks. Directional asset like gates (per orientation art), see
