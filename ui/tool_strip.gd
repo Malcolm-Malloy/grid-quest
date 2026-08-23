@@ -33,6 +33,8 @@ const STRIP_MODES := [M_WAND, M_BOX, M_CELL, M_FINE, M_WALL, M_DOOR, M_BRIDGE, M
 var _mode_buttons := {} # mode int -> Button, so a keyboard shortcut can light the right radio
 var _sections := {}     # section title -> {"header": Button, "content": VBoxContainer}, for the
 						# accordion (and so a test can check collapse/expand)
+var _scroll: ScrollContainer      # wraps the panel body so it scrolls instead of overflowing the window
+var _content: VBoxContainer       # the scrolled body (all sections); its min height drives _relayout
 var _level_dd: OptionButton       # the Level picker (switch which saved map is edited)
 var _level_confirm: ConfirmationDialog # unsaved-changes guard before a Level switch loads
 var _pending_level := ""          # the map a confirmed Level switch will load
@@ -54,9 +56,21 @@ func _ready() -> void:
 	panel.position = Vector2(8, 8)
 	add_child(panel)
 
+	# The body scrolls when it is taller than the window, so a growing tool/material roster is never cut
+	# off (the strip used to overflow the bottom edge once Sand/Snow were added). A ScrollContainer's OWN
+	# minimum height ignores its scrollable content, so _relayout caps it to the viewport height: shorter
+	# content hugs, taller content scrolls. Horizontal scroll is off, so width still hugs the widest button.
+	_scroll = ScrollContainer.new()
+	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	panel.add_child(_scroll)
+
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 4)
-	panel.add_child(vb)
+	_scroll.add_child(vb)
+	_content = vb
+	get_viewport().size_changed.connect(_relayout)
+	call_deferred("_relayout")
 
 	# --- Level picker: switch which saved map is being edited (ROADMAP "Editor UX revisions" -> level
 	# dropdown). Lists user://maps; picking a different one loads it (guarded if there are unsaved edits).
@@ -155,7 +169,8 @@ func _add_section(parent: Node, title: String, expanded: bool) -> VBoxContainer:
 	content.visible = expanded
 	header.toggled.connect(func(on: bool):
 		content.visible = on
-		header.text = _section_label(title, on))
+		header.text = _section_label(title, on)
+		call_deferred("_relayout")) # expanding/collapsing changes the body height
 	parent.add_child(header)
 	parent.add_child(content)
 	_sections[title] = {"header": header, "content": content}
@@ -163,6 +178,16 @@ func _add_section(parent: Node, title: String, expanded: bool) -> VBoxContainer:
 
 func _section_label(title: String, expanded: bool) -> String:
 	return ("▾ " if expanded else "▸ ") + title
+
+# cap the scroll body to the visible window height (minus the 8px top/bottom margins): when the body is
+# shorter it hugs its content (no scrollbar), when taller it scrolls. Re-run whenever the body height or
+# the window size changes (accordion toggles, viewport resize). Robust to the tool/material roster growing.
+func _relayout() -> void:
+	if _scroll == null or _content == null:
+		return
+	var avail: float = maxf(get_viewport().get_visible_rect().size.y - 16.0, 80.0)
+	var want: float = _content.get_combined_minimum_size().y
+	_scroll.custom_minimum_size.y = minf(want, avail)
 
 # expand/collapse a section programmatically (drives the header toggle so its arrow + content follow)
 func _set_section(title: String, expanded: bool) -> void:
