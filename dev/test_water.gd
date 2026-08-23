@@ -147,7 +147,9 @@ func _ready() -> void:
 				corner_has_shore = true
 		if f[0] == corner_rect and f[1] == fm.RIVER_BANK:
 			corner_has_underlay = true
-		if f[0] == interior_rect and f[1] == flat and f.size() == 3:
+		# interior uses the flat still tile, not the shore atlas (it now also carries a tiled-src + animate
+		# flag for the shimmer, so it is no longer a bare 3-element fill).
+		if f[0] == interior_rect and f[1] == flat:
 			interior_flat = true
 	_check("12 edge quarters draw a shore tile", shore_fills == 12)
 	_check("interior quarter keeps the flat water tile", interior_flat)
@@ -155,6 +157,29 @@ func _ready() -> void:
 	_check("corner shore has a bank underlay beneath it", corner_has_underlay)
 	# shoreline is purely visual: the fully-watered edge cell still blocks the player
 	_check("shored water cell is still impassable", fm.is_cell_impassable(Vector2i(30, 10)))
+
+	# --- water shimmer plumbing (grid_background animates flagged water fills; dry maps cost nothing) ---
+	fm._quad_mat = {}
+	fm._rebuild()
+	_check("dry map reports no animated water", not fm.has_animated_water())
+	# a full-water cell plus a wood cell: water fills carry the animate flag (5th element), wood does not
+	for qq in _quads(Vector2i(30, 10)):
+		fm._quad_mat[qq] = "water"
+	for qq in _quads(Vector2i(33, 10)):
+		fm._quad_mat[qq] = "wood"
+	fm._rebuild()
+	_check("map with water reports animated water", fm.has_animated_water())
+	var water_animated := false
+	var wood_animated := false
+	var wood_tex = fm._mat_tex("wood", 0)
+	for f in fm.base_fills():
+		var is_anim: bool = f.size() > 4 and f[4]
+		if is_anim and (f[1] == fm.WATER_SHORE or f[1] == fm._mat_tex("water", 0)):
+			water_animated = true
+		if f[1] == wood_tex and is_anim:
+			wood_animated = true
+	_check("water fills are flagged animated", water_animated)
+	_check("non-water (wood) fills are NOT animated", not wood_animated)
 
 	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
 	get_tree().quit(_fails)

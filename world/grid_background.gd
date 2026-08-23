@@ -38,6 +38,17 @@ const VOID_MAX_CELLS := 6000                  # safety cap so a far zoom-out can
 
 var _last_view := Transform2D()
 
+# Water shimmer: animated water fills (flagged by FloorManager) get a subtle brightness pulse that moves
+# across the surface. AMP is the +/- brightness fraction (kept small so it reads as a gentle shimmer, not
+# a flash); SPEED is radians/sec; K spreads the phase by world position so the wave ripples across a body
+# instead of pulsing in unison. The floor redraws at ~SHIMMER_HZ only while water is present (else zero cost).
+const WATER_SHIMMER_AMP := 0.09
+const WATER_SHIMMER_SPEED := 2.2
+const WATER_SHIMMER_K := 0.05
+const SHIMMER_HZ := 20.0
+var _wphase := 0.0   # accumulated shimmer time (sec), advanced while water is on the map
+var _waccum := 0.0   # redraw throttle accumulator
+
 func _ready() -> void:
 	texture_filter = TEXTURE_FILTER_NEAREST
 	texture_repeat = TEXTURE_REPEAT_ENABLED # so the ground tiles across grids bigger than the texture
@@ -49,6 +60,15 @@ func _process(_delta: float) -> void:
 	if x != _last_view:
 		_last_view = x
 		queue_redraw()
+	# advance the water shimmer and redraw at ~SHIMMER_HZ, ONLY while the map has water (a dry map never
+	# enters this branch, so animation costs nothing). Throttled so it isn't a full per-frame floor redraw.
+	var fm := get_node_or_null("../FloorManager")
+	if fm != null and fm.has_method("has_animated_water") and fm.has_animated_water():
+		_wphase += _delta
+		_waccum += _delta
+		if _waccum >= 1.0 / SHIMMER_HZ:
+			_waccum = 0.0
+			queue_redraw()
 
 # the source rect that makes a destination rect sample a 128x128 floor texture tiled by
 # world position, so neighbouring pieces line up into one continuous floor (shared by the
@@ -71,12 +91,18 @@ func _draw() -> void:
 	var fm := get_node_or_null("../FloorManager")
 	if fm:
 		# f = [dst_rect, texture, tint] with an OPTIONAL 4th element = a source-rect override (in
-		# texture space). Most fills omit it and sample the 128px tile by world position (tiled_src)
-		# so neighbours line up; the shoreline autotile passes an atlas src rect instead (a specific
-		# feathered-edge cell, drawn stretched into the quarter, not world-tiled). The tint multiplies.
+		# texture space) and an OPTIONAL 5th truthy element = ANIMATE (a water fill). Most fills omit
+		# both and sample the 128px tile by world position (tiled_src) so neighbours line up; the shoreline
+		# autotile passes an atlas src rect instead. Animated water fills get a subtle brightness shimmer
+		# that varies by world position + time, so the surface reads as gently rippling rather than a fade.
 		for f in fm.base_fills():
 			var src: Rect2 = f[3] if f.size() > 3 else tiled_src(f[0])
-			draw_texture_rect_region(f[1], f[0], src, f[2])
+			var tint: Color = f[2]
+			if f.size() > 4 and f[4]:
+				var ph: float = _wphase * WATER_SHIMMER_SPEED + (f[0].position.x + f[0].position.y) * WATER_SHIMMER_K
+				var pulse: float = 1.0 + WATER_SHIMMER_AMP * sin(ph)
+				tint = Color(tint.r * pulse, tint.g * pulse, tint.b * pulse, tint.a)
+			draw_texture_rect_region(f[1], f[0], src, tint)
 	# the reference grid draws only when toggled on from the floor menu (off by default so
 	# it doesn't tint the floor textures the rest of the time)
 	if fm and fm.grid_on():
