@@ -49,6 +49,24 @@ func _ready() -> void:
 	_check("segment: it reports slate and the slate face texture", pair_ok)
 	obs.set_wall_material(wall, "stone")
 
+	# --- new materials Brick + Hedge are registered and render through the same path ---
+	var fm = main.get_node("World/FloorManager")
+	var menu_mats := {}
+	for e in fm.WALL_MATERIALS:
+		menu_mats[e[1]] = true
+	_check("Brick + Hedge in the wall-material menu", menu_mats.has("brick") and menu_mats.has("hedge"))
+	_check("Brick + Hedge have a cap texture (Brush panel)", fm.WALL_TEX.has("brick") and fm.WALL_TEX.has("hedge"))
+	for m in ["brick", "hedge"]:
+		obs.set_wall_material(wall, m)
+		await get_tree().process_frame
+		var ok := false
+		for w in get_tree().get_nodes_in_group("walls"):
+			var idx: int = w.cells().find(wall)
+			if idx != -1 and w._cell_material(idx) == m and w._cell_textures(idx)[0] == w.MATERIALS[m][0]:
+				ok = true
+		_check("segment renders %s with its own face texture" % m, ok)
+	obs.set_wall_material(wall, "stone")
+
 	# --- building-grain: material every wall of the building at once ---
 	var bcells: Dictionary = obs.building_cells(wall)
 	_check("building: (6,3) belongs to a multi-cell building", bcells.size() > 1)

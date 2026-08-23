@@ -66,6 +66,10 @@ enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR, SELECT, BOX, BRIDGE }
 # _quad_tint), so pattern is an axis distinct from material and colour. A stale pattern index (e.g. a
 # quarter that was herringbone wood, then painted concrete) is clamped to the material's range at draw.
 var textures := {
+	# grass is the base terrain, now a real material so it can carry PATTERNS. Index 0 (Plain) is the
+	# ground-grass tile (used for the Brush preview); in _rebuild Plain draws NOTHING so the base ground
+	# shows through with no patch seam. Wild/Tuft are ALPHA overlays of extra blades drawn over the base.
+	"grass": [preload("res://world/ground_grass.png"), preload("res://floors/grass_wild.png"), preload("res://floors/grass_tuft.png")],
 	"wood": [preload("res://floors/wood_floor.png"), preload("res://floors/wood_diagonal.png")],
 	"concrete": [preload("res://floors/concrete_floor.png")],
 	"tile": [preload("res://floors/tile_floor.png"), preload("res://floors/tile_diamond.png")],
@@ -81,6 +85,7 @@ var textures := {
 # human names for each material's pattern variants, aligned by index with `textures`. Drives the
 # per-material Pattern submenu (rebuilt per right-click from the clicked quarter's material).
 const PATTERN_NAMES := {
+	"grass": ["Plain", "Wild", "Tuft"],
 	"wood": ["Planks", "Diagonal"],
 	"concrete": ["Plain"],
 	"tile": ["Square", "Diamond"],
@@ -95,7 +100,7 @@ const GRASS := preload("res://world/ground_grass.png")
 
 # popup id -> [label, material]; "" is the grass base (the eraser)
 const MENU := [
-	["Grass", ""], ["Wood", "wood"], ["Concrete", "concrete"], ["Tile", "tile"], ["Carpet", "carpet"],
+	["Grass", "grass"], ["Wood", "wood"], ["Concrete", "concrete"], ["Tile", "tile"], ["Carpet", "carpet"],
 	["Sand", "sand"], ["Snow", "snow"], ["Water", "water"],
 ]
 
@@ -148,7 +153,7 @@ const PATTERN_BASE_ID := 700
 # scopes 200+, walls 300+, floor colours 400+, picker 500), and is matched BEFORE them in _on_menu_id.
 const WALL_MAT_BASE_ID := 600
 const WALL_MATERIALS := [
-	["Stone", "stone"], ["Wood", "wood"], ["Slate", "slate"],
+	["Stone", "stone"], ["Wood", "wood"], ["Slate", "slate"], ["Brick", "brick"], ["Hedge", "hedge"],
 ]
 # the cap (top-face) texture per wall material, for the Brush panel's wall preview swatch. Mirrors
 # WallSegment.MATERIALS (kept in sync); the panel shows the cap tinted by the armed wall colour.
@@ -156,6 +161,8 @@ const WALL_TEX := {
 	"stone": preload("res://world/stone_cap.png"),
 	"wood": preload("res://world/wood_cap.png"),
 	"slate": preload("res://world/slate_cap.png"),
+	"brick": preload("res://world/brick_cap.png"),
+	"hedge": preload("res://world/hedge_cap.png"),
 }
 
 # wall colours (a tint over the stone). Natural = white = reset. Menu id is WALL_BASE_ID + index.
@@ -2024,6 +2031,16 @@ func _rebuild() -> void:
 				_base_fills.append([rect, EDGE_ATLAS[mat], tint, _shore_src(mask)])
 				continue
 			# mask 0 (bordered only by same/higher terrain): fall through to the flat, seamless tile
+		elif mat == "grass":
+			# grass is the base: Plain (pattern 0) draws NOTHING so the ground grass shows through with no
+			# patch seam (a tint still shows, matching the tint-only branch); Wild/Tuft draw an alpha blade
+			# overlay over the base. Never falls through to the opaque generic tile.
+			var gp: int = _quad_pattern.get(q, 0)
+			if gp != 0:
+				_base_fills.append([rect, _mat_tex("grass", gp), tint, GridBackground.tiled_src(rect)])
+			elif tint != Color.WHITE:
+				_base_fills.append([rect, GRASS, tint])
+			continue
 		_base_fills.append([rect, _mat_tex(mat, _quad_pattern.get(q, 0)), tint])
 	# a quarter carrying a tint but NO material is a tinted patch of grass: draw the grass base
 	# under the tint so the recolour shows (an unpainted quarter isn't in _quad_mat above).
