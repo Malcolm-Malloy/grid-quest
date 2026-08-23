@@ -78,6 +78,29 @@ func _ready() -> void:
 				if camwa and camwa.has_method("fit_map"):
 					camwa.fit_map()
 
+	# GQ_TERRAIN="x,y,material;..." paints FULL-CELL of any floor material at each cell, then rebuilds,
+	# so the generalised auto-matching edges can be seen (e.g. sand feathering into grass, snow over
+	# sand). Grass = "grass" or "" (the base). e.g. GQ_TERRAIN="20,10,sand;21,10,snow". Frames the whole
+	# map unless GQ_TERRAIN_NOFIT=1. Runs after GQ_WATER so the two can be combined in one shot.
+	var terrain := OS.get_environment("GQ_TERRAIN")
+	if terrain != "":
+		var fmt := main.get_node_or_null("World/FloorManager")
+		if fmt:
+			for op in terrain.split(";", false):
+				var tc := op.split(",")
+				if tc.size() == 3:
+					var c := Vector2i(int(tc[0]), int(tc[1]))
+					var mat: String = "" if tc[2] == "grass" else tc[2]
+					for dx in 2:
+						for dy in 2:
+							fmt._write_quad(Vector2i(c.x * 2 + dx, c.y * 2 + dy), mat)
+			fmt._rebuild()
+			await get_tree().process_frame
+			if OS.get_environment("GQ_TERRAIN_NOFIT") != "1":
+				var camt := main.get_node_or_null("Camera2D")
+				if camt and camt.has_method("fit_map"):
+					camt.fit_map()
+
 	# GQ_BRUSH="mat" arms a floor material through the real panel path (arm_floor_material) so the
 	# persistent Brush panel's preview swatch reflects it. "grass" = the empty grass material.
 	var brush_env := OS.get_environment("GQ_BRUSH")

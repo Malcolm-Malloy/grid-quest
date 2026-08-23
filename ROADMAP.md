@@ -74,8 +74,11 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
    (Stone/Wood/Slate) DONE 2026-08-17**; **FLOOR terrain patterns (real pattern axis) DONE 2026-08-17**
    (both under "Terrain patterns and material variants" -> As built). Still to do here: fence materials,
    grass patterns, and the deferred material-aware floor swatch row.
-8. **Ground layer phase 2: auto-matching plus better edging.** Polish; hard 16px seams acceptable
-   until then.
+8. **Ground layer phase 2: auto-matching plus better edging. FEATHERED AUTO-MATCH BUILT 2026-08-23**
+   for the OUTDOOR naturals (grass/sand/snow, + water's shoreline): a precedence-driven feathered edge
+   autotile blends adjacent naturals (see "Auto-matching terrain edges" as-built). Still open: material
+   *pattern*-aware edging, and transition/corner variants for the INDOOR/constructed materials if ever
+   wanted (currently hard-edged on purpose).
 
 **Phase B: persistence (needed to save the maps you build, then to play them).**
 9. **Character save (position, facing, inventory) plus whole-game saves.** Reuses the MapIO
@@ -505,8 +508,9 @@ painted at room, cell or quarter grain:
 - Verified: headless `--check-only` parse passes on all touched scripts. Not visually captured this
   session (needs an open-door state, so it wants a live run).
 
-Still deferred to ground-layer phase 2: auto-matching and better edging (transition/corner sprites
-instead of the hard 16px seam).
+Ground-layer phase 2 auto-matching / better edging: DONE 2026-08-23 for the outdoor naturals via a
+feathered edge autotile (grass/sand/snow + water's shoreline); see "Auto-matching terrain edges" below.
+Constructed/indoor materials stay hard-edged on purpose.
 
 ## Ground layer (quarter-tile, decided 2026-08-13, step 1 built 2026-08-15)
 Decouple the ground/floor into its own layer, independent of rooms and obstacles, and store
@@ -522,9 +526,42 @@ Decided design:
 - **Editing:** the Ground menu paints material at room, cell, or quarter level.
 - **Save:** `MapIO` bumps to version 2 with a migration that reads v1 per-room styles into
   quarters.
-- **Future phases:** (a) auto-matching, so placing a material next to another auto-forms the
-  boundary quarters; (b) "better edging", transition/corner sprites derived from neighbour
-  quarters instead of the hard 16px seam.
+- **Future phases (BUILT 2026-08-23 for outdoor naturals):** (a) auto-matching plus (b) better edging
+  are now one feathered edge autotile, derived from neighbour quarters, replacing the hard 16px seam
+  between grass/sand/snow (and water's shoreline). See "Auto-matching terrain edges" as-built. Indoor
+  materials stay hard-edged by design.
+
+## Auto-matching terrain edges (ground-layer phase 2, BUILT 2026-08-23)
+Generalises the water shoreline into a reusable, precedence-driven feathered edge autotile so OUTDOOR
+natural terrains blend where they meet, instead of a hard 16px seam. Design chosen with the user:
+**feathered** look (matching the water shoreline), applied to **grass plus sand plus snow** (the
+roadmap's outdoor naturals) plus water.
+- **Precedence.** `FloorManager.TERRAIN_RANK = {"": 0, "grass": 0, "sand": 1, "snow": 2, "water": 99}`.
+  A higher-rank terrain feathers its edge OVER any orthogonally-adjacent LOWER-rank natural. Grass is the
+  base (rank 0, material ""); water is the top and keeps its dedicated shoreline branch (it also lays a
+  brown bank underlay, unlike the dry naturals). INDOOR/constructed materials (wood/concrete/tile/carpet)
+  are ABSENT from the table, so they never auto-match: a hard edge is correct for a rug or a wood floor.
+- **New materials.** `sand` plus `snow`, walkable outdoor floor materials (procedural PIL tiles
+  `floors/sand.png` / `snow.png`, generator in the session scratchpad). Registered in `textures`,
+  `PATTERN_NAMES`, `MENU`; NOT in `IMPASSABLE`. No MapIO version bump (new material strings only, like
+  water slice 1). `test_brush_panel`'s button count already ties to `MENU.size()`, so it absorbed the two.
+- **Edge autotile.** Each auto-matching terrain has a feathered atlas in `EDGE_ATLAS`
+  (`floors/sand_edge.png` / `snow_edge.png`), a 4x4 grid of 32px cells indexed by a 4-bit mask, the SAME
+  layout plus feather geometry as `water_shore.png`, so every terrain edge reads as one system. `_rebuild`:
+  for a natural quarter, `_terrain_edge_mask(q, mat)` sets a bit per side whose neighbour is an in-bounds
+  natural of strictly lower rank; mask 0 keeps the flat, seamless, world-tiled tile; else it lays an
+  UNDERLAY (`_edge_underlay_mat` = the highest-ranked lower neighbour, so snow reveals sand beneath its
+  feather; the grass base needs none) then the feathered atlas cell via `_shore_src(mask)`. Reuses the
+  `base_fills` 4th-element src-override the shoreline added.
+- **Interactions.** Sand never feathers toward water (water outranks it); water still feathers over sand
+  via its own shoreline (bank revealed). The river-bank ring still draws on naturals adjacent to water.
+  Purely visual: a quarter's stored material is unchanged, so collision (sand/snow passable) and save are
+  untouched.
+- **Verified:** `dev/test_automatch.tscn` (20 checks: registration plus passable, precedence, edge masks
+  over grass/sand/snow, no-feather toward water/peers/void/indoor, the snow-over-sand underlay, and the
+  `_rebuild` emission order). All green; `test_water` plus `test_brush_panel` regression green. Eyeballed
+  via the capture harness (new `GQ_TERRAIN` hook): a sand patch feathers into grass, snow feathers into
+  grass and over the sand edge, all matching the water shoreline.
 
 ### Step 1 execution spec (front-loaded 2026-08-13, so the build session is execution only)
 Resolved conventions and an ordered checklist for step 1, grounded in the current

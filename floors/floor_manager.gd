@@ -70,6 +70,10 @@ var textures := {
 	"concrete": [preload("res://floors/concrete_floor.png")],
 	"tile": [preload("res://floors/tile_floor.png"), preload("res://floors/tile_diamond.png")],
 	"carpet": [preload("res://floors/carpet_floor.png"), preload("res://floors/carpet_argyle.png")],
+	# outdoor natural terrains (walkable) that AUTO-MATCH: they feather into lower-precedence naturals
+	# via the shared edge autotile (see TERRAIN_RANK / EDGE_ATLAS below), so grass/sand/snow blend.
+	"sand": [preload("res://floors/sand.png")],
+	"snow": [preload("res://floors/snow.png")],
 	# water is the first IMPASSABLE floor (see IMPASSABLE below): a still, blue, tintable tile. Slice 1
 	# ships STILL + flat (no shoreline autotile, no flow animation) per the locked water spec.
 	"water": [preload("res://floors/water_still.png")],
@@ -81,6 +85,8 @@ const PATTERN_NAMES := {
 	"concrete": ["Plain"],
 	"tile": ["Square", "Diamond"],
 	"carpet": ["Solid", "Argyle"],
+	"sand": ["Sand"],
+	"snow": ["Snow"],
 	"water": ["Still"],
 }
 # the grass base, so a quarter that carries a floor TINT but no material still draws (a tinted
@@ -90,7 +96,7 @@ const GRASS := preload("res://world/ground_grass.png")
 # popup id -> [label, material]; "" is the grass base (the eraser)
 const MENU := [
 	["Grass", ""], ["Wood", "wood"], ["Concrete", "concrete"], ["Tile", "tile"], ["Carpet", "carpet"],
-	["Water", "water"],
+	["Sand", "sand"], ["Snow", "snow"], ["Water", "water"],
 ]
 
 # floor materials that BLOCK the player. Today only walls/gates block (obstacles.is_blocked, which
@@ -115,6 +121,22 @@ const BANK_AROUND := {"water": true} # materials whose non-matching quarter-neig
 # reveals wet sand, extending the dry river-bank ring (RIVER_BANK) onto the water side.
 const WATER_SHORE := preload("res://floors/water_shore.png")
 const SHORE_TILE := 32 # one atlas cell is 32px (drawn stretched into the 16px quarter)
+
+# Auto-matching (ground-layer phase 2, item 8): OUTDOOR natural terrains blend where they meet, using
+# the SAME feathered edge autotile the water shoreline pioneered. Each natural has a PRECEDENCE rank;
+# a higher-rank terrain feathers its edge over any orthogonally-adjacent LOWER-rank natural, revealing
+# it through the wavy transparent edge (an underlay draws the revealed terrain when it is not the grass
+# base). Grass is the base (rank 0, material ""); water sits at the top and keeps its own shoreline
+# branch (it also lays a brown bank underlay, unlike the dry naturals). INDOOR/constructed materials
+# (wood/concrete/tile/carpet) are absent from this table, so they never auto-match: a hard edge is
+# correct for a rug or a wood floor. A quarter's stored material is unchanged, so collision/save are too.
+const TERRAIN_RANK := {"": 0, "grass": 0, "sand": 1, "snow": 2, "water": 99}
+# the feathered edge atlas per auto-matching terrain (4x4 of 32px cells, same layout as WATER_SHORE).
+# Water is NOT here: it renders through the dedicated shoreline branch (bank underlay + WATER_SHORE).
+const EDGE_ATLAS := {
+	"sand": preload("res://floors/sand_edge.png"),
+	"snow": preload("res://floors/snow_edge.png"),
+}
 
 # floor patterns: a per-quarter pattern index into the material's `textures` variant array, separate
 # from the colour tint. Menu id is PATTERN_BASE_ID + index. Base is 700 so it sits above every other
@@ -1984,6 +2006,16 @@ func _rebuild() -> void:
 				_base_fills.append([rect, WATER_SHORE, tint, _shore_src(mask)]) # feathered water on top
 				continue
 			# mask 0 (open water, no orthogonal land): fall through to the flat, seamless, tiled tile
+		elif EDGE_ATLAS.has(mat):
+			# Auto-match: a natural terrain feathers over its lower-precedence orthogonal neighbours.
+			var mask := _terrain_edge_mask(q, mat)
+			if mask != 0:
+				var under: String = _edge_underlay_mat(q, mat)
+				if under != "": # reveal a non-base lower terrain (e.g. sand under snow) through the feather
+					_base_fills.append([rect, _mat_tex(under, 0), Color.WHITE])
+				_base_fills.append([rect, EDGE_ATLAS[mat], tint, _shore_src(mask)])
+				continue
+			# mask 0 (bordered only by same/higher terrain): fall through to the flat, seamless tile
 		_base_fills.append([rect, _mat_tex(mat, _quad_pattern.get(q, 0)), tint])
 	# a quarter carrying a tint but NO material is a tinted patch of grass: draw the grass base
 	# under the tint so the recolour shows (an unpainted quarter isn't in _quad_mat above).
@@ -2033,6 +2065,43 @@ func _is_shore_land(nq: Vector2i) -> bool:
 	if not _in_bounds(Vector2i(floori(nq.x / 2.0), floori(nq.y / 2.0))):
 		return false # out-of-map void: don't feather toward the edge
 	return _quad_mat.get(nq, "") != "water"
+
+# the 4-bit edge mask for an auto-matching terrain quarter `mat` at `q` (N=1 E=2 S=4 W=8): a side is set
+# when its orthogonal neighbour is an IN-BOUNDS natural terrain of STRICTLY LOWER precedence (so `mat`
+# feathers over it). Out-of-map, same-rank, higher-rank (incl. water), and non-natural (indoor) neighbours
+# never set a bit, so terrain never feathers toward the void, a peer, water, or a constructed floor.
+func _terrain_edge_mask(q: Vector2i, mat: String) -> int:
+	var r: int = TERRAIN_RANK.get(mat, 0)
+	var m := 0
+	if _lower_terrain(q + Vector2i(0, -1), r): m |= 1 # N
+	if _lower_terrain(q + Vector2i(1, 0), r):  m |= 2 # E
+	if _lower_terrain(q + Vector2i(0, 1), r):  m |= 4 # S
+	if _lower_terrain(q + Vector2i(-1, 0), r): m |= 8 # W
+	return m
+
+# is neighbour quarter `nq` an in-bounds natural terrain ranked below `r`?
+func _lower_terrain(nq: Vector2i, r: int) -> bool:
+	if not _in_bounds(Vector2i(floori(nq.x / 2.0), floori(nq.y / 2.0))):
+		return false
+	var nmat: String = _quad_mat.get(nq, "")
+	return TERRAIN_RANK.has(nmat) and TERRAIN_RANK[nmat] < r
+
+# the material to lay UNDER a feathered edge quarter so the feather reveals the right lower terrain: the
+# HIGHEST-ranked lower natural among the orthogonal neighbours. Returns "" (no underlay) when that is the
+# grass base (rank 0), since the whole map already draws grass beneath every quarter.
+func _edge_underlay_mat(q: Vector2i, mat: String) -> String:
+	var r: int = TERRAIN_RANK.get(mat, 0)
+	var best := ""
+	var best_rank := 0
+	for d in [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]:
+		var nq: Vector2i = q + d
+		if not _in_bounds(Vector2i(floori(nq.x / 2.0), floori(nq.y / 2.0))):
+			continue
+		var nmat: String = _quad_mat.get(nq, "")
+		if TERRAIN_RANK.has(nmat) and TERRAIN_RANK[nmat] < r and TERRAIN_RANK[nmat] > best_rank:
+			best_rank = TERRAIN_RANK[nmat]
+			best = nmat
+	return best
 
 # the atlas source rect for shoreline mask `m`: the 4x4 grid of 32px cells, indexed m%4 across, m/4 down.
 func _shore_src(m: int) -> Rect2:
