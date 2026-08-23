@@ -303,6 +303,16 @@ func _draw() -> void:
 	var lit := lit_cells()
 	if lit.is_empty():
 		return
+	# an active floor selection reads LIT so the colour being edited shows its true (lit) value: a room
+	# the player is not standing in is otherwise dimmed, which distorts the picked colour. Copy the cache
+	# (never mutate it) and fold the selected cells in, so their wall neighbours light on that side too.
+	var fm := get_parent().get_node_or_null("FloorManager")
+	if fm != null:
+		var sel: Dictionary = fm.selection_lit_cells()
+		if not sel.is_empty():
+			lit = lit.duplicate()
+			for c in sel:
+				lit[c] = true
 	var half := CELL / 2.0
 	var pc := _player_cell()
 	for x in range(pc.x - VIEW, pc.x + VIEW + 1):

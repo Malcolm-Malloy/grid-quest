@@ -22,6 +22,8 @@ var _fill_rects: Array = [] # Rect2 to wash
 var _edges: Array = []      # [Vector2 a, Vector2 b], axis-aligned, a is the min-coord end
 var _phase := 0.0
 var _active := false
+var _wash := true           # draw the translucent fill? Off for FLOOR selections (ants only) so the
+							# blue wash never tints the floor colour the user is editing; on for walls.
 
 # set the selection to a set of floor quarters (Vector2i in the 16px quarter grid). `occluders` are
 # wall sprite rects that cover the floor (cap/face pieces): the wash + ants trace the VISIBLE floor,
@@ -34,6 +36,7 @@ func set_floor(quads: Dictionary, occluders: Array = []) -> void:
 	var region := _region_from_rects(floor_rects, occluders)
 	_fill_rects = region["fills"]
 	_edges = region["edges"]
+	_wash = false # floor selection: marching ants only, so the true floor colour shows through
 	_active = not quads.is_empty()
 	queue_redraw()
 
@@ -43,6 +46,7 @@ func set_floor(quads: Dictionary, occluders: Array = []) -> void:
 func set_wall(cells: Dictionary, piece_rects: Array) -> void:
 	_fill_rects = piece_rects.duplicate()
 	_edges = _rect_union_edges(piece_rects)
+	_wash = true # wall selection keeps the wash: it reads the 3D wall silhouette better than ants alone
 	_active = not cells.is_empty()
 	queue_redraw()
 
@@ -123,8 +127,9 @@ func _in_any(rects: Array, p: Vector2) -> bool:
 func _draw() -> void:
 	if not _active:
 		return
-	for r in _fill_rects:
-		draw_rect(r, FILL, true)
+	if _wash:
+		for r in _fill_rects:
+			draw_rect(r, FILL, true)
 	for e in _edges:
 		draw_line(e[0], e[1], ANTS_BACK, 2.0)
 		_draw_dashes(e[0], e[1])

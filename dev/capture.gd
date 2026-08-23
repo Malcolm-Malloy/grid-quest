@@ -57,6 +57,29 @@ func _ready() -> void:
 			if fm:
 				fm.set_room_style(Vector2i(int(fp[0]), int(fp[1])), fp[2])
 
+	# GQ_BRUSH="mat" arms a floor material through the real panel path (arm_floor_material) so the
+	# persistent Brush panel's preview swatch reflects it. "grass" = the empty grass material.
+	var brush_env := OS.get_environment("GQ_BRUSH")
+	if brush_env != "":
+		var fmb := main.get_node_or_null("World/FloorManager")
+		if fmb:
+			fmb.arm_floor_material("" if brush_env == "grass" else brush_env) # grass is the empty material
+			await get_tree().process_frame
+
+	# GQ_TINT="x,y,rrggbb;..." tints a floor cell (the Floor Colours menu can't fire headlessly), so
+	# the colour system and the "a floor selection reads lit + un-washed" fix can be seen. Pair with
+	# GQ_FLOOR to lay a material first, e.g. GQ_FLOOR="8,9,wood" GQ_TINT="8,9,cc3322".
+	var tint := OS.get_environment("GQ_TINT")
+	if tint != "":
+		var fmt := main.get_node_or_null("World/FloorManager")
+		if fmt:
+			for op in tint.split(";", false):
+				var f := op.split(",")
+				if f.size() == 3:
+					fmt._tint_cell(Vector2i(int(f[0]), int(f[1])), Color.html(f[2]))
+			fmt._rebuild()
+			await get_tree().process_frame
+
 	# GQ_HOVER="x,y" previews the floor-hover highlight on a room (mouse motion can't fire
 	# headlessly). Set after GQ_FLOOR so both can be tested together.
 	var hover := OS.get_environment("GQ_HOVER")

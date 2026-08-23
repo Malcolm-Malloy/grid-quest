@@ -38,6 +38,7 @@ var _pending_level := ""          # the map a confirmed Level switch will load
 # persistent Brush panel: shows/edits the armed floor material + colour without the right-click menu
 var _mat_buttons := {}            # material value -> Button (radio); the active one is highlighted
 var _col_swatches := []           # [{color, button}] clickable colour boxes; active gets a border
+var _brush_preview: TextureRect   # combined-brush swatch: the armed texture tinted by the armed colour
 
 func _ready() -> void:
 	# the tool strip is editor-only chrome: show it in EDIT, hide it in PLAY (see EditorMode)
@@ -97,6 +98,23 @@ func _ready() -> void:
 	var fm := get_node_or_null("../World/FloorManager")
 	if fm != null:
 		var brush := _add_section(vb, "Brush", true)
+		# combined-brush preview: the armed texture tinted by the armed colour, so the exact result of a
+		# paint is visible without hovering the map (_refresh_brush keeps it in sync with FloorManager)
+		var pv_box := PanelContainer.new()
+		pv_box.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN # hug the swatch, don't stretch full width
+		var pv_sb := StyleBoxFlat.new()
+		pv_sb.bg_color = Color(0, 0, 0, 0)
+		pv_sb.set_border_width_all(1)
+		pv_sb.border_color = Color(0, 0, 0, 0.5)
+		pv_sb.set_content_margin_all(2)
+		pv_box.add_theme_stylebox_override("panel", pv_sb)
+		_brush_preview = TextureRect.new()
+		_brush_preview.custom_minimum_size = Vector2(36, 36) # one tile, roughly cell-sized
+		_brush_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE # let it shrink below the 128px texture
+		_brush_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED # fill the square (crop, no gaps): grass is 4:3, the tiles square
+		_brush_preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		pv_box.add_child(_brush_preview)
+		brush.add_child(pv_box)
 		var mlbl := Label.new()
 		mlbl.text = "Material"
 		brush.add_child(mlbl)
@@ -219,15 +237,23 @@ func _refresh_brush() -> void:
 		var b: Button = s["button"]
 		b.add_theme_stylebox_override("normal", _swatch_box(s["color"], active))
 		b.add_theme_stylebox_override("hover", _swatch_box(s["color"], active))
+	# preview swatch: the armed texture, multiplied by the armed colour (modulate), so it reads exactly
+	# like the tile a paint would lay (greyscale texture + tint = the combined result)
+	if _brush_preview != null:
+		_brush_preview.texture = fm.armed_brush_texture()
+		_brush_preview.modulate = col
 
 # picking a material/colour in the panel means "I want to paint with it", so drop into a
 # painting mode (Cell) if we're not already in one, then arm the brush. In Cell/Fine we leave the
 # mode alone so the panel just edits the live brush.
+# with a floor selection active, the pick EDITS the selection in place (arm_floor_material/color do the
+# fill), so we leave the mode alone. With no selection, picking means "I want to paint", so drop into
+# Cell if not already in a painting mode.
 func _on_brush_material(mval: String) -> void:
 	var fm := get_node_or_null("../World/FloorManager")
 	if fm == null:
 		return
-	if fm.mode() != M_CELL and fm.mode() != M_FINE:
+	if not fm.has_floor_selection() and fm.mode() != M_CELL and fm.mode() != M_FINE:
 		_select_mode(M_CELL)
 	fm.arm_floor_material(mval)
 
@@ -235,7 +261,7 @@ func _on_brush_color(cval: Color) -> void:
 	var fm := get_node_or_null("../World/FloorManager")
 	if fm == null:
 		return
-	if fm.mode() != M_CELL and fm.mode() != M_FINE:
+	if not fm.has_floor_selection() and fm.mode() != M_CELL and fm.mode() != M_FINE:
 		_select_mode(M_CELL)
 	fm.arm_floor_color(cval)
 

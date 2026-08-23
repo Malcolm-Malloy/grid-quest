@@ -48,5 +48,11 @@ func _ready() -> void:
 	_check("combined paint writes material", fm._quad_mat.get(q, "") == "tile")
 	_check("combined paint writes tint", fm._quad_tint.get(q, Color.WHITE).is_equal_approx(fm.FLOOR_COLORS[4][1]))
 
+	# the preview swatch shows the armed texture tinted by the armed colour
+	fm.arm_floor_material("tile")
+	fm.arm_floor_color(fm.FLOOR_COLORS[1][1]) # Red
+	_check("preview swatch shows the armed texture", ts._brush_preview.texture == fm.armed_brush_texture())
+	_check("preview swatch tinted by the armed colour", ts._brush_preview.modulate.is_equal_approx(fm.FLOOR_COLORS[1][1]))
+
 	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
 	get_tree().quit(_fails)

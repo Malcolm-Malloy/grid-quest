@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://cxiwepqxqf6w2"]
+
+[ext_resource type="Script" path="res://dev/test_brush_selection_sync.gd" id="1"]
+
+[node name="TestBrushSelectionSync" type="Node"]
+script = ExtResource("1")

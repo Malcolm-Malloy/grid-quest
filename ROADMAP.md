@@ -957,10 +957,20 @@ armed material (both stay lit); picking a material keeps the armed colour. Both 
 both back to grass). The terrain-drop preview is now tinted by the armed colour so the hovered tile
 shows the real combined result instead of the greyscale texture. (The right-click Floor Colours
 *menu* is unchanged: it still arms a separate tint-only recolour tool, `_tool_kind = "floor_color"`,
-for repainting an existing floor's colour without touching its texture.) Covered by
-`dev/test_brush_panel` (8 checks incl. combined paint writes both axes, green). Still to do in this
-chunk: a static preview swatch in the panel showing texture+colour combined, walls represented in the
-panel (reconciled with the Build Wall configurator), and the guided texture-then-colour flow.
+for repainting an existing floor's colour without touching its texture.)
+
+**Preview swatch (2026-08-23):** the Brush section opens with a bordered tile showing the armed
+texture multiplied by the armed colour (a `TextureRect`, nearest filter, `modulate` = the tint),
+driven from `FloorManager.armed_brush_texture()` + `active_floor_color()` via `_refresh_brush`. So the
+exact tile a paint would lay is visible in the panel without hovering the map, and a greyscale texture
+reads as its real colour once a tint is picked. Grass ("") previews the grass base. The swatch is
+one-tile-sized (`EXPAND_IGNORE_SIZE` so it shrinks below the 128px texture) and uses
+`KEEP_ASPECT_COVERED` so it fills the square for every material: the floor tiles are square 128x128
+but grass is 1280x960 (4:3), which the earlier `CENTERED` mode letterboxed. Covered by
+`dev/test_brush_panel` (11 checks, green). The capture harness gained `GQ_BRUSH="mat"` to arm a panel
+material headlessly. Still to do in this chunk: walls
+represented in the panel (reconciled with the Build Wall configurator), and the guided
+texture-then-colour flow.
 
 The menu gains a **Block / Ground** mode toggle (bottom option) that decides which options
 are shown. The Grid Lines toggle stays near the bottom, default **OFF** (confirmed 2026-08-16). The
@@ -1842,6 +1852,35 @@ already specced, so it is a natural fast-follow rather than new machinery:
   and undo all working first); a Phase A fast-follow, not the first pass.
 
 ## Coloured highlight system (logged 2026-08-16, Phase A)
+
+**As-built (2026-08-23): two-way Brush-panel <-> floor-selection binding.** Selecting a floor with the
+Magic Wand now REFLECTS that floor's look into the left Brush panel, and changing the panel EDITS the
+selection in place. (1) Reflect: `_refresh_selection_overlay` calls `_reflect_selection_brush()` for
+floor selections, which sets `_brush` + `_floor_color` to the selection's dominant material + tint
+(`_dominant()` = the most common value across the selected quarters) and emits `brush_changed`, so red
+tiles light up Tile + Red (and the preview swatch shows a red tile). (2) Apply: with a floor selection
+active (`has_floor_selection()`), `arm_floor_material` / `arm_floor_color` fill the selection in place
+(`_fill_floor_selection` / `_tint_selection` + one undo entry each) instead of only arming a paint
+brush, keeping the selection and the other axis so the user can tweak both. The tool-strip panel
+handlers skip their "switch to Cell mode" step while a selection is active, so editing the selection
+never changes the tool. Covered by `dev/test_brush_selection_sync` (11 checks) and verified visually
+(wand-selected red-tile room lights Tile + Red in the panel). No auto-loop: reflect only re-emits when
+a value actually changed, and the apply path does not re-run the overlay refresh.
+
+**As-built (2026-08-23): a floor selection reads its TRUE (lit, un-washed) colour.** The user
+reported that after a Magic Wand floor selection, both the selection highlight and the indoor shade
+distorted the colour being edited, making it hard to judge. Two fixes: (1) the marching-ants overlay
+(`floors/selection_overlay.gd`) no longer paints its blue `FILL` wash over FLOOR selections, it draws
+the animated dashed outline only (Photoshop convention), so nothing tints the floor; the wash stays
+on WALL selections, where the 3D silhouette reads better with a fill. A `_wash` flag set by
+`set_floor` (off) / `set_wall` (on) gates the fill draw. (2) `RoomLight` (`world/room_light.gd`) now
+treats the selected cells as LIT, folding `FloorManager.selection_lit_cells()` into its `lit` set (on
+a copy, never the cache) before drawing the dim overlay, so a room the player is not standing in is
+not darkened while its colour is being edited; wall neighbours light on that side too. FloorManager
+nudges `RoomLight.queue_redraw()` from `_refresh_selection_overlay` since a selection change moves
+neither the player nor the layout. Verified visually (a red cross in a room the player is not in reads
+full-lit red with ants and no blue wash) and by `dev/test_selection_lit` (5 checks). The capture
+harness gained a `GQ_TINT="x,y,rrggbb"` hook to render tinted floors headlessly.
 
 **Partial as-built (2026-08-16): GREEN (add) and RED (remove) done for the Map Size tool.**
 `world/edge_highlight.gd` (an `EdgeHighlight` Node2D under World, drawn over the ground) fills the
