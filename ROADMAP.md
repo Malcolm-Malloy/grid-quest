@@ -73,9 +73,9 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
    *Progress:* Coloured floors slice 1 (fun swatches) + slice 2 (picker) DONE; **WALL materials
    (Stone/Wood/Slate) DONE 2026-08-17, + Brick + Hedge DONE 2026-08-23**; **FLOOR terrain patterns (real
    pattern axis) DONE 2026-08-17, + GRASS patterns (Plain/Wild/Tuft) DONE 2026-08-23** (both under
-   "Terrain patterns and material variants" -> As built). Still to do here: SEE-THROUGH fences (Wood
-   Fence pickets, Metal Bars, Chainlink) which need a distinct short/see-through structure (walls render
-   as tall solid bodies), and the deferred material-aware floor swatch row.
+   "Terrain patterns and material variants" -> As built); **SEE-THROUGH fences (Wood Fence, Metal Bars,
+   Chainlink) DONE 2026-08-24** (short/gappy procedural render, no solid shadow; see the as-built note in
+   the WALL-materials section). Only remaining item-7 work: the deferred material-aware floor swatch row.
 8. **Ground layer phase 2: auto-matching plus better edging. FEATHERED AUTO-MATCH BUILT 2026-08-23**
    for the OUTDOOR naturals (grass/sand/snow, + water's shoreline): a precedence-driven feathered edge
    autotile blends adjacent naturals (see "Auto-matching terrain edges" as-built). Still open: material
@@ -2491,8 +2491,24 @@ structure yet, only referenced in gate.gd comments). What was touched:
   `world/{brick,hedge}_{face,cap}.png` (tinted by the wall colour), added to `wall_segment.MATERIALS`,
   `floor_manager.WALL_MATERIALS` + `WALL_TEX`, and `inspector.WALL_MATERIALS`. No MapIO bump (new
   material-name values only). Verified `dev/test_wall_material.tscn` (now 25 checks). They render on the
-  tall SOLID wall body; the see-through fences (Wood Fence pickets, Metal Bars, Chainlink) still need
-  their own short/see-through structure (a distinct render), deferred.
+  tall SOLID wall body.
+- **SEE-THROUGH fences DONE 2026-08-24 (Wood Fence, Metal Bars, Chainlink).** The rest of the canonical
+  roster, as wall materials that RENDER differently: short and gappy so the floor shows through, instead
+  of the tall solid cap+face body. They still block, enclose, tint, save, and undo like any wall.
+  - `wall_segment.gd`: a `FENCE` set + a per-cell procedural motif in `_draw` (a fence cell draws its
+    motif instead of the solid cap slice; the bottom-cell solid face is skipped for a fence bottom). Motif
+    is FENCE_H tall, greyscale, tinted by the wall colour: **pickets** (Wood Fence), **bars** (Metal
+    Bars), **diamond mesh** (Chainlink) face-on for an E-W line, a thin **edge-on line+post** for a N-S
+    line. Orientation is read from `run_length`/`width` (thin/`run_length>1` = vertical).
+  - `obstacles.gd`: `FENCE_MATERIALS` + `_is_fence`; `spawn_shadows` skips fence cells, so a see-through
+    fence casts NO solid wall shadow (a mixed run's shadow just splits at the fence).
+  - `floor_manager.WALL_MATERIALS` + `WALL_TEX` (procedural render, so the panel/inspector swatch uses
+    small generated icons `floors/{wood_fence,metal_bars,chainlink}_icon.png`) and `inspector`. No MapIO
+    bump. Verified `dev/test_fence.tscn` (15 checks: registration, set sync, `_is_fence`, collision
+    unchanged, segment reports the material, all-fence map casts no shadow). Eyeballed both orientations.
+  - **Deferred:** rail-HEIGHT/perspective art (still flat), and the game-pillar strength/breakability
+    tiers (Hedge < Wood Fence < ... < Metal Bars, Chainlink industrial) live in the creature/resource
+    sections, not the editor render.
 
 ### As built: FLOOR terrain patterns (real pattern axis) (BUILT 2026-08-17)
 The pattern axis landed as decided (a real per-quarter pattern index, NOT flat extra materials), so a
