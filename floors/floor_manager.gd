@@ -731,12 +731,62 @@ func armed_material() -> String:
 func active_floor_color() -> Color:
 	return _floor_color
 
+# the base texture of the armed floor material, for the panel's combined-brush preview swatch. Grass
+# ("" / unknown) previews the grass base, so tinting it reads the same as a tinted grass patch.
+func armed_brush_texture() -> Texture2D:
+	if _brush == "" or not textures.has(_brush):
+		return GRASS
+	return _mat_tex(_brush, 0)
+
+# is there a committed FLOOR selection? Used by the panel to decide whether picking a material/colour
+# EDITS the selection (recolour/re-texture in place) rather than arming a brush to paint by hand.
+func has_floor_selection() -> bool:
+	return _sel_kind == "floor" and _selection != null and _selection.has_selection()
+
+# mirror the current floor selection's material + colour into the armed brush, so the Brush panel
+# lights up the tile+colour the selection already has (e.g. red tiles -> Tile + Red). Uses the most
+# common value across the selected quarters, so a mostly-uniform room reflects its dominant look. Only
+# re-emits when something actually changed, so it is safe to call on every selection refresh.
+func _reflect_selection_brush() -> void:
+	if _sel_quads.is_empty():
+		return
+	var mat: String = _dominant(_sel_quads, _quad_mat, "")
+	var col: Color = _dominant(_sel_quads, _quad_tint, Color.WHITE)
+	if mat == _brush and col == _floor_color and _tool_kind == "floor":
+		return
+	_tool_kind = "floor"
+	_brush = mat
+	_floor_color = col
+	brush_changed.emit()
+
+# the most common value in `store` (a quarter -> value map) across the quarters in `quads`, ignoring
+# quarters with no entry; `default_val` when none of them carry a value.
+func _dominant(quads: Dictionary, store: Dictionary, default_val):
+	var counts := {}
+	var best = default_val
+	var best_n := 0
+	for q in quads:
+		if not store.has(q):
+			continue
+		var v = store[q]
+		var n: int = int(counts.get(v, 0)) + 1
+		counts[v] = n
+		if n > best_n:
+			best_n = n
+			best = v
+	return best
+
 # arm a floor material from the panel (same as picking it in the Floor Textures menu in Cell/Fine: it
 # arms the brush; the user then paints/drops it). No selection-fill here (that stays a menu convenience).
 func arm_floor_material(mat: String) -> void:
 	_tool_kind = "floor"
 	_brush = mat
 	_armed = true
+	# with a floor selection active, picking a material RE-TEXTURES the selection in place (the two-way
+	# panel binding), keeping its colour and the selection itself so the user can keep tweaking.
+	if has_floor_selection():
+		_fill_floor_selection(mat) # rebuilds
+		EditHistory.commit("paint")
 	brush_changed.emit()
 	call_deferred("_update_hover")
 
@@ -748,6 +798,12 @@ func arm_floor_color(color: Color) -> void:
 	_tool_kind = "floor"
 	_floor_color = color
 	_armed = true
+	# with a floor selection active, picking a colour RE-TINTS the selection in place (the two-way panel
+	# binding), keeping its texture and the selection itself. White = Natural clears the tint.
+	if has_floor_selection():
+		if _tint_selection(color):
+			_rebuild()
+			EditHistory.commit("floor colour")
 	brush_changed.emit()
 	call_deferred("_update_hover")
 
@@ -920,12 +976,28 @@ func _room_quads(cells: Dictionary) -> Dictionary:
 		out[Vector2i(floori(rect.position.x / HALF), floori(rect.position.y / HALF))] = true
 	return out
 
+# the 32px CELLS covered by the active FLOOR selection, read by RoomLight so it lights them (skips its
+# dim overlay) while selected. Empty unless a floor selection is active. The marching ants still mark
+# the selection; lighting it just lets the true (lit) colour show while the user edits the colour.
+func selection_lit_cells() -> Dictionary:
+	if _sel_kind != "floor":
+		return {}
+	var out := {}
+	for q in _sel_quads:
+		out[Vector2i(floori(q.x / 2.0), floori(q.y / 2.0))] = true
+	return out
+
 func _refresh_selection_overlay() -> void:
+	# a selection change doesn't move the player or alter the layout, so RoomLight won't redraw on its
+	# own; nudge it here so the "selection reads lit" overlay updates as the selection grows/clears.
+	if room_light != null:
+		room_light.queue_redraw()
 	if _sel_kind == "floor":
 		# trace the full fill set (interior + under-wall ring) MINUS the surrounding wall sprites, so
 		# the ants hug the VISIBLE wood exactly: interior plus the ring slivers that show on the wall
 		# tiles where the narrow cap doesn't cover them. Verified by rasterising the geometry.
 		_selection.set_floor(_sel_quads, _floor_occluders())
+		_reflect_selection_brush() # mirror the selection's material + colour into the Brush panel
 	elif _sel_kind == "wall":
 		var obs = get_node_or_null("../Obstacles")
 		var rects: Array = obs.wall_piece_rects(_sel_cells) if obs != null else []
