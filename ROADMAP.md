@@ -74,8 +74,11 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
    (Stone/Wood/Slate) DONE 2026-08-17**; **FLOOR terrain patterns (real pattern axis) DONE 2026-08-17**
    (both under "Terrain patterns and material variants" -> As built). Still to do here: fence materials,
    grass patterns, and the deferred material-aware floor swatch row.
-8. **Ground layer phase 2: auto-matching plus better edging.** Polish; hard 16px seams acceptable
-   until then.
+8. **Ground layer phase 2: auto-matching plus better edging. FEATHERED AUTO-MATCH BUILT 2026-08-23**
+   for the OUTDOOR naturals (grass/sand/snow, + water's shoreline): a precedence-driven feathered edge
+   autotile blends adjacent naturals (see "Auto-matching terrain edges" as-built). Still open: material
+   *pattern*-aware edging, and transition/corner variants for the INDOOR/constructed materials if ever
+   wanted (currently hard-edged on purpose).
 
 **Phase B: persistence (needed to save the maps you build, then to play them).**
 9. **Character save (position, facing, inventory) plus whole-game saves.** Reuses the MapIO
@@ -505,8 +508,9 @@ painted at room, cell or quarter grain:
 - Verified: headless `--check-only` parse passes on all touched scripts. Not visually captured this
   session (needs an open-door state, so it wants a live run).
 
-Still deferred to ground-layer phase 2: auto-matching and better edging (transition/corner sprites
-instead of the hard 16px seam).
+Ground-layer phase 2 auto-matching / better edging: DONE 2026-08-23 for the outdoor naturals via a
+feathered edge autotile (grass/sand/snow + water's shoreline); see "Auto-matching terrain edges" below.
+Constructed/indoor materials stay hard-edged on purpose.
 
 ## Ground layer (quarter-tile, decided 2026-08-13, step 1 built 2026-08-15)
 Decouple the ground/floor into its own layer, independent of rooms and obstacles, and store
@@ -522,9 +526,42 @@ Decided design:
 - **Editing:** the Ground menu paints material at room, cell, or quarter level.
 - **Save:** `MapIO` bumps to version 2 with a migration that reads v1 per-room styles into
   quarters.
-- **Future phases:** (a) auto-matching, so placing a material next to another auto-forms the
-  boundary quarters; (b) "better edging", transition/corner sprites derived from neighbour
-  quarters instead of the hard 16px seam.
+- **Future phases (BUILT 2026-08-23 for outdoor naturals):** (a) auto-matching plus (b) better edging
+  are now one feathered edge autotile, derived from neighbour quarters, replacing the hard 16px seam
+  between grass/sand/snow (and water's shoreline). See "Auto-matching terrain edges" as-built. Indoor
+  materials stay hard-edged by design.
+
+## Auto-matching terrain edges (ground-layer phase 2, BUILT 2026-08-23)
+Generalises the water shoreline into a reusable, precedence-driven feathered edge autotile so OUTDOOR
+natural terrains blend where they meet, instead of a hard 16px seam. Design chosen with the user:
+**feathered** look (matching the water shoreline), applied to **grass plus sand plus snow** (the
+roadmap's outdoor naturals) plus water.
+- **Precedence.** `FloorManager.TERRAIN_RANK = {"": 0, "grass": 0, "sand": 1, "snow": 2, "water": 99}`.
+  A higher-rank terrain feathers its edge OVER any orthogonally-adjacent LOWER-rank natural. Grass is the
+  base (rank 0, material ""); water is the top and keeps its dedicated shoreline branch (it also lays a
+  brown bank underlay, unlike the dry naturals). INDOOR/constructed materials (wood/concrete/tile/carpet)
+  are ABSENT from the table, so they never auto-match: a hard edge is correct for a rug or a wood floor.
+- **New materials.** `sand` plus `snow`, walkable outdoor floor materials (procedural PIL tiles
+  `floors/sand.png` / `snow.png`, generator in the session scratchpad). Registered in `textures`,
+  `PATTERN_NAMES`, `MENU`; NOT in `IMPASSABLE`. No MapIO version bump (new material strings only, like
+  water slice 1). `test_brush_panel`'s button count already ties to `MENU.size()`, so it absorbed the two.
+- **Edge autotile.** Each auto-matching terrain has a feathered atlas in `EDGE_ATLAS`
+  (`floors/sand_edge.png` / `snow_edge.png`), a 4x4 grid of 32px cells indexed by a 4-bit mask, the SAME
+  layout plus feather geometry as `water_shore.png`, so every terrain edge reads as one system. `_rebuild`:
+  for a natural quarter, `_terrain_edge_mask(q, mat)` sets a bit per side whose neighbour is an in-bounds
+  natural of strictly lower rank; mask 0 keeps the flat, seamless, world-tiled tile; else it lays an
+  UNDERLAY (`_edge_underlay_mat` = the highest-ranked lower neighbour, so snow reveals sand beneath its
+  feather; the grass base needs none) then the feathered atlas cell via `_shore_src(mask)`. Reuses the
+  `base_fills` 4th-element src-override the shoreline added.
+- **Interactions.** Sand never feathers toward water (water outranks it); water still feathers over sand
+  via its own shoreline (bank revealed). The river-bank ring still draws on naturals adjacent to water.
+  Purely visual: a quarter's stored material is unchanged, so collision (sand/snow passable) and save are
+  untouched.
+- **Verified:** `dev/test_automatch.tscn` (20 checks: registration plus passable, precedence, edge masks
+  over grass/sand/snow, no-feather toward water/peers/void/indoor, the snow-over-sand underlay, and the
+  `_rebuild` emission order). All green; `test_water` plus `test_brush_panel` regression green. Eyeballed
+  via the capture harness (new `GQ_TERRAIN` hook): a sand patch feathers into grass, snow feathers into
+  grass and over the sand edge, all matching the water shoreline.
 
 ### Step 1 execution spec (front-loaded 2026-08-13, so the build session is execution only)
 Resolved conventions and an ordered checklist for step 1, grounded in the current
@@ -1235,8 +1272,9 @@ systems. Mythical unlocks the **special ability at L5**; the level 1 to 4 rungs 
 Future additions the user wants at some point. Not built until asked; captured with light notes on
 where each lands. Universal rule: **every graphic follows the top/front perspective**
 ([[grid-quest-asset-perspective-model]]), so it is not repeated per item below.
-- **Water terrain (impassable). SLICE 1 BUILT 2026-08-23 (flat + still + impassable); autotile shoreline,
-  flow animation, and river-bank auto-edge remain follow-up slices. SPEC DECIDED 2026-08-23:** the user wants **rivers and bodies
+- **Water terrain (impassable). SLICE 1 BUILT 2026-08-23 (flat + still + impassable); RIVER-BANK
+  auto-edge + SHORELINE AUTOTILE BUILT 2026-08-23; only flow animation remains a follow-up slice.
+  SPEC DECIDED 2026-08-23:** the user wants **rivers and bodies
   of water** (rivers AND still lakes / ponds) the player cannot cross, as the next build. First terrain
   that blocks movement. Three design decisions locked with the user (all the recommended options):
   - **Fits as a FLOOR MATERIAL, not a separate layer.** Water becomes a new entry in the floor
@@ -1276,15 +1314,85 @@ where each lands. Universal rule: **every graphic follows the top/front perspect
       `is_blocked(cell)` OR `floor_manager.is_cell_impassable(cell)`.
     - **MapIO:** no VERSION bump. Quarters still serialize as `[qx, qy, material]` strings; "water" is
       just a new value, the shape is unchanged, and load has no material whitelist.
-    - **Verified:** `dev/test_water.tscn` (11 checks: registration, the 1/2/4-quarter majority boundary,
-      wood-never-blocks, water-blocks-via-floor-not-wall, player ref wired). Full suite green (25 scenes);
+    - **Verified:** `dev/test_water.tscn` (registration, the 1/2/4-quarter majority boundary,
+      wood-never-blocks, water-blocks-via-floor-not-wall, player ref wired). Full suite green;
       `test_brush_panel`'s material-button count was retied to `fm.MENU.size()` so future materials will not
-      break it. Eyeballed via the capture harness: water fills a room as a clean blue rippled tile with a
-      hard grid edge at the walls (shoreline autotile is a later slice).
-- **Bridges (cross a river, both directions).** A crossable overlay over water, in **north-south
-  and east-west** orientations. Introduces passable-over-impassable: the bridge re-enables
-  crossing on cells that water blocks. Directional asset like gates (per orientation art), see
-  [[grid-quest-asset-perspective-model]].
+      break it. Eyeballed via the capture harness: water fills a room as a clean blue rippled tile.
+  - **As built: RIVER-BANK auto-edge + SHORELINE AUTOTILE (feathered beach), 2026-08-23.** Two derived,
+    purely-visual layers around every water body; neither is stored in `_quad_mat`, so both are unsaved
+    and never affect collision (`is_cell_impassable` still only counts `_quad_mat` water quarters).
+    - **River-bank ring:** every non-water quarter that is 8-neighbour-adjacent to water draws the brown,
+      walkable `floors/river_bank.png` on top (`_bank_quads()`, emitted last in `_rebuild`). The dry bank
+      that outlines a body regardless of neighbouring terrain. Kept inside the grid (no out-of-bounds bank).
+    - **Shoreline autotile:** a water quarter that touches LAND on an orthogonal side draws a feathered
+      variant instead of the flat tile, so a body reads as an organic shore, not a blue grid. Look chosen
+      with the user = **feathered beach** (over foam-line / rounded-blob): the water's edge dissolves into a
+      wavy, foam-fringed transparent line revealing wet sand beneath. Reads grass -> dry bank -> foam fringe
+      -> open water.
+      - **Art:** `floors/water_shore.png`, a 4x4 atlas of 32px tiles indexed by a 4-bit LAND mask
+        (N=1 E=2 S=4 W=8). Each tile is the real rippled water (downscaled from `water_still`, so edge tiles
+        tone-match the world-tiled interior) with a sine-wavy alpha feather + a pale foam band on each
+        land-facing side. Procedural PIL, generator kept in the session scratchpad, not the repo. Tile 0
+        (open water) is unused (mask 0 keeps the flat, seamless, world-tiled tile).
+      - **Render:** `_rebuild` computes `_water_land_mask(q)` per water quarter; mask 0 emits the flat tiled
+        tile as before, else it lays `RIVER_BANK` (wet-sand underlay the feather reveals) then the shore
+        atlas tile via `_shore_src(mask)`. `base_fills` entries gained an OPTIONAL 4th element = a texture-
+        space src-rect override; `grid_background` uses it when present (the atlas cell, drawn stretched into
+        the quarter) instead of the default world-position `tiled_src` tiling. `shadow_manager` is untouched:
+        indoor water under a room-shadow restamp stays flat (rare edge case, deferred).
+      - **Verified:** `dev/test_water.tscn` extended (mask for corner/edge/interior quarters, the atlas src
+        rect, 12 edge quarters draw a shore tile over a bank underlay while the 4 interior quarters stay
+        flat, and a shored cell is still impassable). 30 checks all green. Eyeballed via the capture harness
+        (`GQ_WATER` painting an irregular pond): grass -> brown bank -> feathered foam edge -> rippled water,
+        following the pond outline with no hard grid edge.
+- **Bridges (cross a river, both directions). SLICE 1 BUILT 2026-08-23 (flat deck + auto-orient +
+  passable-over-impassable + placement tool + save); richer deck art is a follow-up.** A crossable
+  overlay over water, in **north-south and east-west** orientations. Introduces
+  passable-over-impassable: the bridge re-enables crossing on cells that water blocks. Directional
+  asset like gates (per orientation art), see [[grid-quest-asset-perspective-model]].
+  - **As built (2026-08-23).** Bridges are a **placed-object layer on `Obstacles`**
+    (`bridge_cells: Array[{cell, orientation}]`), mirroring `gate_cells` (Architecture review Q1:
+    placed objects stay position-keyed records, distinct from the AREA/TERRAIN floor layer). Query/
+    edit API: `is_bridge`, `bridge_orientation`, `add_bridge`, `remove_bridge`. Nodes respawn in
+    `build_world` (group `"bridges"`, freed in `clear_world`).
+  - **Render:** `world/bridge.gd`, a `Node2D` that draws a flat wooden deck procedurally per
+    orientation (no PNG). `orientation "horizontal"` = cross EAST-WEST (boards vertical, rails on top/
+    bottom); `"vertical"` = cross NORTH-SOUTH (boards horizontal, rails on left/right). `z_index = -4`
+    so it draws over the water floor (GridBackground z -10) and shadows (z -5) but UNDER the player
+    (z 0), i.e. you walk on the deck. Sets `visibility_layer |= FloorHighlightMask.MASK_BIT` like other
+    ground objects.
+  - **Passable-over-impassable:** `player.gd` now computes `floor_blocks = is_cell_impassable(cell)
+    and not obstacles.is_bridge(cell)`, so a bridged water cell is walkable while the water around it
+    still blocks. No change to `is_cell_impassable` itself.
+  - **Placement tool:** new `Mode.BRIDGE` (appended LAST in the enum so existing indices are stable;
+    `tool_strip.M_BRIDGE` + a **Bridge (G)** strip button mirror it). Click drops one deck as one undo
+    entry, **auto-oriented to the water run it spans** (`_bridge_river_orientation`: a horizontal river
+    with water left/right gets a *vertical* bridge, and vice-versa); when the run is ambiguous it falls
+    back to `_bridge_orient`, which **R** flips, exactly like the DOOR open-space default. Placement
+    round-trips through `MapIO.serialize`/`apply_serialized` (via `_reapply_map`), so it needs the save
+    support below.
+  - **Hover preview (added 2026-08-23, fixes the leaked material bug):** in BRIDGE mode the hover shows
+    the ACTUAL deck art lifted a few px above the target cell (`_update_bridge_hover` + a `bridge.gd`
+    node run in `preview` mode: no group join, high z, translucent), oriented live to the water run,
+    plus the green ADD cell cursor. Before this, BRIDGE fell through to the Cell/Fine default and floated
+    the LAST armed floor material instead of the bridge. `_reset_highlight` hides the preview on mode
+    switch / mouse-exit. Capture hook `GQ_BRIDGEHOVER` (warps the mouse so the per-frame `_process`
+    hover renders it).
+  - **Save:** `MapIO` **VERSION -> 8**, new `"bridges"` section (cell + orientation, like doors). Older
+    maps have no section and load as no bridges (tolerated, no migration needed).
+  - **Verified:** `dev/test_bridge.tscn` (18 checks: store + API, auto-orient both ways, the exact
+    player block rule with/without a bridge, the deck node spawns, and a v8 serialize/apply round-trip).
+    All green. **Eyeballed via the capture harness** (new `GQ_BRIDGE` hook, paired with `GQ_WATER`): a
+    wooden deck plugs the river gap and the player stands beside it, reading clearly as a crossing.
+  - **Erase (added 2026-08-23):** the Erase tool and the right-click Erase both remove a bridge,
+    topmost-first (wall/door -> bridge -> floor), leaving the water underneath intact.
+    `_erase_structure_at` tries `remove_bridge` when no wall/door was removed; `_erase_single` checks
+    `is_bridge` between the structure and floor branches. Covered by `dev/test_bridge.tscn` (Erase tool
+    removes the bridge and keeps the water; empty cell reports nothing; right-click Erase removes it).
+  - **Deferred follow-ups:** richer deck ART (the flat procedural planks read as a lighter-brown block
+    at native 32px; visible planks/rails/height art per [[grid-quest-modify-all-asset-states]] is a
+    later slice, matching how water shipped flat-first); and multi-cell drag placement (today one click
+    = one deck).
 - **Trees.** World object, likely a movement-blocking obstacle with height; y-sort and front/back
   layering per [[grid-quest-asset-perspective-model]] and casts a shadow.
 - **Bushes.** World object, smaller than trees; decide at build time whether it blocks or is
@@ -2886,13 +2994,37 @@ Sharpens the definitions behind the already-logged **Water terrain (impassable)*
 entries in "Future terrain and world objects":
 - **River equals a 1-tile-wide line of water terrain.** A **body of water** is anything wider (lake,
   pond, wide moat, etc.). Same water terrain, different width.
-- **River-bank auto-edge (new, quarter-tile).** The **surrounding tile-quarters of all water**
-  change to a **brown river-bank texture** that outlines every body of water, **regardless of the
-  neighbouring terrain**. Purpose: it visually reads the water's edge *and* looks walkable (the bank
-  is passable; the water is not). Implementation fit: this is **exactly the quarter-tile auto-matching
-  the Ground layer already plans** (phase-2 auto-matching / better-edging), so river banks are an
-  auto-formed boundary material driven by water neighbours, built as a case of that system, not
-  bespoke. Follows [[grid-quest-floors-fill-whole-room]]-style whole-region fill at quarter grain.
+- **River-bank auto-edge (new, quarter-tile). BUILT 2026-08-23.** The **surrounding tile-quarters of
+  all water** change to a **brown river-bank texture** that outlines every body of water, **regardless
+  of the neighbouring terrain**. Purpose: it visually reads the water's edge *and* looks walkable (the
+  bank is passable; the water is not). Implementation fit: this is **exactly the quarter-tile
+  auto-matching the Ground layer already plans** (phase-2 auto-matching / better-edging), so river
+  banks are an auto-formed boundary material driven by water neighbours, built as a case of that
+  system, not bespoke. Follows [[grid-quest-floors-fill-whole-room]]-style whole-region fill at
+  quarter grain.
+  - **As built (2026-08-23).** The bank is **DERIVED, never stored** in `_quad_mat`, so it is not
+    saved (no MapIO change), needs no editing, and auto-updates whenever water is painted or erased.
+    `floor_manager._bank_quads()` returns every in-bounds 16px quarter that is NOT water but is
+    **8-neighbour-adjacent** to a water quarter (so corners are covered too, giving a full ring).
+    `_rebuild` appends those as `RIVER_BANK`-textured fills (`floors/river_bank.png`, a 128x128
+    seamless procedural brown packed-earth tile, native brown so it needs no tint) **last**, so the
+    bank draws on top of whatever floor was underneath, matching "regardless of the neighbouring
+    terrain". A new `const BANK_AROUND := {"water": true}` is the source set, kept separate from
+    `IMPASSABLE` so a future impassable liquid like lava can get a *different* edge instead of a brown
+    bank.
+  - **Passability falls out for free:** `is_cell_impassable` only counts `_quad_mat` water quarters,
+    and the bank is never written there, so a bank quarter never blocks. The bank is walkable by
+    construction with no extra collision code.
+  - **Verified:** `dev/test_water.tscn` extended to 20 checks (bank rings a lone water cell with 12
+    quarters, water quarters are never bank, orthogonal + diagonal neighbours are bank, a bank cell is
+    passable, `base_fills` carries a `RIVER_BANK` fill, corner water emits no out-of-bounds bank). All
+    green. **Eyeballed via the capture harness** (new `GQ_WATER` hook paints full-cell water then
+    rebuilds): a 1-wide river and a 2x2 pond both show a clean one-quarter brown bank ring over grass,
+    corners included.
+  - **Still deferred (follow-up slices, unchanged):** water shoreline autotile (edge/corner water
+    variants) and flow animation, plus a bank that also shows through an *open door* indoor-lit path.
+    `floor_tex_at_quad` and the shadow restamp read `_quad_mat`, which the derived bank is not in, so
+    this only matters for an indoor water pool viewed through an open door, an edge case.
 
 ## Bridge Lizard (first river-crossing creature, spec logged 2026-08-15)
 A concrete minion whose ability is **crossing water**, with per-level scaling for both the minion and

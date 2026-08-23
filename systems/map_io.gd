@@ -8,7 +8,7 @@ extends Node
 # Maps live in user://maps/<name>.json (persistent, writable, cross-platform). Writes are
 # atomic (temp file, then rename) so a crash mid-save can't corrupt an existing map.
 
-const VERSION := 7 # v7: per-quarter floor patterns; v6: per-cell wall materials; v5: per-quarter floor tints; v4: per-door authored open+swing; v3: per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
+const VERSION := 8 # v8: bridges (crossable decks over water); v7: per-quarter floor patterns; v6: per-cell wall materials; v5: per-quarter floor tints; v4: per-door authored open+swing; v3: per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
 const DIR := "user://maps"
 const LAST_FILE := "user://last_map.txt" # remembers the map to reload on next launch
 
@@ -66,6 +66,10 @@ func serialize() -> Dictionary:
 	for d in obs.gate_cells:
 		doors.append({"cell": [d["cell"].x, d["cell"].y], "orientation": d["orientation"],
 			"open": d.get("open", false), "swing": d.get("swing", false)})
+	# bridges (crossable decks over water) as cell + orientation; a placed-object layer like doors
+	var bridges: Array = []
+	for b in obs.bridge_cells:
+		bridges.append({"cell": [b["cell"].x, b["cell"].y], "orientation": b["orientation"]})
 	# floors are stored per 16px quarter: a flat list of [qx, qy, material]. Sparse by design
 	# (only painted quarters are written), so save size scales with painted area, not map area.
 	var quads: Array = []
@@ -96,6 +100,7 @@ func serialize() -> Dictionary:
 		"spawn": {"x": player.position.x, "y": player.position.y},
 		"walls": walls,
 		"doors": doors,
+		"bridges": bridges,
 		"quads": quads,
 		"wall_colors": wall_colors,
 		"wall_materials": wall_materials,
@@ -128,11 +133,14 @@ func _apply(data: Dictionary, keep_player := false) -> void:
 	var walls: Array = []
 	for a in data.get("walls", []):
 		walls.append(Vector2i(int(a[0]), int(a[1])))
+	var bridges: Array = []
+	for b in data.get("bridges", []):
+		bridges.append({"cell": Vector2i(int(b["cell"][0]), int(b["cell"][1])), "orientation": String(b["orientation"])})
 	var doors: Array = []
 	for d in data.get("doors", []):
 		doors.append({"cell": Vector2i(int(d["cell"][0]), int(d["cell"][1])), "orientation": d["orientation"],
 			"open": bool(d.get("open", false)), "swing": bool(d.get("swing", false))})
-	obs.apply_map(walls, doors)
+	obs.apply_map(walls, doors, bridges)
 
 	# 3. lighting (depends on walls/doors)
 	rl.rebuild()

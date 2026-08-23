@@ -164,7 +164,9 @@ func _physics_process(delta: float) -> void:
 				var cell := Vector2i(floori(new_target.x / CELL_SIZE), floori(new_target.y / CELL_SIZE))
 				# blocked by a wall/gate (is_blocked) OR by an impassable floor (water). Kept as two
 				# separate checks so is_blocked stays "is a wall" for the editor; floors block here.
-				if not obstacles.is_blocked(cell) and not floor_manager.is_cell_impassable(cell):
+				# A bridge re-enables crossing on the water cell it covers (passable-over-impassable).
+				var floor_blocks: bool = floor_manager.is_cell_impassable(cell) and not obstacles.is_bridge(cell)
+				if not obstacles.is_blocked(cell) and not floor_blocks:
 					target_position = new_target
 					is_moving = true
 					frame_index = 1 - frame_index

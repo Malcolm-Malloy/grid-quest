@@ -57,6 +57,50 @@ func _ready() -> void:
 			if fm:
 				fm.set_room_style(Vector2i(int(fp[0]), int(fp[1])), fp[2])
 
+	# GQ_WATER="x,y;x,y;..." paints FULL-CELL water at each listed cell (all four quarters), then
+	# rebuilds, so the derived river-bank auto-edge can be seen (a brown walkable ring around the water).
+	# Frames the whole map unless GQ_WATER_NOFIT=1. e.g. GQ_WATER="20,10;21,10;22,10" draws a short river.
+	var water := OS.get_environment("GQ_WATER")
+	if water != "":
+		var fmwa := main.get_node_or_null("World/FloorManager")
+		if fmwa:
+			for op in water.split(";", false):
+				var wc := op.split(",")
+				if wc.size() == 2:
+					var c := Vector2i(int(wc[0]), int(wc[1]))
+					for dx in 2:
+						for dy in 2:
+							fmwa._write_quad(Vector2i(c.x * 2 + dx, c.y * 2 + dy), "water")
+			fmwa._rebuild()
+			await get_tree().process_frame
+			if OS.get_environment("GQ_WATER_NOFIT") != "1":
+				var camwa := main.get_node_or_null("Camera2D")
+				if camwa and camwa.has_method("fit_map"):
+					camwa.fit_map()
+
+	# GQ_TERRAIN="x,y,material;..." paints FULL-CELL of any floor material at each cell, then rebuilds,
+	# so the generalised auto-matching edges can be seen (e.g. sand feathering into grass, snow over
+	# sand). Grass = "grass" or "" (the base). e.g. GQ_TERRAIN="20,10,sand;21,10,snow". Frames the whole
+	# map unless GQ_TERRAIN_NOFIT=1. Runs after GQ_WATER so the two can be combined in one shot.
+	var terrain := OS.get_environment("GQ_TERRAIN")
+	if terrain != "":
+		var fmt := main.get_node_or_null("World/FloorManager")
+		if fmt:
+			for op in terrain.split(";", false):
+				var tc := op.split(",")
+				if tc.size() == 3:
+					var c := Vector2i(int(tc[0]), int(tc[1]))
+					var mat: String = "" if tc[2] == "grass" else tc[2]
+					for dx in 2:
+						for dy in 2:
+							fmt._write_quad(Vector2i(c.x * 2 + dx, c.y * 2 + dy), mat)
+			fmt._rebuild()
+			await get_tree().process_frame
+			if OS.get_environment("GQ_TERRAIN_NOFIT") != "1":
+				var camt := main.get_node_or_null("Camera2D")
+				if camt and camt.has_method("fit_map"):
+					camt.fit_map()
+
 	# GQ_BRUSH="mat" arms a floor material through the real panel path (arm_floor_material) so the
 	# persistent Brush panel's preview swatch reflects it. "grass" = the empty grass material.
 	var brush_env := OS.get_environment("GQ_BRUSH")
@@ -176,6 +220,47 @@ func _ready() -> void:
 				var cams := main.get_node_or_null("Camera2D")
 				if cams and cams.has_method("fit_map"):
 					cams.fit_map()
+
+	# GQ_BRIDGE="x,y;x,y;..." drops a crossable bridge on each cell via the real _place_bridge_at path
+	# (mode set + world-pixel click), so the deck render + water auto-orient can be verified. Pair with
+	# GQ_WATER to lay a river first, e.g. GQ_WATER="20,10;20,11;20,12" GQ_BRIDGE="20,11". Frames the
+	# whole map unless GQ_BRIDGE_NOFIT=1.
+	var bridge := OS.get_environment("GQ_BRIDGE")
+	if bridge != "":
+		var fmb2 := main.get_node_or_null("World/FloorManager")
+		if fmb2:
+			fmb2.set_mode(8) # Mode.BRIDGE
+			for op in bridge.split(";", false):
+				var bp := op.split(",")
+				if bp.size() == 2:
+					fmb2._place_bridge_at(Vector2(int(bp[0]) * 32 + 16, int(bp[1]) * 32 + 16))
+			await get_tree().process_frame
+			if OS.get_environment("GQ_BRIDGE_NOFIT") != "1":
+				var camb := main.get_node_or_null("Camera2D")
+				if camb and camb.has_method("fit_map"):
+					camb.fit_map()
+
+	# GQ_BRIDGEHOVER="x,y" sets BRIDGE mode and shows the lifted deck HOVER preview over that cell (the
+	# floating bridge image the tool shows before clicking), oriented to the water run there. Pair with
+	# GQ_WATER to lay a river first. Calls _update_bridge_hover directly after the set_mode deferred
+	# hover settles, so the preview is present at grab time. Frames whole map unless GQ_BRIDGE_NOFIT=1.
+	var bhover := OS.get_environment("GQ_BRIDGEHOVER")
+	if bhover != "":
+		var fmh2 := main.get_node_or_null("World/FloorManager")
+		var camh := main.get_node_or_null("Camera2D")
+		if fmh2 and camh:
+			var hp := bhover.split(",")
+			if hp.size() == 2:
+				fmh2.set_mode(8) # Mode.BRIDGE
+				if OS.get_environment("GQ_BRIDGE_NOFIT") != "1" and camh.has_method("fit_map"):
+					camh.fit_map()
+				await get_tree().process_frame # let the camera settle before mapping world->screen
+				# warp the OS mouse over the cell so _process's per-frame _update_hover shows the deck
+				# preview there (a direct call would be clobbered next frame by the real-mouse hover)
+				var wc := Vector2(int(hp[0]) * 32 + 16, int(hp[1]) * 32 + 16)
+				var screen: Vector2 = (wc - camh.global_position) * camh.zoom \
+					+ get_viewport().get_visible_rect().size / 2.0
+				Input.warp_mouse(screen)
 
 	# GQ_DOORSTATE="x,y,open,swing;..." sets a door's AUTHORED open/swing (0/1) via the same obstacles
 	# edit methods the properties inspector uses, so persistence + EDIT-mode rendering can be verified.

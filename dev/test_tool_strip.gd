@@ -3,8 +3,9 @@ extends Node
 # Dev-only headless test for the tool-strip ACCORDION (ROADMAP "Editor UX revisions" -> accordion left
 # menu + Map Size -> Advanced). Checks the strip builds two collapsible sections ("Tools" expanded,
 # "Advanced" collapsed), that the Map Size edge controls live inside the collapsed Advanced section, and
-# that toggling a section header shows/hides its content. Also that all seven mode buttons still exist.
-# Text-only, no render.
+# that toggling a section header shows/hides its content, and that the body is wrapped in a ScrollContainer
+# so a growing tool/material roster scrolls instead of overflowing the window. Counts tie to the strip's
+# own constants so adding a mode does not break this. Text-only, no render.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_tool_strip.tscn
 
 var _fails := 0
@@ -22,13 +23,21 @@ func _ready() -> void:
 	var ts = get_tree().get_first_node_in_group("tool_strip")
 	_check("tool strip exists (grouped)", ts != null)
 
-	# 7 mode buttons on the strip; only ERASE (3) is omitted (it lives in the right-click menu + Delete
-	# key). Wall/Door stay on the strip AS WELL as the menu because their drag-to-draw-a-line gesture
-	# needs a reachable mode. All 8 modes keep a keyboard shortcut (MODES intact).
-	_check("7 mode buttons on the strip (only Erase omitted)", ts._mode_buttons.size() == 7)
+	# One strip button per STRIP_MODES entry; only ERASE (3) is omitted (it lives in the right-click menu +
+	# Delete key). Tie the count to the constant so adding a mode (e.g. Bridge) does not break this. Wall/
+	# Door stay on the strip AS WELL as the menu because their drag-to-draw-a-line gesture needs a mode.
+	_check("one strip button per STRIP_MODES entry", ts._mode_buttons.size() == ts.STRIP_MODES.size())
 	_check("Erase has no strip button", not ts._mode_buttons.has(3))
-	_check("Wall/Door/Select/Box have strip buttons", ts._mode_buttons.has(4) and ts._mode_buttons.has(5) and ts._mode_buttons.has(6) and ts._mode_buttons.has(7))
-	_check("all 8 modes keep a keyboard shortcut (MODES intact)", ts.MODES.size() == 8)
+	_check("Wall/Door/Select/Box/Bridge have strip buttons",
+		ts._mode_buttons.has(4) and ts._mode_buttons.has(5) and ts._mode_buttons.has(6)
+		and ts._mode_buttons.has(7) and ts._mode_buttons.has(8))
+	_check("every strip mode has a keyboard shortcut in MODES", ts.MODES.size() >= ts.STRIP_MODES.size())
+
+	# the body is wrapped in a ScrollContainer so a growing roster scrolls instead of overflowing the
+	# window; horizontal scroll is off so the strip width still hugs the widest button.
+	_check("panel body scrolls (ScrollContainer present)", ts._scroll is ScrollContainer)
+	_check("horizontal scroll disabled (width hugs content)",
+		ts._scroll.horizontal_scroll_mode == ScrollContainer.SCROLL_MODE_DISABLED)
 
 	# two accordion sections
 	_check("'Tools' section exists", ts._sections.has("Tools"))
