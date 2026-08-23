@@ -71,9 +71,11 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
    picker) plus pattern variants (carpet, grass, tile, wood patterns) and wall/fence materials
    (wood, slate, stone). See "Coloured floors", "Terrain patterns and material variants".
    *Progress:* Coloured floors slice 1 (fun swatches) + slice 2 (picker) DONE; **WALL materials
-   (Stone/Wood/Slate) DONE 2026-08-17**; **FLOOR terrain patterns (real pattern axis) DONE 2026-08-17**
-   (both under "Terrain patterns and material variants" -> As built). Still to do here: fence materials,
-   grass patterns, and the deferred material-aware floor swatch row.
+   (Stone/Wood/Slate) DONE 2026-08-17, + Brick + Hedge DONE 2026-08-23**; **FLOOR terrain patterns (real
+   pattern axis) DONE 2026-08-17, + GRASS patterns (Plain/Wild/Tuft) DONE 2026-08-23** (both under
+   "Terrain patterns and material variants" -> As built). Still to do here: SEE-THROUGH fences (Wood
+   Fence pickets, Metal Bars, Chainlink) which need a distinct short/see-through structure (walls render
+   as tall solid bodies), and the deferred material-aware floor swatch row.
 8. **Ground layer phase 2: auto-matching plus better edging. FEATHERED AUTO-MATCH BUILT 2026-08-23**
    for the OUTDOOR naturals (grass/sand/snow, + water's shoreline): a precedence-driven feathered edge
    autotile blends adjacent naturals (see "Auto-matching terrain edges" as-built). Still open: material
@@ -2484,15 +2486,26 @@ structure yet, only referenced in gate.gd comments). What was touched:
   back-compat, undo/redo. Full existing suite still green (test_floor_color's hardcoded "version is 5"
   relaxed to `MapIO.VERSION`). **Visually confirmed** via the capture harness (GQ_WALLMAT): a wood run
   renders warm brown directly left of a distinct cool-grey slate run, both clearly separate from stone.
-- **Deferred (next in this section):** terrain patterns (carpet/grass/tile/wood style variants, a
-  pattern axis distinct from colour) and **fence** materials (needs a fence structure first).
+- **BRICK + HEDGE added 2026-08-23.** The wall-material roster gained `brick` (running-bond courses) and
+  `hedge` (leafy clumps), a 1:1 clone of the Stone/Wood/Slate machinery: greyscale art
+  `world/{brick,hedge}_{face,cap}.png` (tinted by the wall colour), added to `wall_segment.MATERIALS`,
+  `floor_manager.WALL_MATERIALS` + `WALL_TEX`, and `inspector.WALL_MATERIALS`. No MapIO bump (new
+  material-name values only). Verified `dev/test_wall_material.tscn` (now 25 checks). They render on the
+  tall SOLID wall body; the see-through fences (Wood Fence pickets, Metal Bars, Chainlink) still need
+  their own short/see-through structure (a distinct render), deferred.
 
 ### As built: FLOOR terrain patterns (real pattern axis) (BUILT 2026-08-17)
 The pattern axis landed as decided (a real per-quarter pattern index, NOT flat extra materials), so a
 floor quarter now carries three independent axes: **material** (`_quad_mat`), **pattern**
 (`_quad_pattern`), and **colour tint** (`_quad_tint`). Patterns are style variants of a material's
-texture, chosen from a material-aware menu. Grass (carpet/long-grass) patterns and the game-mode
-resource gating are still deferred. What was touched:
+texture, chosen from a material-aware menu. The game-mode resource gating is still deferred. **GRASS
+patterns added 2026-08-23:** grass is now a real material `"grass"` with variants Plain/Wild/Tuft, so it
+rides the existing `_quad_mat`/`_quad_pattern` save (no MapIO bump). Plain draws NOTHING (the base ground
+shows through, no patch seam; a tint still shows via the tinted-base branch); Wild/Tuft are alpha blade
+overlays over the base (`floors/grass_{wild,tuft}.png`, Wild = darker lush wash + dense blades, Tuft =
+scattered clumps). The `MENU` "Grass" entry now arms the `grass` material (the Erase tool clears back to
+the bare base); grass stays `TERRAIN_RANK` 0 (base, never auto-matches) and passable. Verified
+`dev/test_grass_pattern.tscn` (9 checks). What was touched originally:
 - **New art:** `floors/{wood_diagonal,tile_diamond,carpet_argyle}.png`, 128x128 tileable, generated to
   match each base's palette, using 45-degree structure at period 32 (32 divides 128) so they tile with
   no seam. `.import` files via a headless `--import` pass. Concrete stays single-pattern (Plain).
