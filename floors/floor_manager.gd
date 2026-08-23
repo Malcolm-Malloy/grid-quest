@@ -210,7 +210,10 @@ var _quad_tint := {}  # quarter coord (Vector2i, 16px grid) -> Color; a multiply
 var _quad_pattern := {} # quarter coord (Vector2i, 16px grid) -> int pattern index into the material's
 					  # `textures` variant array. Parallel to _quad_mat and also SOURCE OF TRUTH (MapIO
 					  # saves it). Absent / 0 = the default pattern. Only meaningful with a material.
-var _base_fills: Array = [] # [Rect2, Texture2D, Color], one per painted/tinted quarter (from _quad_mat/_quad_tint)
+var _base_fills: Array = [] # [Rect2, Texture2D, Color, (src_override), (animate)], one per painted/tinted
+							# quarter. A 4th element overrides the sampled src rect (shoreline atlas); a 5th
+							# truthy element flags an ANIMATED water fill (grid_background shimmers it).
+var _has_water := false # any water fill emitted this _rebuild, so grid_background knows to run the shimmer
 var _menu: PopupMenu
 var _pending := Vector2.ZERO # local (World-space) position of the last right-click, for the menu
 var _tool_kind := "floor"    # "floor" (paint _brush), "wall" (colour _wall_color), "wall_mat" (material
@@ -1994,18 +1997,23 @@ func _mat_tex(mat: String, pattern: int) -> Texture2D:
 
 func _rebuild() -> void:
 	_base_fills = []
+	_has_water = false
 	for q in _quad_mat:
 		var rect := Rect2(q.x * HALF, q.y * HALF, HALF, HALF)
 		var mat: String = _quad_mat[q]
 		var tint: Color = _quad_tint.get(q, Color.WHITE)
 		if mat == "water":
 			# Shoreline autotile: a water quarter with LAND on an orthogonal side feathers toward it.
+			# Water fills carry a 5th `true` (animate) so grid_background shimmers them; the bank underlay
+			# stays static. mask 0 (open water) draws the flat, seamless, world-tiled tile, also animated.
+			_has_water = true
 			var mask := _water_land_mask(q)
 			if mask != 0:
 				_base_fills.append([rect, RIVER_BANK, Color.WHITE]) # wet-sand underlay the feather reveals
-				_base_fills.append([rect, WATER_SHORE, tint, _shore_src(mask)]) # feathered water on top
-				continue
-			# mask 0 (open water, no orthogonal land): fall through to the flat, seamless, tiled tile
+				_base_fills.append([rect, WATER_SHORE, tint, _shore_src(mask), true]) # feathered water on top
+			else:
+				_base_fills.append([rect, _mat_tex("water", 0), tint, GridBackground.tiled_src(rect), true])
+			continue
 		elif EDGE_ATLAS.has(mat):
 			# Auto-match: a natural terrain feathers over its lower-precedence orthogonal neighbours.
 			var mask := _terrain_edge_mask(q, mat)
@@ -2119,6 +2127,11 @@ func _redraw_floor_layers() -> void:
 
 func base_fills() -> Array:
 	return _base_fills
+
+# any water on the map this rebuild, so grid_background runs the shimmer redraw loop only when needed
+# (zero cost on a dry map). Set in _rebuild whenever a water quarter emits a fill.
+func has_animated_water() -> bool:
+	return _has_water
 
 # the floor texture that renders at 16px quarter `q`, or null for the grass base. The single
 # source of truth the door-open shadow pass restamps from, so it matches the indoor base_fills

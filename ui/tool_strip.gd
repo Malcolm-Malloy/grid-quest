@@ -116,7 +116,9 @@ func _ready() -> void:
 	var fm := get_node_or_null("../World/FloorManager")
 	if fm != null:
 		var brush := _add_section(vb, "Brush", true)
-		_brush_preview = _fill_brush_section(brush, fm.MENU, 2, _on_brush_material, fm.FLOOR_COLORS, _on_brush_color, _mat_buttons, _col_swatches)
+		# 4-column material grid: keeps the Brush section short as the roster grows (8 materials = 2 rows,
+		# not 4), so the panel needs little scrolling. Buttons hug their text, so 4 short labels stay narrow.
+		_brush_preview = _fill_brush_section(brush, fm.MENU, 4, _on_brush_material, fm.FLOOR_COLORS, _on_brush_color, _mat_buttons, _col_swatches)
 		# --- Wall accordion section: the armed wall brush (material + colour), same two-way binding as
 		# the floor Brush (a wall selection reflects here; picking here edits the selection in place) ---
 		var wall := _add_section(vb, "Wall", false) # collapsed by default; opens when a wall is selected

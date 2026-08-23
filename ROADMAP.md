@@ -1272,8 +1272,8 @@ systems. Mythical unlocks the **special ability at L5**; the level 1 to 4 rungs 
 Future additions the user wants at some point. Not built until asked; captured with light notes on
 where each lands. Universal rule: **every graphic follows the top/front perspective**
 ([[grid-quest-asset-perspective-model]]), so it is not repeated per item below.
-- **Water terrain (impassable). SLICE 1 BUILT 2026-08-23 (flat + still + impassable); RIVER-BANK
-  auto-edge + SHORELINE AUTOTILE BUILT 2026-08-23; only flow animation remains a follow-up slice.
+- **Water terrain (impassable). FULLY BUILT 2026-08-23: SLICE 1 (flat + still + impassable) + RIVER-BANK
+  auto-edge + SHORELINE AUTOTILE + FLOW SHIMMER. The water thread is complete; no follow-up slices remain.
   SPEC DECIDED 2026-08-23:** the user wants **rivers and bodies
   of water** (rivers AND still lakes / ponds) the player cannot cross, as the next build. First terrain
   that blocks movement. Three design decisions locked with the user (all the recommended options):
@@ -1345,6 +1345,15 @@ where each lands. Universal rule: **every graphic follows the top/front perspect
         flat, and a shored cell is still impassable). 30 checks all green. Eyeballed via the capture harness
         (`GQ_WATER` painting an irregular pond): grass -> brown bank -> feathered foam edge -> rippled water,
         following the pond outline with no hard grid edge.
+  - **As built: FLOW SHIMMER, 2026-08-23.** The still water now animates with a subtle brightness pulse
+    that varies by world position + time, so a body reads as a gently rippling surface rather than a flat
+    fill. NO per-frame frame art (the roadmap's concern): `FloorManager` flags water fills (a 5th
+    `base_fills` element) and exposes `has_animated_water()`; `grid_background` advances a phase and
+    redraws at ~20Hz ONLY while the map has water (a dry map costs nothing), multiplying each water fill's
+    tint by `1 + AMP*sin(phase*SPEED + (x+y)*K)`. Applies to the flat interior AND the feathered shore
+    tiles (they shimmer together); the brown bank underlay stays static. Purely visual: material +
+    collision + save unchanged. Verified `dev/test_water.tscn` (dry = no animation; water fills flagged,
+    wood not); eyeballed a pond showing the position-varying brightness wave.
 - **Bridges (cross a river, both directions). SLICE 1 BUILT 2026-08-23 (flat deck + auto-orient +
   passable-over-impassable + placement tool + save); richer deck art is a follow-up.** A crossable
   overlay over water, in **north-south and east-west** orientations. Introduces
@@ -1389,10 +1398,13 @@ where each lands. Universal rule: **every graphic follows the top/front perspect
     `_erase_structure_at` tries `remove_bridge` when no wall/door was removed; `_erase_single` checks
     `is_bridge` between the structure and floor branches. Covered by `dev/test_bridge.tscn` (Erase tool
     removes the bridge and keeps the water; empty cell reports nothing; right-click Erase removes it).
-  - **Deferred follow-ups:** richer deck ART (the flat procedural planks read as a lighter-brown block
-    at native 32px; visible planks/rails/height art per [[grid-quest-modify-all-asset-states]] is a
-    later slice, matching how water shipped flat-first); and multi-cell drag placement (today one click
-    = one deck).
+  - **Deck ART: enriched 2026-08-23.** `bridge.gd` `_draw` now renders shaded planks (alternating tone +
+    lit leading edge + dark seam), nail heads at the plank ends, side rails with a highlight, and corner
+    posts, so a deck reads as a railed plank bridge at native 32px, not a lighter-brown block. Both
+    orientations and the lifted preview share the one `_draw` ([[grid-quest-modify-all-asset-states]]).
+    Still FLAT / top-down (no ramp or rail-HEIGHT art yet).
+  - **Deferred follow-ups:** rail-HEIGHT / perspective art (the deck is still top-down flat), and
+    multi-cell drag placement (today one click = one deck).
 - **Trees.** World object, likely a movement-blocking obstacle with height; y-sort and front/back
   layering per [[grid-quest-asset-perspective-model]] and casts a shadow.
 - **Bushes.** World object, smaller than trees; decide at build time whether it blocks or is
