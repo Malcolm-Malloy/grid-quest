@@ -20,7 +20,7 @@ func _ready() -> void:
 	var fm = main.get_node("World/FloorManager")
 
 	_check("Brush section exists", ts._sections.has("Brush"))
-	_check("5 material buttons", ts._mat_buttons.size() == 5)
+	_check("material buttons == floor MENU", ts._mat_buttons.size() == fm.MENU.size()) # Grass+Wood+Concrete+Tile+Carpet+Water
 	_check("8 colour swatches", ts._col_swatches.size() == 8) # 9 presets minus the culled Grey
 
 	# clicking a material button in the panel arms it
