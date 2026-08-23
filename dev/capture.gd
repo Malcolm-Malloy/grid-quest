@@ -80,8 +80,9 @@ func _ready() -> void:
 
 	# GQ_TERRAIN="x,y,material;..." paints FULL-CELL of any floor material at each cell, then rebuilds,
 	# so the generalised auto-matching edges can be seen (e.g. sand feathering into grass, snow over
-	# sand). Grass = "grass" or "" (the base). e.g. GQ_TERRAIN="20,10,sand;21,10,snow". Frames the whole
-	# map unless GQ_TERRAIN_NOFIT=1. Runs after GQ_WATER so the two can be combined in one shot.
+	# sand). Material is the literal name ("grass" is now a real patternable material; use "base" for the
+	# bare "" ground). e.g. GQ_TERRAIN="20,10,sand;21,10,grass". Pair with GQ_PATTERN to set a variant.
+	# Frames the whole map unless GQ_TERRAIN_NOFIT=1. Runs after GQ_WATER so the two can be combined.
 	var terrain := OS.get_environment("GQ_TERRAIN")
 	if terrain != "":
 		var fmt := main.get_node_or_null("World/FloorManager")
@@ -90,7 +91,7 @@ func _ready() -> void:
 				var tc := op.split(",")
 				if tc.size() == 3:
 					var c := Vector2i(int(tc[0]), int(tc[1]))
-					var mat: String = "" if tc[2] == "grass" else tc[2]
+					var mat: String = "" if tc[2] == "base" else tc[2]
 					for dx in 2:
 						for dy in 2:
 							fmt._write_quad(Vector2i(c.x * 2 + dx, c.y * 2 + dy), mat)
@@ -287,8 +288,9 @@ func _ready() -> void:
 				fmsel._select_at(Vector2(int(sp[0]) * 32 + 16, int(sp[1]) * 32 + 16))
 
 	# GQ_PATTERN="x,y,idx;..." sets a floor cell's pattern index (0=default) via the same grain helper
-	# the Pattern menu uses, so the pattern variants can be verified headlessly. Pair with GQ_FLOOR to
-	# lay a material first (pattern is a no-op over grass), e.g. GQ_FLOOR="8,9,wood" GQ_PATTERN="8,9,1".
+	# the Pattern menu uses, so the pattern variants can be verified headlessly. Pair with GQ_FLOOR/
+	# GQ_TERRAIN to lay a material first (grass is now patternable too: 1=Wild, 2=Tuft), e.g.
+	# GQ_TERRAIN="8,9,grass" GQ_PATTERN="8,9,1".
 	var fpat := OS.get_environment("GQ_PATTERN")
 	if fpat != "":
 		var fmpt := main.get_node_or_null("World/FloorManager")
