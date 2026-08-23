@@ -36,9 +36,12 @@ var _level_dd: OptionButton       # the Level picker (switch which saved map is 
 var _level_confirm: ConfirmationDialog # unsaved-changes guard before a Level switch loads
 var _pending_level := ""          # the map a confirmed Level switch will load
 # persistent Brush panel: shows/edits the armed floor material + colour without the right-click menu
-var _mat_buttons := {}            # material value -> Button (radio); the active one is highlighted
-var _col_swatches := []           # [{color, button}] clickable colour boxes; active gets a border
-var _brush_preview: TextureRect   # combined-brush swatch: the armed texture tinted by the armed colour
+var _mat_buttons := {}            # floor material value -> Button (radio); the active one is highlighted
+var _col_swatches := []           # [{color, button}] clickable floor-colour boxes; active gets a border
+var _brush_preview: TextureRect   # floor combined-brush swatch: the armed texture tinted by the colour
+var _wall_mat_buttons := {}       # wall material value -> Button (radio)
+var _wall_col_swatches := []      # [{color, button}] clickable wall-colour boxes
+var _wall_preview: TextureRect    # wall brush swatch: the armed wall cap texture tinted by the colour
 
 func _ready() -> void:
 	# the tool strip is editor-only chrome: show it in EDIT, hide it in PLAY (see EditorMode)
@@ -98,52 +101,13 @@ func _ready() -> void:
 	var fm := get_node_or_null("../World/FloorManager")
 	if fm != null:
 		var brush := _add_section(vb, "Brush", true)
-		# combined-brush preview: the armed texture tinted by the armed colour, so the exact result of a
-		# paint is visible without hovering the map (_refresh_brush keeps it in sync with FloorManager)
-		var pv_box := PanelContainer.new()
-		pv_box.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN # hug the swatch, don't stretch full width
-		var pv_sb := StyleBoxFlat.new()
-		pv_sb.bg_color = Color(0, 0, 0, 0)
-		pv_sb.set_border_width_all(1)
-		pv_sb.border_color = Color(0, 0, 0, 0.5)
-		pv_sb.set_content_margin_all(2)
-		pv_box.add_theme_stylebox_override("panel", pv_sb)
-		_brush_preview = TextureRect.new()
-		_brush_preview.custom_minimum_size = Vector2(36, 36) # one tile, roughly cell-sized
-		_brush_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE # let it shrink below the 128px texture
-		_brush_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED # fill the square (crop, no gaps): grass is 4:3, the tiles square
-		_brush_preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		pv_box.add_child(_brush_preview)
-		brush.add_child(pv_box)
-		var mlbl := Label.new()
-		mlbl.text = "Material"
-		brush.add_child(mlbl)
-		var mgrid := GridContainer.new()
-		mgrid.columns = 2
-		brush.add_child(mgrid)
-		var mgrp := ButtonGroup.new()
-		for entry in fm.MENU:
-			var mval: String = entry[1]
-			var mb := Button.new()
-			mb.text = entry[0] if mval != "" else "Grass" # "" is the grass base
-			mb.toggle_mode = true
-			mb.button_group = mgrp
-			mb.pressed.connect(_on_brush_material.bind(mval))
-			mgrid.add_child(mb)
-			_mat_buttons[mval] = mb
-		var clbl := Label.new()
-		clbl.text = "Colour"
-		brush.add_child(clbl)
-		var cgrid := GridContainer.new()
-		cgrid.columns = 5
-		brush.add_child(cgrid)
-		for entry in fm.FLOOR_COLORS:
-			var cval: Color = entry[1]
-			var sw := _make_swatch(cval, entry[0])
-			sw.pressed.connect(_on_brush_color.bind(cval))
-			cgrid.add_child(sw)
-			_col_swatches.append({"color": cval, "button": sw})
+		_brush_preview = _fill_brush_section(brush, fm.MENU, 2, _on_brush_material, fm.FLOOR_COLORS, _on_brush_color, _mat_buttons, _col_swatches)
+		# --- Wall accordion section: the armed wall brush (material + colour), same two-way binding as
+		# the floor Brush (a wall selection reflects here; picking here edits the selection in place) ---
+		var wall := _add_section(vb, "Wall", false) # collapsed by default; opens when a wall is selected
+		_wall_preview = _fill_brush_section(wall, fm.WALL_MATERIALS, 3, _on_wall_material, fm.WALL_COLORS, _on_wall_color, _wall_mat_buttons, _wall_col_swatches)
 		fm.brush_changed.connect(_refresh_brush)
+		fm.selection_changed.connect(_on_selection_changed)
 		_refresh_brush()
 
 	# --- Advanced accordion section (collapsed): the Map Size edge controls ---
@@ -199,7 +163,76 @@ func _add_section(parent: Node, title: String, expanded: bool) -> VBoxContainer:
 func _section_label(title: String, expanded: bool) -> String:
 	return ("▾ " if expanded else "▸ ") + title
 
+# expand/collapse a section programmatically (drives the header toggle so its arrow + content follow)
+func _set_section(title: String, expanded: bool) -> void:
+	if _sections.has(title):
+		_sections[title]["header"].button_pressed = expanded
+
+# surface the section matching the current selection: a wall selection opens Wall (and folds the floor
+# Brush), a floor selection opens Brush (and folds Wall), so the reflected material + colour are visible
+# and the panel never overflows with both open. No selection leaves the sections as the user set them.
+func _on_selection_changed() -> void:
+	var fm := get_node_or_null("../World/FloorManager")
+	if fm == null:
+		return
+	if fm.has_wall_selection():
+		_set_section("Wall", true)
+		_set_section("Brush", false)
+	elif fm.has_floor_selection():
+		_set_section("Brush", true)
+		_set_section("Wall", false)
+
 # --- Brush panel: swatches + live highlight of the active material/colour ---
+
+# build one brush section's body: a preview swatch, a Material radio grid, and a Colour swatch grid.
+# `materials` = Array of [label, value]; `colors` = Array of [label, Color]. `mat_cb`/`col_cb` receive
+# the value on click. Records buttons into `mat_out` (value -> Button) and `col_out` ([{color,button}]).
+# Returns the preview TextureRect. Shared by the floor Brush and the Wall sections.
+func _fill_brush_section(sec: Control, materials: Array, mat_cols: int, mat_cb: Callable, colors: Array, col_cb: Callable, mat_out: Dictionary, col_out: Array) -> TextureRect:
+	var pv_box := PanelContainer.new()
+	pv_box.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN # hug the swatch, don't stretch full width
+	var pv_sb := StyleBoxFlat.new()
+	pv_sb.bg_color = Color(0, 0, 0, 0)
+	pv_sb.set_border_width_all(1)
+	pv_sb.border_color = Color(0, 0, 0, 0.5)
+	pv_sb.set_content_margin_all(2)
+	pv_box.add_theme_stylebox_override("panel", pv_sb)
+	var preview := TextureRect.new()
+	preview.custom_minimum_size = Vector2(36, 36) # one tile, roughly cell-sized
+	preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE # let it shrink below the 128px texture
+	preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED # fill the square (crop): grass is 4:3, tiles square
+	preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	pv_box.add_child(preview)
+	sec.add_child(pv_box)
+	var mlbl := Label.new()
+	mlbl.text = "Material"
+	sec.add_child(mlbl)
+	var mgrid := GridContainer.new()
+	mgrid.columns = mat_cols
+	sec.add_child(mgrid)
+	var mgrp := ButtonGroup.new()
+	for entry in materials:
+		var mval: String = entry[1]
+		var mb := Button.new()
+		mb.text = entry[0]
+		mb.toggle_mode = true
+		mb.button_group = mgrp
+		mb.pressed.connect(mat_cb.bind(mval))
+		mgrid.add_child(mb)
+		mat_out[mval] = mb
+	var clbl := Label.new()
+	clbl.text = "Colour"
+	sec.add_child(clbl)
+	var cgrid := GridContainer.new()
+	cgrid.columns = 5
+	sec.add_child(cgrid)
+	for entry in colors:
+		var cval: Color = entry[1]
+		var sw := _make_swatch(cval, entry[0])
+		sw.pressed.connect(col_cb.bind(cval))
+		cgrid.add_child(sw)
+		col_out.append({"color": cval, "button": sw})
+	return preview
 
 func _make_swatch(color: Color, tip: String) -> Button:
 	var b := Button.new()
@@ -223,25 +256,28 @@ func _swatch_box(color: Color, active: bool) -> StyleBoxFlat:
 		sb.border_color = Color(0, 0, 0, 0.4)
 	return sb
 
-# highlight the active material (radio) + active colour swatch (border), from FloorManager's live state
+# highlight the active material (radio) + active colour swatch (border) for BOTH the floor Brush and the
+# Wall sections, from FloorManager's live state (fires on every brush_changed)
 func _refresh_brush() -> void:
 	var fm := get_node_or_null("../World/FloorManager")
 	if fm == null:
 		return
-	var mat: String = fm.armed_material()
-	if _mat_buttons.has(mat):
-		_mat_buttons[mat].button_pressed = true
-	var col: Color = fm.active_floor_color()
-	for s in _col_swatches:
-		var active: bool = (s["color"] as Color).is_equal_approx(col)
+	_refresh_brush_section(_mat_buttons, fm.armed_material(), _col_swatches, fm.active_floor_color(), _brush_preview, fm.armed_brush_texture())
+	_refresh_brush_section(_wall_mat_buttons, fm.armed_wall_material(), _wall_col_swatches, fm.active_wall_color(), _wall_preview, fm.armed_wall_texture())
+
+# highlight one section: press the active material radio, border the active colour swatch, and set the
+# preview swatch to the armed texture multiplied by the armed colour (so it reads as the real result).
+func _refresh_brush_section(mat_buttons: Dictionary, active_mat: String, col_swatches: Array, active_col: Color, preview: TextureRect, tex: Texture2D) -> void:
+	if mat_buttons.has(active_mat):
+		mat_buttons[active_mat].button_pressed = true
+	for s in col_swatches:
+		var active: bool = (s["color"] as Color).is_equal_approx(active_col)
 		var b: Button = s["button"]
 		b.add_theme_stylebox_override("normal", _swatch_box(s["color"], active))
 		b.add_theme_stylebox_override("hover", _swatch_box(s["color"], active))
-	# preview swatch: the armed texture, multiplied by the armed colour (modulate), so it reads exactly
-	# like the tile a paint would lay (greyscale texture + tint = the combined result)
-	if _brush_preview != null:
-		_brush_preview.texture = fm.armed_brush_texture()
-		_brush_preview.modulate = col
+	if preview != null:
+		preview.texture = tex
+		preview.modulate = active_col
 
 # picking a material/colour in the panel means "I want to paint with it", so drop into a
 # painting mode (Cell) if we're not already in one, then arm the brush. In Cell/Fine we leave the
@@ -264,6 +300,18 @@ func _on_brush_color(cval: Color) -> void:
 	if not fm.has_floor_selection() and fm.mode() != M_CELL and fm.mode() != M_FINE:
 		_select_mode(M_CELL)
 	fm.arm_floor_color(cval)
+
+# wall picks: with a wall selection active they EDIT it in place (arm_wall_* do the fill); otherwise they
+# just arm the wall tool. Walls don't use the Cell/Fine paint grain, so no mode switch is needed.
+func _on_wall_material(mval: String) -> void:
+	var fm := get_node_or_null("../World/FloorManager")
+	if fm != null:
+		fm.arm_wall_material(mval)
+
+func _on_wall_color(cval: Color) -> void:
+	var fm := get_node_or_null("../World/FloorManager")
+	if fm != null:
+		fm.arm_wall_color(cval)
 
 func _edge_button(text: String, edge: String, mode: String) -> Button:
 	var b := Button.new()

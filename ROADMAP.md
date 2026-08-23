@@ -1235,11 +1235,15 @@ systems. Mythical unlocks the **special ability at L5**; the level 1 to 4 rungs 
 Future additions the user wants at some point. Not built until asked; captured with light notes on
 where each lands. Universal rule: **every graphic follows the top/front perspective**
 ([[grid-quest-asset-perspective-model]]), so it is not repeated per item below.
-- **Water terrain (impassable).** A terrain type for rivers the player cannot cross. Slots into
-  the Outdoor terrain roster (alongside Grass, Sand, Snow) but introduces a genuinely **new
-  mechanic: impassable terrain**. Today walls and obstacles block movement; terrain does not, so
-  water needs a per-terrain passability flag and the player collision to respect it. First terrain
-  that blocks.
+- **Water terrain (impassable). NEXT UP (confirmed 2026-08-23):** the user wants **rivers and bodies
+  of water** as the next feature after the walls-in-the-panel + small-fixes work. A terrain type for
+  rivers AND still bodies (lakes / ponds) the player cannot cross. Slots into the Outdoor terrain
+  roster (alongside Grass, Sand, Snow) but introduces a genuinely **new mechanic: impassable
+  terrain**. Today walls and obstacles block movement; terrain does not, so water needs a per-terrain
+  passability flag and the player collision to respect it. First terrain that blocks. Open questions
+  for the spec: edge/shore rendering where water meets land, whether water tiles autotile into a
+  connected body, animation (still vs flowing), and how it reads under the top/front perspective.
+  Bridges (below) are the crossable companion.
 - **Bridges (cross a river, both directions).** A crossable overlay over water, in **north-south
   and east-west** orientations. Introduces passable-over-impassable: the bridge re-enables
   crossing on cells that water blocks. Directional asset like gates (per orientation art), see
@@ -1853,6 +1857,23 @@ already specced, so it is a natural fast-follow rather than new machinery:
 
 ## Coloured highlight system (logged 2026-08-16, Phase A)
 
+**As-built (2026-08-23): walls in the Brush panel (contextual panel).** The left panel gained a **Wall**
+section mirroring the floor Brush: a preview swatch (the wall cap texture tinted by the armed colour), a
+Material radio grid (Stone / Wood / Slate) and a Colour swatch grid (the 7 `WALL_COLORS`), with the
+same two-way binding. A Magic Wand WALL selection reflects its dominant material + colour into the Wall
+section (`_reflect_wall_selection_brush()` reads per-cell values via `Obstacles.get_wall_material/color`
+and picks the majority with `_dominant()`); picking a material/colour in the Wall section then edits the
+selection in place (`arm_wall_material` / `arm_wall_color` fill via `_fill_wall_material_selection` /
+`_fill_wall_selection`, one undo entry each), keeping the selection and the other axis. FloorManager
+exposes `armed_wall_material()`, `active_wall_color()`, `armed_wall_texture()` (from a new `WALL_TEX`
+cap-texture map), `has_wall_selection()`, `arm_wall_material()`, `arm_wall_color()`. The panel is now
+**contextual**: the Wall section is collapsed by default and a new `selection_changed` signal drives the
+tool strip to open the section matching the active selection (a wall selection opens Wall + folds Brush,
+a floor selection opens Brush + folds Wall) so the reflected values are visible and both never overflow
+at once. The floor + wall sections are built by one shared `_fill_brush_section()` / refreshed by one
+`_refresh_brush_section()` in `tool_strip.gd`. Covered by `dev/test_wall_brush_sync` (10 checks) and
+verified visually (selecting a wall opens the Wall section and reflects the run's dominant material).
+
 **As-built (2026-08-23): two-way Brush-panel <-> floor-selection binding.** Selecting a floor with the
 Magic Wand now REFLECTS that floor's look into the left Brush panel, and changing the panel EDITS the
 selection in place. (1) Reflect: `_refresh_selection_overlay` calls `_reflect_selection_brush()` for
@@ -2129,12 +2150,22 @@ A batch of editor fixes/tweaks plus a build-menu UX direction. Not built yet.
   - Consequence: wood/tile/carpet now look **grey by default**; tint them for colour (matches "Natural is
     default"). If a natural-by-default look is wanted (wood auto-brown, etc.), add a **per-material default
     tint** later (not built).
-  - Still to do: **cull the preset tint colours that look bad** on the grey bases (curate WALL_COLORS /
-    FLOOR_COLORS); decide whether **grass** and **doors/gates** should also go greyscale + tintable.
-- **Rename "rotation" to "orientation"** wherever a texture/asset's rotation is referenced, for
-  consistency with **doors** (which already use "orientation").
-- **Convert wall to door and vice versa.** A menu action to change an existing wall into a door, and a
-  door back into a wall, in place. Extends the contextual Build/Wall/Door menu.
+  - **Cull DONE 2026-08-23 (first pass):** removed **Grey** from FLOOR_COLORS. A grey tint over the
+    greyscale bases only darkens them (no hue), so it read as a muddy near-duplicate of Natural. Judged
+    from a render of all 9 tints on a tile floor; the other 8 (Red/Orange/Yellow/Green/Blue/Purple/Pink)
+    read as distinct colours and were kept (Yellow/Orange are a touch muddy but still usable). WALL_COLORS
+    never had Grey. Existing grey-tinted floors still render (tints store a raw Color, not a preset index).
+    Still open: decide whether **grass** and **doors/gates** should also go greyscale + tintable.
+- **Rename "rotation" to "orientation": already consistent (verified 2026-08-23).** The code, UI and
+  inspector already use "orientation" throughout for doors/walls/gates; a sweep found no user-facing
+  "rotation/rotate" text to rename. (The remaining "rotate" mentions in this doc are the future
+  multi-tile-object rotate feature, a distinct verb.) No change needed.
+- **Convert wall to door and vice versa. DONE 2026-08-23.** The properties inspector (Select tool) gains
+  a **Convert to Door** button on a wall and a **Convert to Wall** button on a door. Wall->door calls
+  `Obstacles.add_door(cell, wall_run_orientation(cell))` (the wall becomes a doorway following its run's
+  orientation); door->wall calls `remove_structure` + `add_wall`. Both rebuild through
+  `MapIO.apply_serialized` (one undo entry) and re-inspect the same cell so the panel stays put, now
+  showing the new structure's controls. Covered by `dev/test_wall_door_convert` (7 checks).
 - **Fix broken shadows** (bug). Fixed several concrete cases: the shadow-poly accumulation **leak**, the
   **door-shadow triangle**, and the **lone-wall shadow with no wall** (see those entries). No generic
   "broken shadows" case reproduces in audits now; a specific screenshot is needed if one remains (shadow

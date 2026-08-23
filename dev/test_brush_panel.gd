@@ -21,7 +21,7 @@ func _ready() -> void:
 
 	_check("Brush section exists", ts._sections.has("Brush"))
 	_check("5 material buttons", ts._mat_buttons.size() == 5)
-	_check("9 colour swatches", ts._col_swatches.size() == 9)
+	_check("8 colour swatches", ts._col_swatches.size() == 8) # 9 presets minus the culled Grey
 
 	# clicking a material button in the panel arms it
 	fm.set_mode(1) # Mode.CELL

@@ -116,6 +116,18 @@ func _build_door() -> void:
 		EditHistory.commit("door swing"))
 	_box.add_child(swing_btn)
 
+	# convert this door back into a solid wall, in place (structural: rebuild through MapIO). Re-inspects
+	# as a wall so the panel stays on the same cell, now showing the wall's colour/material controls.
+	var to_wall := Button.new()
+	to_wall.text = "Convert to Wall"
+	to_wall.pressed.connect(func():
+		obs.remove_structure(_cell) # drop the door
+		obs.add_wall(_cell)         # put a wall on the cell
+		MapIO.apply_serialized(MapIO.serialize(), true)
+		EditHistory.commit("door to wall")
+		inspect_wall(_cell))
+	_box.add_child(to_wall)
+
 func _build_wall() -> void:
 	var obs = _obs()
 	if obs == null or not obs.is_blocked(_cell):
@@ -159,3 +171,14 @@ func _build_wall() -> void:
 			inspect_wall(_cell)) # refresh which material is current
 		mat_row.add_child(mb)
 	_box.add_child(mat_row)
+
+	# convert this wall into a doorway, in place, following the wall run's orientation (structural:
+	# rebuild through MapIO). Re-inspects as a door so the panel shows the door's open/swing controls.
+	var to_door := Button.new()
+	to_door.text = "Convert to Door"
+	to_door.pressed.connect(func():
+		obs.add_door(_cell, obs.wall_run_orientation(_cell))
+		MapIO.apply_serialized(MapIO.serialize(), true)
+		EditHistory.commit("wall to door")
+		inspect_door(_cell))
+	_box.add_child(to_door)

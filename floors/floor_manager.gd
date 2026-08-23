@@ -97,6 +97,13 @@ const WALL_MAT_BASE_ID := 600
 const WALL_MATERIALS := [
 	["Stone", "stone"], ["Wood", "wood"], ["Slate", "slate"],
 ]
+# the cap (top-face) texture per wall material, for the Brush panel's wall preview swatch. Mirrors
+# WallSegment.MATERIALS (kept in sync); the panel shows the cap tinted by the armed wall colour.
+const WALL_TEX := {
+	"stone": preload("res://world/stone_cap.png"),
+	"wood": preload("res://world/wood_cap.png"),
+	"slate": preload("res://world/slate_cap.png"),
+}
 
 # wall colours (a tint over the stone). Natural = white = reset. Menu id is WALL_BASE_ID + index.
 const WALL_BASE_ID := 300
@@ -126,12 +133,17 @@ const FLOOR_COLORS := [
 	["Blue", Color(0.4, 0.55, 0.85)],
 	["Purple", Color(0.66, 0.45, 0.8)],
 	["Pink", Color(0.9, 0.55, 0.7)],
-	["Grey", Color(0.55, 0.55, 0.58)],
+	# Grey culled 2026-08-23: a grey tint over the greyscale bases just darkens them (no hue), so it read
+	# as a muddy near-duplicate of Natural. Existing grey-tinted floors still render (tints store raw Color).
 ]
 
 # emitted whenever the armed floor brush changes (material, armed flag, tool kind, or colour), so the
 # persistent left-panel Brush inspector (tool_strip.gd) can highlight the active material + colour live.
 signal brush_changed
+# emitted whenever the selection changes (floor/wall/none), so the panel can surface the matching
+# section (a wall selection opens the Wall section, a floor selection the Brush section). Fires even
+# when the reflected brush values did not change, unlike brush_changed.
+signal selection_changed
 
 @onready var room_light = get_node("../RoomLight")
 
@@ -759,6 +771,59 @@ func _reflect_selection_brush() -> void:
 	_floor_color = col
 	brush_changed.emit()
 
+# --- wall side of the Brush panel: read + set the armed wall material + colour (mirrors the floor API
+# above). A WALL selection reflects its look here, and picking here edits the wall selection in place.
+
+func armed_wall_material() -> String:
+	return _wall_mat
+
+func active_wall_color() -> Color:
+	return _wall_color
+
+func armed_wall_texture() -> Texture2D:
+	return WALL_TEX.get(_wall_mat, WALL_TEX["stone"])
+
+func has_wall_selection() -> bool:
+	return _sel_kind == "wall" and _selection != null and _selection.has_selection()
+
+func arm_wall_material(mat: String) -> void:
+	_tool_kind = "wall_mat"
+	_wall_mat = mat
+	if has_wall_selection():
+		_fill_wall_material_selection(mat)
+		EditHistory.commit("wall material")
+	brush_changed.emit()
+
+func arm_wall_color(color: Color) -> void:
+	_tool_kind = "wall"
+	_wall_color = color
+	if has_wall_selection():
+		_fill_wall_selection(color)
+		EditHistory.commit("wall colour")
+	brush_changed.emit()
+
+# mirror the current wall selection's dominant material + colour into the armed wall brush, so the
+# panel lights up the wall's material + tint (like the floor reflect). Reads per-cell values via
+# Obstacles (which return the stone/white defaults), so a mostly-plain selection reflects Stone/Natural.
+func _reflect_wall_selection_brush() -> void:
+	if _sel_cells.is_empty():
+		return
+	var obs = get_node_or_null("../Obstacles")
+	if obs == null:
+		return
+	var matmap := {}
+	var colmap := {}
+	for c in _sel_cells:
+		matmap[c] = obs.get_wall_material(c)
+		colmap[c] = obs.get_wall_color(c)
+	var mat: String = _dominant(_sel_cells, matmap, "stone")
+	var col: Color = _dominant(_sel_cells, colmap, Color.WHITE)
+	if mat == _wall_mat and col == _wall_color:
+		return
+	_wall_mat = mat
+	_wall_color = col
+	brush_changed.emit()
+
 # the most common value in `store` (a quarter -> value map) across the quarters in `quads`, ignoring
 # quarters with no entry; `default_val` when none of them carry a value.
 func _dominant(quads: Dictionary, store: Dictionary, default_val):
@@ -1002,8 +1067,10 @@ func _refresh_selection_overlay() -> void:
 		var obs = get_node_or_null("../Obstacles")
 		var rects: Array = obs.wall_piece_rects(_sel_cells) if obs != null else []
 		_selection.set_wall(_sel_cells, rects)
+		_reflect_wall_selection_brush() # mirror the wall selection's material + colour into the panel
 	else:
 		_selection.clear()
+	selection_changed.emit() # let the panel surface the section matching the current selection kind
 
 # the wall sprite rects that cover the floor selection, so the overlay can subtract them and trace
 # the visible floor. Gathers every wall in the selection's cell bounding box (expanded by one cell,
