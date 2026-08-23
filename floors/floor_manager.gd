@@ -67,6 +67,9 @@ var textures := {
 	"concrete": [preload("res://floors/concrete_floor.png")],
 	"tile": [preload("res://floors/tile_floor.png"), preload("res://floors/tile_diamond.png")],
 	"carpet": [preload("res://floors/carpet_floor.png"), preload("res://floors/carpet_argyle.png")],
+	# water is the first IMPASSABLE floor (see IMPASSABLE below): a still, blue, tintable tile. Slice 1
+	# ships STILL + flat (no shoreline autotile, no flow animation) per the locked water spec.
+	"water": [preload("res://floors/water_still.png")],
 }
 # human names for each material's pattern variants, aligned by index with `textures`. Drives the
 # per-material Pattern submenu (rebuilt per right-click from the clicked quarter's material).
@@ -75,6 +78,7 @@ const PATTERN_NAMES := {
 	"concrete": ["Plain"],
 	"tile": ["Square", "Diamond"],
 	"carpet": ["Solid", "Argyle"],
+	"water": ["Still"],
 }
 # the grass base, so a quarter that carries a floor TINT but no material still draws (a tinted
 # patch of grass): _rebuild emits it as a tinted grass fill. Matches grid_background/shadow_manager.
@@ -83,7 +87,13 @@ const GRASS := preload("res://world/ground_grass.png")
 # popup id -> [label, material]; "" is the grass base (the eraser)
 const MENU := [
 	["Grass", ""], ["Wood", "wood"], ["Concrete", "concrete"], ["Tile", "tile"], ["Carpet", "carpet"],
+	["Water", "water"],
 ]
+
+# floor materials that BLOCK the player. Today only walls/gates block (obstacles.is_blocked, which
+# every editor tool reads as "is a wall"); water is the first FLOOR that blocks, so the check lives
+# here (is_cell_impassable) and is consulted separately by the player, NOT folded into is_blocked.
+const IMPASSABLE := {"water": true}
 
 # floor patterns: a per-quarter pattern index into the material's `textures` variant array, separate
 # from the colour tint. Menu id is PATTERN_BASE_ID + index. Base is 700 so it sits above every other
@@ -1884,3 +1894,17 @@ func floor_tex_at_quad(q: Vector2i):
 # floor the same way base_fills does (see shadow_manager._stamp_floor).
 func floor_tint_at_quad(q: Vector2i) -> Color:
 	return _quad_tint.get(q, Color.WHITE)
+
+# does the FLOOR at 32px cell `cell` block movement? Cell-level granularity (matches the 32px move
+# grid): a cell holds 2x2 quarters, and it blocks when a MAJORITY (>=2 of 4) carry an IMPASSABLE
+# material. Majority (not "any") keeps a lone stray quarter - e.g. a future shoreline/bank quarter -
+# from sealing an otherwise-walkable cell; a full-water cell has all four, so it always blocks.
+# Consulted by the player alongside obstacles.is_blocked (walls); see the IMPASSABLE note above.
+func is_cell_impassable(cell: Vector2i) -> bool:
+	var count := 0
+	for dx in 2:
+		for dy in 2:
+			var q := Vector2i(cell.x * 2 + dx, cell.y * 2 + dy)
+			if IMPASSABLE.has(_quad_mat.get(q, "")):
+				count += 1
+	return count >= 2

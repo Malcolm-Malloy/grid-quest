@@ -1235,7 +1235,8 @@ systems. Mythical unlocks the **special ability at L5**; the level 1 to 4 rungs 
 Future additions the user wants at some point. Not built until asked; captured with light notes on
 where each lands. Universal rule: **every graphic follows the top/front perspective**
 ([[grid-quest-asset-perspective-model]]), so it is not repeated per item below.
-- **Water terrain (impassable). NEXT UP, SPEC DECIDED 2026-08-23:** the user wants **rivers and bodies
+- **Water terrain (impassable). SLICE 1 BUILT 2026-08-23 (flat + still + impassable); autotile shoreline,
+  flow animation, and river-bank auto-edge remain follow-up slices. SPEC DECIDED 2026-08-23:** the user wants **rivers and bodies
   of water** (rivers AND still lakes / ponds) the player cannot cross, as the next build. First terrain
   that blocks movement. Three design decisions locked with the user (all the recommended options):
   - **Fits as a FLOOR MATERIAL, not a separate layer.** Water becomes a new entry in the floor
@@ -1259,6 +1260,27 @@ where each lands. Universal rule: **every graphic follows the top/front perspect
     the greyscale-tintable style?), whether water is also authorable indoors or outdoor-only, and how
     the shoreline reads under the top/front perspective ([[grid-quest-asset-perspective-model]]).
     Bridges (below) are the crossable companion, built after water.
+  - **As built: slice 1 (flat, still, impassable), 2026-08-23.** Water is a normal floor material,
+    so it inherited floor painting, the Brush panel button ("Water"), Magic-Wand select, tint, and
+    MapIO save/load with zero extra wiring.
+    - **Art:** `floors/water_still.png`, a 128x128 SEAMLESS light-blue rippled tile (procedural PIL,
+      generator kept in the session scratchpad, not the repo). Native blue so it reads as water untinted,
+      yet still multiply-tintable like the other floors. Still (no animation) per the locked spec.
+    - **Registration:** `floor_manager.gd` adds `water` to `textures` (one "Still" variant), `PATTERN_NAMES`,
+      and `MENU`. A new `const IMPASSABLE := {"water": true}` is the block-list.
+    - **Collision (the new mechanic):** `FloorManager.is_cell_impassable(cell)` uses CELL-level granularity
+      (matches the 32px move grid): a cell blocks when a MAJORITY (>=2 of its 4 quarters) is an IMPASSABLE
+      material, so a lone stray/shoreline quarter never seals a walkable cell while a full-water cell always
+      blocks. Kept SEPARATE from `obstacles.is_blocked` on purpose, because the whole editor reads
+      `is_blocked` as "is a wall", so water must not leak into it. `player.gd` now rejects a move when
+      `is_blocked(cell)` OR `floor_manager.is_cell_impassable(cell)`.
+    - **MapIO:** no VERSION bump. Quarters still serialize as `[qx, qy, material]` strings; "water" is
+      just a new value, the shape is unchanged, and load has no material whitelist.
+    - **Verified:** `dev/test_water.tscn` (11 checks: registration, the 1/2/4-quarter majority boundary,
+      wood-never-blocks, water-blocks-via-floor-not-wall, player ref wired). Full suite green (25 scenes);
+      `test_brush_panel`'s material-button count was retied to `fm.MENU.size()` so future materials will not
+      break it. Eyeballed via the capture harness: water fills a room as a clean blue rippled tile with a
+      hard grid edge at the walls (shoreline autotile is a later slice).
 - **Bridges (cross a river, both directions).** A crossable overlay over water, in **north-south
   and east-west** orientations. Introduces passable-over-impassable: the bridge re-enables
   crossing on cells that water blocks. Directional asset like gates (per orientation art), see

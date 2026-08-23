@@ -29,6 +29,7 @@ var in_shadow := false
 var shadow_scale := 1.0 # 1 outdoors; shrinks to a third indoors (softer indoor light)
 
 @onready var obstacles := get_node("../Obstacles")
+@onready var floor_manager := get_node("../FloorManager") # for impassable floors (water)
 @onready var grid_bg := get_node("../GridBackground")
 @onready var room_light := get_node_or_null("../RoomLight")
 @onready var sprite := $Sprite2D
@@ -161,7 +162,9 @@ func _physics_process(delta: float) -> void:
 			var in_bounds := new_target.x >= min_pos.x and new_target.x <= max_pos.x and new_target.y >= min_pos.y and new_target.y <= max_pos.y
 			if in_bounds:
 				var cell := Vector2i(floori(new_target.x / CELL_SIZE), floori(new_target.y / CELL_SIZE))
-				if not obstacles.is_blocked(cell):
+				# blocked by a wall/gate (is_blocked) OR by an impassable floor (water). Kept as two
+				# separate checks so is_blocked stays "is a wall" for the editor; floors block here.
+				if not obstacles.is_blocked(cell) and not floor_manager.is_cell_impassable(cell):
 					target_position = new_target
 					is_moving = true
 					frame_index = 1 - frame_index
