@@ -70,9 +70,13 @@ func _draw() -> void:
 	# FloorManager supplies the [dst_rect, texture] pieces; they tile by world position.
 	var fm := get_node_or_null("../FloorManager")
 	if fm:
-		# f = [dst_rect, texture, tint]; the tint (white = none) multiplies the floor colour
+		# f = [dst_rect, texture, tint] with an OPTIONAL 4th element = a source-rect override (in
+		# texture space). Most fills omit it and sample the 128px tile by world position (tiled_src)
+		# so neighbours line up; the shoreline autotile passes an atlas src rect instead (a specific
+		# feathered-edge cell, drawn stretched into the quarter, not world-tiled). The tint multiplies.
 		for f in fm.base_fills():
-			draw_texture_rect_region(f[1], f[0], tiled_src(f[0]), f[2])
+			var src: Rect2 = f[3] if f.size() > 3 else tiled_src(f[0])
+			draw_texture_rect_region(f[1], f[0], src, f[2])
 	# the reference grid draws only when toggled on from the floor menu (off by default so
 	# it doesn't tint the floor textures the rest of the time)
 	if fm and fm.grid_on():

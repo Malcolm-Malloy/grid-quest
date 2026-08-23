@@ -106,6 +106,16 @@ const IMPASSABLE := {"water": true}
 const RIVER_BANK := preload("res://floors/river_bank.png")
 const BANK_AROUND := {"water": true} # materials whose non-matching quarter-neighbours become bank
 
+# Shoreline autotile (feathered beach): a water quarter that touches LAND on an orthogonal side draws
+# a per-configuration variant whose blue feathers into a wavy, foam-fringed transparent edge, so a body
+# reads as an organic shore rather than a blue grid. Purely visual: the quarter stays material "water"
+# in _quad_mat, so collision (is_cell_impassable) is unchanged. WATER_SHORE is a 4x4 atlas of 32px tiles
+# indexed by a 4-bit LAND mask (N=1 E=2 S=4 W=8); tile 0 (open water) is never used here (mask 0 keeps
+# the flat, seamless, world-tiled tile). Under a shore quarter we lay the brown bank first so the feather
+# reveals wet sand, extending the dry river-bank ring (RIVER_BANK) onto the water side.
+const WATER_SHORE := preload("res://floors/water_shore.png")
+const SHORE_TILE := 32 # one atlas cell is 32px (drawn stretched into the 16px quarter)
+
 # floor patterns: a per-quarter pattern index into the material's `textures` variant array, separate
 # from the colour tint. Menu id is PATTERN_BASE_ID + index. Base is 700 so it sits above every other
 # id range and is matched FIRST in _on_menu_id. The submenu is rebuilt per right-click (material-aware).
@@ -1964,7 +1974,17 @@ func _rebuild() -> void:
 	_base_fills = []
 	for q in _quad_mat:
 		var rect := Rect2(q.x * HALF, q.y * HALF, HALF, HALF)
-		_base_fills.append([rect, _mat_tex(_quad_mat[q], _quad_pattern.get(q, 0)), _quad_tint.get(q, Color.WHITE)])
+		var mat: String = _quad_mat[q]
+		var tint: Color = _quad_tint.get(q, Color.WHITE)
+		if mat == "water":
+			# Shoreline autotile: a water quarter with LAND on an orthogonal side feathers toward it.
+			var mask := _water_land_mask(q)
+			if mask != 0:
+				_base_fills.append([rect, RIVER_BANK, Color.WHITE]) # wet-sand underlay the feather reveals
+				_base_fills.append([rect, WATER_SHORE, tint, _shore_src(mask)]) # feathered water on top
+				continue
+			# mask 0 (open water, no orthogonal land): fall through to the flat, seamless, tiled tile
+		_base_fills.append([rect, _mat_tex(mat, _quad_pattern.get(q, 0)), tint])
 	# a quarter carrying a tint but NO material is a tinted patch of grass: draw the grass base
 	# under the tint so the recolour shows (an unpainted quarter isn't in _quad_mat above).
 	for q in _quad_tint:
@@ -1997,6 +2017,26 @@ func _bank_quads() -> Dictionary:
 					continue # keep bank inside the map grid, not out in the void
 				bank[n] = true
 	return bank
+
+# the 4-bit LAND mask for a water quarter's ORTHOGONAL neighbours (N=1 E=2 S=4 W=8), used to pick the
+# shoreline autotile variant. A side is "land" when its neighbour quarter is in-bounds and not water;
+# out-of-map neighbours are NOT land, so water never feathers toward the map edge (it just clips there).
+func _water_land_mask(q: Vector2i) -> int:
+	var m := 0
+	if _is_shore_land(q + Vector2i(0, -1)): m |= 1 # N
+	if _is_shore_land(q + Vector2i(1, 0)):  m |= 2 # E
+	if _is_shore_land(q + Vector2i(0, 1)):  m |= 4 # S
+	if _is_shore_land(q + Vector2i(-1, 0)): m |= 8 # W
+	return m
+
+func _is_shore_land(nq: Vector2i) -> bool:
+	if not _in_bounds(Vector2i(floori(nq.x / 2.0), floori(nq.y / 2.0))):
+		return false # out-of-map void: don't feather toward the edge
+	return _quad_mat.get(nq, "") != "water"
+
+# the atlas source rect for shoreline mask `m`: the 4x4 grid of 32px cells, indexed m%4 across, m/4 down.
+func _shore_src(m: int) -> Rect2:
+	return Rect2((m % 4) * SHORE_TILE, (m / 4) * SHORE_TILE, SHORE_TILE, SHORE_TILE)
 
 func _redraw_floor_layers() -> void:
 	var gb = get_node_or_null("../GridBackground")

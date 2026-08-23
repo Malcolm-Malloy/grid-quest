@@ -1235,8 +1235,9 @@ systems. Mythical unlocks the **special ability at L5**; the level 1 to 4 rungs 
 Future additions the user wants at some point. Not built until asked; captured with light notes on
 where each lands. Universal rule: **every graphic follows the top/front perspective**
 ([[grid-quest-asset-perspective-model]]), so it is not repeated per item below.
-- **Water terrain (impassable). SLICE 1 BUILT 2026-08-23 (flat + still + impassable); autotile shoreline,
-  flow animation, and river-bank auto-edge remain follow-up slices. SPEC DECIDED 2026-08-23:** the user wants **rivers and bodies
+- **Water terrain (impassable). SLICE 1 BUILT 2026-08-23 (flat + still + impassable); RIVER-BANK
+  auto-edge + SHORELINE AUTOTILE BUILT 2026-08-23; only flow animation remains a follow-up slice.
+  SPEC DECIDED 2026-08-23:** the user wants **rivers and bodies
   of water** (rivers AND still lakes / ponds) the player cannot cross, as the next build. First terrain
   that blocks movement. Three design decisions locked with the user (all the recommended options):
   - **Fits as a FLOOR MATERIAL, not a separate layer.** Water becomes a new entry in the floor
@@ -1276,11 +1277,37 @@ where each lands. Universal rule: **every graphic follows the top/front perspect
       `is_blocked(cell)` OR `floor_manager.is_cell_impassable(cell)`.
     - **MapIO:** no VERSION bump. Quarters still serialize as `[qx, qy, material]` strings; "water" is
       just a new value, the shape is unchanged, and load has no material whitelist.
-    - **Verified:** `dev/test_water.tscn` (11 checks: registration, the 1/2/4-quarter majority boundary,
-      wood-never-blocks, water-blocks-via-floor-not-wall, player ref wired). Full suite green (25 scenes);
+    - **Verified:** `dev/test_water.tscn` (registration, the 1/2/4-quarter majority boundary,
+      wood-never-blocks, water-blocks-via-floor-not-wall, player ref wired). Full suite green;
       `test_brush_panel`'s material-button count was retied to `fm.MENU.size()` so future materials will not
-      break it. Eyeballed via the capture harness: water fills a room as a clean blue rippled tile with a
-      hard grid edge at the walls (shoreline autotile is a later slice).
+      break it. Eyeballed via the capture harness: water fills a room as a clean blue rippled tile.
+  - **As built: RIVER-BANK auto-edge + SHORELINE AUTOTILE (feathered beach), 2026-08-23.** Two derived,
+    purely-visual layers around every water body; neither is stored in `_quad_mat`, so both are unsaved
+    and never affect collision (`is_cell_impassable` still only counts `_quad_mat` water quarters).
+    - **River-bank ring:** every non-water quarter that is 8-neighbour-adjacent to water draws the brown,
+      walkable `floors/river_bank.png` on top (`_bank_quads()`, emitted last in `_rebuild`). The dry bank
+      that outlines a body regardless of neighbouring terrain. Kept inside the grid (no out-of-bounds bank).
+    - **Shoreline autotile:** a water quarter that touches LAND on an orthogonal side draws a feathered
+      variant instead of the flat tile, so a body reads as an organic shore, not a blue grid. Look chosen
+      with the user = **feathered beach** (over foam-line / rounded-blob): the water's edge dissolves into a
+      wavy, foam-fringed transparent line revealing wet sand beneath. Reads grass -> dry bank -> foam fringe
+      -> open water.
+      - **Art:** `floors/water_shore.png`, a 4x4 atlas of 32px tiles indexed by a 4-bit LAND mask
+        (N=1 E=2 S=4 W=8). Each tile is the real rippled water (downscaled from `water_still`, so edge tiles
+        tone-match the world-tiled interior) with a sine-wavy alpha feather + a pale foam band on each
+        land-facing side. Procedural PIL, generator kept in the session scratchpad, not the repo. Tile 0
+        (open water) is unused (mask 0 keeps the flat, seamless, world-tiled tile).
+      - **Render:** `_rebuild` computes `_water_land_mask(q)` per water quarter; mask 0 emits the flat tiled
+        tile as before, else it lays `RIVER_BANK` (wet-sand underlay the feather reveals) then the shore
+        atlas tile via `_shore_src(mask)`. `base_fills` entries gained an OPTIONAL 4th element = a texture-
+        space src-rect override; `grid_background` uses it when present (the atlas cell, drawn stretched into
+        the quarter) instead of the default world-position `tiled_src` tiling. `shadow_manager` is untouched:
+        indoor water under a room-shadow restamp stays flat (rare edge case, deferred).
+      - **Verified:** `dev/test_water.tscn` extended (mask for corner/edge/interior quarters, the atlas src
+        rect, 12 edge quarters draw a shore tile over a bank underlay while the 4 interior quarters stay
+        flat, and a shored cell is still impassable). 30 checks all green. Eyeballed via the capture harness
+        (`GQ_WATER` painting an irregular pond): grass -> brown bank -> feathered foam edge -> rippled water,
+        following the pond outline with no hard grid edge.
 - **Bridges (cross a river, both directions). SLICE 1 BUILT 2026-08-23 (flat deck + auto-orient +
   passable-over-impassable + placement tool + save); richer deck art is a follow-up.** A crossable
   overlay over water, in **north-south and east-west** orientations. Introduces

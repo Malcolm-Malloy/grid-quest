@@ -1,9 +1,11 @@
 extends Node
 
-# Dev-only headless test for WATER terrain, slice 1 (impassable floor). Builds the real world and
-# checks: water is registered as a floor material; FloorManager.is_cell_impassable uses cell-level
-# MAJORITY-of-4-quarters granularity; and a fully-watered cell blocks the player's movement while
-# grass does not. Text-only, no rendering.
+# Dev-only headless test for WATER terrain. Builds the real world and checks: water is registered as a
+# floor material; FloorManager.is_cell_impassable uses cell-level MAJORITY-of-4-quarters granularity; a
+# fully-watered cell blocks the player's movement while grass does not; the river-bank auto-edge rings
+# every body; and the SHORELINE AUTOTILE picks a feathered variant per 4-neighbour land mask (edge
+# quarters draw a shore tile over a bank underlay, interior stays flat) without affecting collision.
+# Text-only, no rendering.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_water.tscn
 
 var _fails := 0
@@ -113,6 +115,46 @@ func _ready() -> void:
 		if not fm._in_bounds(Vector2i(floori(bq.x / 2.0), floori(bq.y / 2.0))):
 			all_in_bounds = false
 	_check("corner water emits no out-of-bounds bank", all_in_bounds)
+
+	# --- shoreline autotile (feathered beach): a 2x2-cell water block = 4x4 quarters (60..63, 20..23) ---
+	_check("shore atlas registered (WATER_SHORE)", fm.WATER_SHORE != null)
+	fm._quad_mat = {}
+	for cy in [10, 11]:
+		for cx in [30, 31]:
+			for qq in _quads(Vector2i(cx, cy)):
+				fm._quad_mat[qq] = "water"
+	fm._rebuild()
+	# neighbour LAND mask (N=1 E=2 S=4 W=8): the NW-corner quarter faces land N+W; a top-edge quarter
+	# faces land only N; a fully-surrounded interior quarter faces no land (mask 0 -> flat tiled tile).
+	_check("NW-corner water quarter mask = N|W (9)", fm._water_land_mask(Vector2i(60, 20)) == 9)
+	_check("top-edge water quarter mask = N (1)", fm._water_land_mask(Vector2i(61, 20)) == 1)
+	_check("interior water quarter mask = 0 (open water)", fm._water_land_mask(Vector2i(61, 21)) == 0)
+	# atlas src rect for a mask indexes the 4x4 grid of 32px cells (m%4 across, m/4 down)
+	_check("shore src for mask 9 = cell (1,2)", fm._shore_src(9) == Rect2(32, 64, 32, 32))
+	# _rebuild emits, for the 12 edge quarters, a feathered shore tile (atlas src override) over a bank
+	# underlay; the 4 interior quarters keep the flat, seamless, world-tiled water tile (no shore).
+	var shore_fills := 0
+	var interior_flat := false
+	var corner_has_shore := false
+	var corner_has_underlay := false
+	var flat = fm._mat_tex("water", 0)
+	var corner_rect := Rect2(60 * 16, 20 * 16, 16, 16)
+	var interior_rect := Rect2(61 * 16, 21 * 16, 16, 16)
+	for f in fm.base_fills():
+		if f[1] == fm.WATER_SHORE:
+			shore_fills += 1
+			if f[0] == corner_rect:
+				corner_has_shore = true
+		if f[0] == corner_rect and f[1] == fm.RIVER_BANK:
+			corner_has_underlay = true
+		if f[0] == interior_rect and f[1] == flat and f.size() == 3:
+			interior_flat = true
+	_check("12 edge quarters draw a shore tile", shore_fills == 12)
+	_check("interior quarter keeps the flat water tile", interior_flat)
+	_check("corner quarter draws a shore tile", corner_has_shore)
+	_check("corner shore has a bank underlay beneath it", corner_has_underlay)
+	# shoreline is purely visual: the fully-watered edge cell still blocks the player
+	_check("shored water cell is still impassable", fm.is_cell_impassable(Vector2i(30, 10)))
 
 	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
 	get_tree().quit(_fails)
