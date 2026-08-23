@@ -17,6 +17,7 @@ const REST_ALPHA := 1.0   # the hovering preview is solid (opaque); the lift + s
 const SHADOW := Color(0, 0, 0, 0.18) # contact shadow, so the lift reads
 
 var _tex: Texture2D        # armed material texture (null = nothing to preview)
+var _tint := Color.WHITE   # armed floor colour, multiplied over the texture (white = plain material)
 var _rect := Rect2()       # world-space destination cell/quarter rect (on the ground, no lift)
 var _lift := REST_LIFT     # current vertical offset, animated during a drop
 var _alpha := REST_ALPHA
@@ -26,8 +27,9 @@ var _tween: Tween
 func _ready() -> void:
 	z_index = 1200 # above paint_cursor (1000) so the preview reads as lifted over the highlight
 
-func arm(tex: Texture2D) -> void:
+func arm(tex: Texture2D, tint := Color.WHITE) -> void:
 	_tex = tex
+	_tint = tint
 
 # show the resting (hovering) preview over `rect`, unless a drop animation is mid-flight (then the
 # tween owns _lift/_alpha and we only follow the rect on the next rest).
@@ -122,7 +124,7 @@ func _draw() -> void:
 	# the lifted tile, sampled at the same phase the real floor uses (from the un-lifted ground rect)
 	# so it shows the exact pixels that will land in this cell
 	var dst := Rect2(_rect.position - Vector2(0, _lift), _rect.size)
-	draw_texture_rect_region(_tex, dst, GridBackground.tiled_src(_rect), Color(1, 1, 1, _alpha))
+	draw_texture_rect_region(_tex, dst, GridBackground.tiled_src(_rect), Color(_tint.r, _tint.g, _tint.b, _alpha))
 
 func _draw_shape() -> void:
 	if _shape_rects.is_empty() or _shape_tex == null:

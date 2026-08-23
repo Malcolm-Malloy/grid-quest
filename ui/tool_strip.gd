@@ -35,6 +35,9 @@ var _sections := {}     # section title -> {"header": Button, "content": VBoxCon
 var _level_dd: OptionButton       # the Level picker (switch which saved map is edited)
 var _level_confirm: ConfirmationDialog # unsaved-changes guard before a Level switch loads
 var _pending_level := ""          # the map a confirmed Level switch will load
+# persistent Brush panel: shows/edits the armed floor material + colour without the right-click menu
+var _mat_buttons := {}            # material value -> Button (radio); the active one is highlighted
+var _col_swatches := []           # [{color, button}] clickable colour boxes; active gets a border
 
 func _ready() -> void:
 	# the tool strip is editor-only chrome: show it in EDIT, hide it in PLAY (see EditorMode)
@@ -88,6 +91,43 @@ func _ready() -> void:
 	_mode_buttons[M_WAND].button_pressed = true # Magic Wand is the default, matching FloorManager
 	_refresh_levels()
 
+	# --- Brush accordion section (expanded): the armed floor brush (material + colour), always visible
+	# and editable here without opening the right-click menu (ROADMAP "Photoshop-style persistent LEFT
+	# panel"). Live-synced to FloorManager via its brush_changed signal.
+	var fm := get_node_or_null("../World/FloorManager")
+	if fm != null:
+		var brush := _add_section(vb, "Brush", true)
+		var mlbl := Label.new()
+		mlbl.text = "Material"
+		brush.add_child(mlbl)
+		var mgrid := GridContainer.new()
+		mgrid.columns = 2
+		brush.add_child(mgrid)
+		var mgrp := ButtonGroup.new()
+		for entry in fm.MENU:
+			var mval: String = entry[1]
+			var mb := Button.new()
+			mb.text = entry[0] if mval != "" else "Grass" # "" is the grass base
+			mb.toggle_mode = true
+			mb.button_group = mgrp
+			mb.pressed.connect(_on_brush_material.bind(mval))
+			mgrid.add_child(mb)
+			_mat_buttons[mval] = mb
+		var clbl := Label.new()
+		clbl.text = "Colour"
+		brush.add_child(clbl)
+		var cgrid := GridContainer.new()
+		cgrid.columns = 5
+		brush.add_child(cgrid)
+		for entry in fm.FLOOR_COLORS:
+			var cval: Color = entry[1]
+			var sw := _make_swatch(cval, entry[0])
+			sw.pressed.connect(_on_brush_color.bind(cval))
+			cgrid.add_child(sw)
+			_col_swatches.append({"color": cval, "button": sw})
+		fm.brush_changed.connect(_refresh_brush)
+		_refresh_brush()
+
 	# --- Advanced accordion section (collapsed): the Map Size edge controls ---
 	var adv := _add_section(vb, "Advanced", false)
 	var title := Label.new()
@@ -140,6 +180,64 @@ func _add_section(parent: Node, title: String, expanded: bool) -> VBoxContainer:
 
 func _section_label(title: String, expanded: bool) -> String:
 	return ("▾ " if expanded else "▸ ") + title
+
+# --- Brush panel: swatches + live highlight of the active material/colour ---
+
+func _make_swatch(color: Color, tip: String) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(24, 20)
+	b.tooltip_text = tip
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_stylebox_override("normal", _swatch_box(color, false))
+	b.add_theme_stylebox_override("hover", _swatch_box(color, false))
+	b.add_theme_stylebox_override("pressed", _swatch_box(color, true))
+	return b
+
+func _swatch_box(color: Color, active: bool) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = color
+	sb.set_corner_radius_all(2)
+	if active:
+		sb.set_border_width_all(3)
+		sb.border_color = Color(0.95, 0.85, 0.1) # bright border reads on any swatch colour
+	else:
+		sb.set_border_width_all(1)
+		sb.border_color = Color(0, 0, 0, 0.4)
+	return sb
+
+# highlight the active material (radio) + active colour swatch (border), from FloorManager's live state
+func _refresh_brush() -> void:
+	var fm := get_node_or_null("../World/FloorManager")
+	if fm == null:
+		return
+	var mat: String = fm.armed_material()
+	if _mat_buttons.has(mat):
+		_mat_buttons[mat].button_pressed = true
+	var col: Color = fm.active_floor_color()
+	for s in _col_swatches:
+		var active: bool = (s["color"] as Color).is_equal_approx(col)
+		var b: Button = s["button"]
+		b.add_theme_stylebox_override("normal", _swatch_box(s["color"], active))
+		b.add_theme_stylebox_override("hover", _swatch_box(s["color"], active))
+
+# picking a material/colour in the panel means "I want to paint with it", so drop into a
+# painting mode (Cell) if we're not already in one, then arm the brush. In Cell/Fine we leave the
+# mode alone so the panel just edits the live brush.
+func _on_brush_material(mval: String) -> void:
+	var fm := get_node_or_null("../World/FloorManager")
+	if fm == null:
+		return
+	if fm.mode() != M_CELL and fm.mode() != M_FINE:
+		_select_mode(M_CELL)
+	fm.arm_floor_material(mval)
+
+func _on_brush_color(cval: Color) -> void:
+	var fm := get_node_or_null("../World/FloorManager")
+	if fm == null:
+		return
+	if fm.mode() != M_CELL and fm.mode() != M_FINE:
+		_select_mode(M_CELL)
+	fm.arm_floor_color(cval)
 
 func _edge_button(text: String, edge: String, mode: String) -> Button:
 	var b := Button.new()

@@ -129,6 +129,10 @@ const FLOOR_COLORS := [
 	["Grey", Color(0.55, 0.55, 0.58)],
 ]
 
+# emitted whenever the armed floor brush changes (material, armed flag, tool kind, or colour), so the
+# persistent left-panel Brush inspector (tool_strip.gd) can highlight the active material + colour live.
+signal brush_changed
+
 @onready var room_light = get_node("../RoomLight")
 
 # Storage is per 16px quarter: _quad_mat is the SOURCE OF TRUTH (what MapIO saves). Everything
@@ -349,6 +353,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		# See ROADMAP "Editor UX revisions" -> right-click disarms in Cell/Fine.
 		if (_mode == Mode.CELL or _mode == Mode.FINE) and _armed:
 			_armed = false
+			brush_changed.emit()
 			_preview.hide_preview() # drop the lifted tile immediately (the square cursor stays)
 			get_viewport().set_input_as_handled()
 			return
@@ -596,6 +601,7 @@ func _on_menu_id(id: int) -> void:
 		# left-drag keeps tinting (see _paint) with the orange ground cursor (see _update_hover).
 		_tool_kind = "floor_color"
 		_floor_color = FLOOR_COLORS[id - FLOOR_COLOR_BASE_ID][1]
+		brush_changed.emit()
 		if _apply_floor_tint(_floor_color):
 			_rebuild()
 			EditHistory.commit("floor colour") # one menu tint = one undo step
@@ -630,6 +636,7 @@ func _on_menu_id(id: int) -> void:
 	_tool_kind = "floor"
 	_brush = MENU[id][1]
 	_armed = true # a material was explicitly chosen: Cell/Fine may now drop it
+	brush_changed.emit()
 	if _sel_kind == "floor" and _selection.has_selection():
 		var drop_rects := _selection_drop_rects() # capture the shape before the highlight resets
 		_fill_floor_selection(_brush)
@@ -703,11 +710,46 @@ func set_mode(mode: int) -> void:
 	# (ROADMAP "Editor UX revisions" -> Cell/Fine must not pre-arm a material).
 	if _mode == Mode.CELL or _mode == Mode.FINE:
 		_armed = false
+	brush_changed.emit()
 	_reset_highlight()
 	call_deferred("_update_hover")
 
 func mode() -> int:
 	return _mode
+
+# --- persistent Brush panel API (tool_strip.gd): read + set the armed floor brush without the menu ---
+
+func is_armed() -> bool:
+	return _armed
+
+func active_tool_kind() -> String:
+	return _tool_kind
+
+func armed_material() -> String:
+	return _brush
+
+func active_floor_color() -> Color:
+	return _floor_color
+
+# arm a floor material from the panel (same as picking it in the Floor Textures menu in Cell/Fine: it
+# arms the brush; the user then paints/drops it). No selection-fill here (that stays a menu convenience).
+func arm_floor_material(mat: String) -> void:
+	_tool_kind = "floor"
+	_brush = mat
+	_armed = true
+	brush_changed.emit()
+	call_deferred("_update_hover")
+
+# arm the floor-colour from the panel with `color`. Unlike the Floor Colours *menu* (which arms a
+# tint-only recolour tool), the panel brush is COMBINED: colour and texture are two axes of one floor
+# brush, so setting the colour keeps the armed material and a paint lays both together (see _paint).
+# White = Natural = lays the plain (untinted) material. The material stays armed and lit in the panel.
+func arm_floor_color(color: Color) -> void:
+	_tool_kind = "floor"
+	_floor_color = color
+	_armed = true
+	brush_changed.emit()
+	call_deferred("_update_hover")
 
 # --- Magic Wand selection ---
 
@@ -1047,7 +1089,7 @@ func _show_preview(rect: Rect2) -> void:
 	if _mode == Mode.ERASE or _tool_kind == "floor_color" or _tool_kind == "pattern" or not _armed or not textures.has(_brush):
 		_preview.hide_preview()
 		return
-	_preview.arm(_mat_tex(_brush, 0))
+	_preview.arm(_mat_tex(_brush, 0), _floor_color)
 	_preview.show_at(rect)
 
 # clear the mask highlight and reset the dedupe cells so a later hover recomputes cleanly
@@ -1175,15 +1217,21 @@ func _paint(local: Vector2, drop := false) -> void:
 		return
 	# Erase writes grass ("") over the cell; Cell/Fine write the active brush.
 	var mat := "" if _mode == Mode.ERASE else _brush
+	# the floor brush is COMBINED: a paint lays the armed material AND the armed colour into the same
+	# quarter (material and tint are independent axes, stored in _quad_mat / _quad_tint). Natural/white
+	# tint clears any prior tint; erasing clears the tint too so the cell returns to plain grass.
+	var tint := Color.WHITE if _mode == Mode.ERASE else _floor_color
 	var changed := false
 	var rect := Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL)
 	if _mode == Mode.FINE:
 		var q := Vector2i(floori(local.x / HALF), floori(local.y / HALF))
 		rect = Rect2(q.x * HALF, q.y * HALF, HALF, HALF)
 		changed = _write_quad(q, mat)
+		changed = _write_tint(q, tint) or changed
 	else: # Cell or Erase -> the whole cell
 		for q in _cell_quads(cell):
 			changed = _write_quad(q, mat) or changed
+			changed = _write_tint(q, tint) or changed
 	if changed:
 		_rebuild()
 		if drop and mat != "" and textures.has(mat):
