@@ -937,6 +937,31 @@ buttons were used (not mouse-to-edge) so edge editing works before the pointer-d
 stay useful for off-screen edges even with the new editor camera. See the Coloured highlight system
 as-built note for the green/red band and the Authoring surface note for the modes and Magic Wand.
 
+**Persistent Brush panel as-built (2026-08-23): floor slice DONE.** The tool strip gained a **Brush**
+accordion section (between Tools and Advanced) that always shows the currently-armed floor brush and
+lets you change it without opening the right-click menu, the "Photoshop-style persistent left panel"
+goal of the build-menu UX chunk. It has a **Material** row (the 5 floor textures as radio buttons,
+2-column grid) and a **Colour** row (the 9 floor tints as clickable swatches, 5-column grid). The
+active material shows pressed and the active colour gets a yellow border, driven live off
+`FloorManager`'s new `brush_changed` signal (emitted at every arm/disarm point), so the panel and the
+map stay in sync no matter how the brush was set (menu, panel, right-click disarm). `FloorManager`
+exposes `is_armed()`, `active_tool_kind()`, `armed_material()`, `active_floor_color()`,
+`arm_floor_material()`, `arm_floor_color()`. Clicking a material/colour in the panel drops into Cell
+mode if not already in a painting mode (Cell/Fine) then arms it, so a pick is immediately paintable;
+in Cell/Fine it just edits the live brush.
+
+**Combined brush (2026-08-23):** the panel arms ONE floor brush carrying both axes, texture AND
+colour, and a paint lays both into the same quarter at once. Picking a colour in the panel keeps the
+armed material (both stay lit); picking a material keeps the armed colour. Both stay `_tool_kind =
+"floor"` and write `_quad_mat` + `_quad_tint` together (Natural/white clears the tint; erasing clears
+both back to grass). The terrain-drop preview is now tinted by the armed colour so the hovered tile
+shows the real combined result instead of the greyscale texture. (The right-click Floor Colours
+*menu* is unchanged: it still arms a separate tint-only recolour tool, `_tool_kind = "floor_color"`,
+for repainting an existing floor's colour without touching its texture.) Covered by
+`dev/test_brush_panel` (8 checks incl. combined paint writes both axes, green). Still to do in this
+chunk: a static preview swatch in the panel showing texture+colour combined, walls represented in the
+panel (reconciled with the Build Wall configurator), and the guided texture-then-colour flow.
+
 The menu gains a **Block / Ground** mode toggle (bottom option) that decides which options
 are shown. The Grid Lines toggle stays near the bottom, default **OFF** (confirmed 2026-08-16). The
 grid is **hidden in Play mode regardless** of the toggle (it is editor UI; see the Play / Edit
@@ -2071,8 +2096,16 @@ A batch of editor fixes/tweaks plus a build-menu UX direction. Not built yet.
   consistency with **doors** (which already use "orientation").
 - **Convert wall to door and vice versa.** A menu action to change an existing wall into a door, and a
   door back into a wall, in place. Extends the contextual Build/Wall/Door menu.
-- **Fix broken shadows** (bug).
-- **Fix the invisible-wall bug** (bug: a wall that blocks/behaves but does not render, or vice versa).
+- **Fix broken shadows** (bug). Fixed several concrete cases: the shadow-poly accumulation **leak**, the
+  **door-shadow triangle**, and the **lone-wall shadow with no wall** (see those entries). No generic
+  "broken shadows" case reproduces in audits now; a specific screenshot is needed if one remains (shadow
+  rendering depends on room-light state that's hard to guess).
+- **Fix the invisible-wall bug. FIXED 2026-08-22.** This was the orphaned-cell case: a wall in
+  `blocked_cells` (so it BLOCKS movement) that spawned no node (invisible), because both build passes
+  skipped a cell with no wall-line neighbour. Fixed by the standalone-rail spawn (see "Shadow shows but
+  the wall does not build"). Confirmed by `dev/test_wall_coverage`, which audits that EVERY wall config
+  (isolated, lines, corners, cross, T-junction, 2x2 block, diagonal staircase, walls beside aligned +
+  perpendicular doors) spawns a covering node - zero uncovered.
 - **Investigate lag (perf). LEAK FOUND + FIXED 2026-08-22.** Progressive lag while building was a real
   leak: `obstacles.wall_shadow_polys` is a **member** array that `spawn_shadows()` appended to but **never
   cleared**. Since every wall placement re-applies the whole map (`_reapply_map` -> `build_world` ->

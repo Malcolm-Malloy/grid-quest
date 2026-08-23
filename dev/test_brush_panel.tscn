@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bidafe2ash7ke"]
+
+[ext_resource type="Script" path="res://dev/test_brush_panel.gd" id="1"]
+
+[node name="TestBrushPanel" type="Node"]
+script = ExtResource("1")
