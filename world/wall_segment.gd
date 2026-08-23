@@ -29,6 +29,10 @@ const MATERIALS := {
 	"stone": [preload("res://world/stone_face.png"), preload("res://world/stone_cap.png")],
 	"wood": [preload("res://world/wood_face.png"), preload("res://world/wood_cap.png")],
 	"slate": [preload("res://world/slate_face.png"), preload("res://world/slate_cap.png")],
+	# greyscale like the others (tinted by the wall colour): brick = running-bond courses, hedge = leafy
+	# clumps. Both render on the tall solid wall body; see-through fences are a separate future structure.
+	"brick": [preload("res://world/brick_face.png"), preload("res://world/brick_cap.png")],
+	"hedge": [preload("res://world/hedge_face.png"), preload("res://world/hedge_cap.png")],
 }
 
 var face_texture := preload("res://world/stone_face.png")

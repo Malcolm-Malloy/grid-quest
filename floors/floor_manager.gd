@@ -148,7 +148,7 @@ const PATTERN_BASE_ID := 700
 # scopes 200+, walls 300+, floor colours 400+, picker 500), and is matched BEFORE them in _on_menu_id.
 const WALL_MAT_BASE_ID := 600
 const WALL_MATERIALS := [
-	["Stone", "stone"], ["Wood", "wood"], ["Slate", "slate"],
+	["Stone", "stone"], ["Wood", "wood"], ["Slate", "slate"], ["Brick", "brick"], ["Hedge", "hedge"],
 ]
 # the cap (top-face) texture per wall material, for the Brush panel's wall preview swatch. Mirrors
 # WallSegment.MATERIALS (kept in sync); the panel shows the cap tinted by the armed wall colour.
@@ -156,6 +156,8 @@ const WALL_TEX := {
 	"stone": preload("res://world/stone_cap.png"),
 	"wood": preload("res://world/wood_cap.png"),
 	"slate": preload("res://world/slate_cap.png"),
+	"brick": preload("res://world/brick_cap.png"),
+	"hedge": preload("res://world/hedge_cap.png"),
 }
 
 # wall colours (a tint over the stone). Natural = white = reset. Menu id is WALL_BASE_ID + index.
