@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://cwd0convert7wd8"]
+
+[ext_resource type="Script" path="res://dev/test_wall_door_convert.gd" id="1"]
+
+[node name="TestWallDoorConvert" type="Node"]
+script = ExtResource("1")

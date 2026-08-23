@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://dwbsyncwall7x9"]
+
+[ext_resource type="Script" path="res://dev/test_wall_brush_sync.gd" id="1"]
+
+[node name="TestWallBrushSync" type="Node"]
+script = ExtResource("1")
