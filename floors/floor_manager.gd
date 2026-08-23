@@ -154,6 +154,8 @@ const PATTERN_BASE_ID := 700
 const WALL_MAT_BASE_ID := 600
 const WALL_MATERIALS := [
 	["Stone", "stone"], ["Wood", "wood"], ["Slate", "slate"], ["Brick", "brick"], ["Hedge", "hedge"],
+	# see-through fences (short, gappy; rendered procedurally in wall_segment). Same colour-tint system.
+	["Wood Fence", "wood_fence"], ["Metal Bars", "metal_bars"], ["Chainlink", "chainlink"],
 ]
 # the cap (top-face) texture per wall material, for the Brush panel's wall preview swatch. Mirrors
 # WallSegment.MATERIALS (kept in sync); the panel shows the cap tinted by the armed wall colour.
@@ -163,6 +165,10 @@ const WALL_TEX := {
 	"slate": preload("res://world/slate_cap.png"),
 	"brick": preload("res://world/brick_cap.png"),
 	"hedge": preload("res://world/hedge_cap.png"),
+	# fences have no cap texture (drawn procedurally); these icons are just the Brush-panel/inspector swatch.
+	"wood_fence": preload("res://floors/wood_fence_icon.png"),
+	"metal_bars": preload("res://floors/metal_bars_icon.png"),
+	"chainlink": preload("res://floors/chainlink_icon.png"),
 }
 
 # wall colours (a tint over the stone). Natural = white = reset. Menu id is WALL_BASE_ID + index.

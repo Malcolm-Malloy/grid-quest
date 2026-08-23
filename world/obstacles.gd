@@ -199,6 +199,8 @@ func spawn_shadows() -> void:
 	wall_shadow_polys.clear()
 	var structure: Dictionary = {}
 	for c in blocked_cells:
+		if _is_fence(c):
+			continue # a SEE-THROUGH fence casts no solid wall shadow (it splits a mixed run's shadow)
 		structure[c] = true
 	# gate cells are deliberately excluded: each gate casts its OWN shadow (see
 	# gate.gd shadow_polys) so the cast updates dynamically as it opens and closes,
@@ -291,6 +293,13 @@ func make_segment(cell: Vector2i, run_length: int) -> Node2D:
 
 func is_blocked(cell: Vector2i) -> bool:
 	return blocked_cells.has(cell)
+
+# see-through fence materials, which render short/gappy and cast no solid wall shadow. Keep in sync with
+# wall_segment.FENCE. A cell's material comes from the wall_materials store (default "stone" = a solid wall).
+const FENCE_MATERIALS := {"wood_fence": true, "metal_bars": true, "chainlink": true}
+
+func _is_fence(cell: Vector2i) -> bool:
+	return FENCE_MATERIALS.has(wall_materials.get(cell, "stone"))
 
 # is `cell` part of a wall LINE running in the given direction? A WALL always is. A DOOR is only if its
 # orientation matches: a "horizontal" door lies in a horizontal line, a "vertical" door in a vertical one.

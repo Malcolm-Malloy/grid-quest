@@ -38,6 +38,14 @@ const MATERIALS := {
 var face_texture := preload("res://world/stone_face.png")
 var cap_texture := preload("res://world/stone_cap.png")
 
+# SEE-THROUGH fences (Wood Fence / Metal Bars / Chainlink): unlike the solid Stone/Wood/Slate/Brick/Hedge
+# walls (a tall cap+face body), a fence cell draws a SHORT, gappy motif procedurally (no texture pair), so
+# the floor shows through the gaps. Greyscale + tinted by the wall colour like the solid materials. They
+# still block movement and enclose (they are ordinary blocked_cells); only the render + shadow differ.
+# Keep this set in sync with obstacles.gd FENCE_MATERIALS. FENCE_H = how far a fence rises above a cell.
+const FENCE := {"wood_fence": true, "metal_bars": true, "chainlink": true}
+const FENCE_H := 16.0
+
 func _ready() -> void:
 	texture_filter = TEXTURE_FILTER_NEAREST
 	texture_repeat = TEXTURE_REPEAT_ENABLED # per-cell slices region-sample a tiled texture
@@ -134,18 +142,93 @@ func _draw() -> void:
 	var cap_origin := Vector2(x_start, cap_top)
 	var face_origin := Vector2(x_start, cap_bottom)
 
-	# cap: one slice per cell, so each cell can carry its own colour AND material
+	# a thin piece (a vertical rail/run) is a NORTH-SOUTH wall line seen edge-on; a full/corner piece is an
+	# EAST-WEST line seen face-on. Fence cells use this to orient their pickets/bars.
+	var vertical := run_length > 1 or width <= CAP_HEIGHT + 1.0
+
+	# cap: one slice per cell, so each cell can carry its own colour AND material. A FENCE cell draws a
+	# short, see-through motif for that cell instead of the solid cap slice.
 	for i in run_length:
+		if FENCE.has(_cell_material(i)):
+			_draw_fence(i, _cell_material(i), vertical, _cell_color(i), x_start, width)
+			continue
 		var slice_top: float = cap_top if i == 0 else top_edge + i * CELL_SIZE
 		var slice_bottom: float = cap_bottom if i == run_length - 1 else top_edge + (i + 1) * CELL_SIZE
 		if slice_bottom > slice_top:
 			_stamp(_cell_textures(i)[1], Rect2(x_start, slice_top, width, slice_bottom - slice_top), cap_origin, _cell_color(i))
 
-	# front face: the bottom cell shows one (a straight wall, a corner, AND a cross junction, so every wall
-	# keeps its 3D body), tinted darker, in the bottom cell's material.
-	var fc := _cell_color(run_length - 1)
-	_stamp(_cell_textures(run_length - 1)[0], Rect2(x_start, cap_bottom, width, face_height), face_origin,
-			Color(fc.r * FACE_SHADE, fc.g * FACE_SHADE, fc.b * FACE_SHADE, 1.0))
+	# front face: only when the bottom cell is a SOLID wall (it keeps its 3D body); a fence bottom cell
+	# already drew its own motif above, so it has no solid face.
+	if not FENCE.has(_cell_material(run_length - 1)):
+		var fc := _cell_color(run_length - 1)
+		_stamp(_cell_textures(run_length - 1)[0], Rect2(x_start, cap_bottom, width, face_height), face_origin,
+				Color(fc.r * FACE_SHADE, fc.g * FACE_SHADE, fc.b * FACE_SHADE, 1.0))
+
+# draw the see-through fence motif for cell `i` of the run, in its own 32px footprint. `vertical` picks the
+# edge-on (thin) look for a N-S line vs the face-on look for an E-W line. Greyscale, tinted by `color`.
+func _draw_fence(i: int, mat: String, vertical: bool, color: Color, x0: float, w: float) -> void:
+	var center_y := (i - (run_length - 1)) * CELL_SIZE
+	var cell_bottom := center_y + CELL_SIZE / 2.0
+	var cell_top := center_y - CELL_SIZE / 2.0
+	if vertical:
+		_fence_vertical(mat, x0 + w / 2.0, cell_top, cell_bottom, color)
+	else:
+		_fence_horizontal(mat, x0, w, cell_bottom, color)
+
+# a grey value `v` tinted by the wall colour `c` (so a natural/white fence is grey, a tinted one coloured)
+func _g(v: float, c: Color) -> Color:
+	return Color(v * c.r, v * c.g, v * c.b, 1.0)
+
+# E-W fence seen face-on: pickets/bars/mesh across the cell width, rising FENCE_H above the cell bottom,
+# with gaps that show the floor through them.
+func _fence_horizontal(mat: String, x0: float, w: float, base_y: float, color: Color) -> void:
+	var top := base_y - FENCE_H
+	match mat:
+		"wood_fence":
+			var rail := _g(0.40, color)
+			var pick := _g(0.68, color)
+			var px := x0 + 2.0
+			while px < x0 + w - 1.0:
+				draw_rect(Rect2(px, top, 3, FENCE_H), pick)
+				px += 6.0
+			draw_rect(Rect2(x0, top + 3, w, 2), rail)      # upper rail
+			draw_rect(Rect2(x0, base_y - 5, w, 2), rail)   # lower rail
+		"metal_bars":
+			var bar := _g(0.52, color)
+			var rail2 := _g(0.34, color)
+			var bx := x0 + 2.0
+			while bx < x0 + w - 1.0:
+				draw_rect(Rect2(bx, top, 2, FENCE_H), bar)
+				bx += 5.0
+			draw_rect(Rect2(x0, top, w, 2), rail2)         # top rail
+			draw_rect(Rect2(x0, base_y - 2, w, 2), rail2)  # bottom rail
+		"chainlink":
+			var mesh := _g(0.74, color)
+			var post := _g(0.44, color)
+			var step := 5.0
+			var gx := 0.0
+			while gx < w - 0.1:
+				var gy := 0.0
+				while gy < FENCE_H - 0.1:
+					var bx0 := x0 + gx
+					var by0 := top + gy
+					var sx: float = minf(step, x0 + w - bx0)
+					var sy: float = minf(step, base_y - by0)
+					draw_line(Vector2(bx0, by0), Vector2(bx0 + sx, by0 + sy), mesh, 1.0) # diamond mesh
+					draw_line(Vector2(bx0 + sx, by0), Vector2(bx0, by0 + sy), mesh, 1.0)
+					gy += step
+				gx += step
+			draw_rect(Rect2(x0, top, 2, FENCE_H), post)          # end posts
+			draw_rect(Rect2(x0 + w - 2, top, 2, FENCE_H), post)
+			draw_rect(Rect2(x0, top, w, 2), post)                # top rail
+
+# N-S fence seen edge-on: a thin vertical line down the cell with a post nub, so a side fence reads as a
+# thin barrier rather than a face-on picket run.
+func _fence_vertical(mat: String, cx: float, top: float, bottom: float, color: Color) -> void:
+	var line := _g(0.50, color)
+	var post := _g(0.70 if mat == "wood_fence" else (0.74 if mat == "chainlink" else 0.52), color)
+	draw_rect(Rect2(cx - 1, top, 2, bottom - top), line)          # the fence line, edge-on
+	draw_rect(Rect2(cx - 2, bottom - FENCE_H, 4, FENCE_H), post)  # a post nub near the bottom
 
 # draw `tex` into `dst` sampling it tiled from `origin`, tinted by `color`. Tiling by a fixed
 # origin (not per-slice) keeps neighbouring slices continuous; texture_repeat handles the wrap.
