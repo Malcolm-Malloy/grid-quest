@@ -36,6 +36,12 @@ var blocked_cells: Array[Vector2i] = [
 
 var wall_segment_script: Script
 var gate_script: Script
+var bridge_script: Script
+
+# Bridges: crossable decks placed over water. Plain cell+orientation records, mirroring gate_cells
+# (a placed-object layer per Architecture review Q1). They re-enable crossing on the water cells they
+# cover (see is_bridge / player.gd). MapIO persists them; nodes are respawned in build_world.
+var bridge_cells: Array[Dictionary] = [] # [{cell: Vector2i, orientation: "horizontal"/"vertical"}]
 
 # per-cell wall colour (tint over the stone). Only non-white cells are stored; MapIO persists it.
 var wall_colors := {} # Vector2i cell -> Color
@@ -52,29 +58,43 @@ func _ready() -> void:
 	add_to_group("obstacles") # so MapIO can find the world root to save/rebuild
 	wall_segment_script = load("res://world/wall_segment.gd")
 	gate_script = load("res://world/gate.gd")
+	bridge_script = load("res://world/bridge.gd")
 	build_world()
 
 # --- map (re)building: spawn everything derived from blocked_cells + gate_cells ---
 
 # replace the level with new walls/doors and rebuild the spawned nodes + shadows. The
 # lighting (RoomLight) and floors (FloorManager) are rebuilt by MapIO after this, in order.
-func apply_map(walls: Array, doors: Array) -> void:
+func apply_map(walls: Array, doors: Array, bridges: Array = []) -> void:
 	blocked_cells.clear()
 	for w in walls:
 		blocked_cells.append(w)
 	gate_cells.clear()
 	for d in doors:
 		gate_cells.append(d)
+	bridge_cells.clear()
+	for b in bridges:
+		bridge_cells.append(b)
 	clear_world()
 	build_world()
 
-# free every previously spawned wall, gate and gate back-layer (all group-tagged)
+# free every previously spawned wall, gate, gate back-layer and bridge (all group-tagged)
 func clear_world() -> void:
-	for group in ["walls", "gates", "gate_backlayers"]:
+	for group in ["walls", "gates", "gate_backlayers", "bridges"]:
 		for n in get_tree().get_nodes_in_group(group):
 			n.queue_free()
 
 func build_world() -> void:
+	for bridge_data in bridge_cells:
+		var bridge := Node2D.new()
+		bridge.set_script(bridge_script)
+		bridge.cell = bridge_data["cell"]
+		bridge.orientation = bridge_data["orientation"]
+		bridge.position = Vector2(
+			bridge.cell.x * CELL_SIZE + CELL_SIZE / 2.0,
+			bridge.cell.y * CELL_SIZE + CELL_SIZE / 2.0
+		)
+		get_parent().add_child.call_deferred(bridge)
 	for gate_data in gate_cells:
 		var gate := Node2D.new()
 		gate.set_script(gate_script)
@@ -333,6 +353,35 @@ func add_door(cell: Vector2i, orientation: String) -> bool:
 	wall_materials.erase(cell) # ...and its material
 	gate_cells.append({"cell": cell, "orientation": orientation, "open": false, "swing": false})
 	return true
+
+# --- bridges (crossable decks over water) ---
+
+func is_bridge(cell: Vector2i) -> bool:
+	for b in bridge_cells:
+		if b["cell"] == cell:
+			return true
+	return false
+
+func bridge_orientation(cell: Vector2i) -> String:
+	for b in bridge_cells:
+		if b["cell"] == cell:
+			return b["orientation"]
+	return ""
+
+# place a bridge on `cell` (no-op if one is already there). Returns whether it changed anything.
+func add_bridge(cell: Vector2i, orientation: String) -> bool:
+	if is_bridge(cell):
+		return false
+	bridge_cells.append({"cell": cell, "orientation": orientation})
+	return true
+
+# remove the bridge on `cell` if present. Returns whether it changed anything.
+func remove_bridge(cell: Vector2i) -> bool:
+	for i in bridge_cells.size():
+		if bridge_cells[i]["cell"] == cell:
+			bridge_cells.remove_at(i)
+			return true
+	return false
 
 # --- door authored-state edits (the properties inspector) ---
 # open/swing update the live gate node directly (cheap, keeps the node ref) AND the source-of-truth

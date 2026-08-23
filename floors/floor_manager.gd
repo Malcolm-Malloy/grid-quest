@@ -54,9 +54,12 @@ const GRID_COLOR := Color(0.38, 0.64, 0.95, 0.4)
 #   DOOR  - add a door on the clicked cell (a wall there becomes a doorway). Orientation auto-follows
 #           the wall run it bridges; R flips the default used when placing in open space.
 #   SELECT- click a door or wall to load it into the properties inspector (no map edit itself).
+#   BRIDGE- add a crossable bridge deck on the clicked water cell. Orientation auto-follows the water
+#           run it spans (a horizontal river gets a N-S bridge); R flips the default in open space.
 # Cell/Fine/Erase paint directly on click/drag; Wand builds a selection the menu then fills. See
 # ROADMAP "Authoring surface" (mode rename), "Applying edits to a selection" and "Wall editing".
-enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR, SELECT, BOX }
+# NOTE: BRIDGE is appended LAST so existing Mode indices stay stable (tool_strip.M_* mirrors this).
+enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR, SELECT, BOX, BRIDGE }
 
 # each material maps to an ARRAY of pattern variants (index 0 = default, matches the pre-pattern
 # single texture). The active pattern per quarter is stored in _quad_pattern (parallel to _quad_mat /
@@ -94,6 +97,14 @@ const MENU := [
 # every editor tool reads as "is a wall"); water is the first FLOOR that blocks, so the check lives
 # here (is_cell_impassable) and is consulted separately by the player, NOT folded into is_blocked.
 const IMPASSABLE := {"water": true}
+
+# River-bank auto-edge: the surrounding tile-quarters of water auto-render a brown, WALKABLE bank
+# texture that outlines every body of water regardless of the neighbouring terrain. It is DERIVED
+# in _rebuild (never stored in _quad_mat), so it is not saved, needs no editing, and stays passable
+# (is_cell_impassable only counts _quad_mat water quarters, so a bank quarter never blocks). The
+# first concrete case of the Ground-layer phase-2 auto-matching / better-edging system.
+const RIVER_BANK := preload("res://floors/river_bank.png")
+const BANK_AROUND := {"water": true} # materials whose non-matching quarter-neighbours become bank
 
 # floor patterns: a per-quarter pattern index into the material's `textures` variant array, separate
 # from the colour tint. Menu id is PATTERN_BASE_ID + index. Base is 700 so it sits above every other
@@ -193,6 +204,7 @@ var _picker_applied := false    # a preview was applied during the current picke
 var _suppress_picker := false   # guard so setting the picker's start colour doesn't count as an edit
 var _mode: Mode = Mode.WAND  # active authoring mode (set by the tool strip)
 var _door_orient := "horizontal" # DOOR mode: orientation used when the cell has no wall run (R flips)
+var _bridge_orient := "horizontal" # BRIDGE mode: orientation used when the water run is ambiguous (R flips)
 var _painting := false       # true while the left button is held, for drag painting
 var _walls_dirty := false    # a wall drag added cells this frame; rebuild ONCE in _process instead of
 							 # per motion event (a full map rebuild per cell stutters, see "Investigate lag")
@@ -204,6 +216,7 @@ var _box_op := "replace"      # "replace" / "add" / "subtract", captured from th
 var _box_base := {}           # selection quads snapshot at drag start (the base add/subtract build on)
 var _cursor: Node2D          # the Cell/Fine square paint cursor (see paint_cursor.gd)
 var _preview: Node2D         # the lifted terrain drop-preview sprite (see terrain_preview.gd)
+var _bridge_preview: Node2D  # the lifted BRIDGE deck preview (bridge.gd in preview mode), BRIDGE mode only
 var _selection: Node2D       # marching-ants selection overlay (see selection_overlay.gd)
 var _mouse_inside := true    # false while the OS cursor is off the game window; hides all highlights
 # Magic Wand selection state, so a repeat click on the same selection grows its scope:
@@ -331,6 +344,14 @@ func _ready() -> void:
 	_preview = Node2D.new()
 	_preview.set_script(load("res://floors/terrain_preview.gd"))
 	add_child(_preview)
+	# the lifted BRIDGE drop-preview: the actual deck art (bridge.gd in preview mode) floats over the
+	# hovered cell in BRIDGE mode, oriented to the water run under the cursor, so the tool shows what
+	# will land instead of the last floor material. Hidden until BRIDGE-mode hover shows it.
+	_bridge_preview = Node2D.new()
+	_bridge_preview.set_script(load("res://world/bridge.gd"))
+	_bridge_preview.preview = true
+	_bridge_preview.visible = false
+	add_child(_bridge_preview)
 	# when the cursor leaves the game window, drop every highlight (ROADMAP "Terrain placement UX":
 	# cursor off screen clears all highlights); restore tracking when it returns
 	get_window().mouse_exited.connect(_on_window_mouse_exited)
@@ -441,6 +462,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				_place_door_at(get_local_mouse_position())
 				get_viewport().set_input_as_handled()
 			return
+		if _mode == Mode.BRIDGE:
+			# one click = one bridge = one undo entry (auto-oriented to the water run it spans)
+			if event.pressed:
+				_place_bridge_at(get_local_mouse_position())
+				get_viewport().set_input_as_handled()
+			return
 		if _mode == Mode.WALL:
 			# click-and-drag draws a wall line; the whole gesture is one undo entry
 			if event.pressed:
@@ -492,6 +519,10 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_R and _mode == Mode.DOOR:
 		_door_orient = "vertical" if _door_orient == "horizontal" else "horizontal"
+		call_deferred("_update_hover")
+		get_viewport().set_input_as_handled()
+	elif event.keycode == KEY_R and _mode == Mode.BRIDGE:
+		_bridge_orient = "vertical" if _bridge_orient == "horizontal" else "horizontal"
 		call_deferred("_update_hover")
 		get_viewport().set_input_as_handled()
 
@@ -1161,6 +1192,8 @@ func _reset_highlight() -> void:
 	_mask.hide_floor()
 	_cursor.hide_cursor()
 	_preview.hide_preview()
+	if _bridge_preview != null:
+		_bridge_preview.visible = false
 
 # --- reference grid toggle ---
 
@@ -1199,6 +1232,10 @@ func _update_hover() -> void:
 		_cursor.hide_cursor()
 		_preview.hide_preview()
 		_restore_faded()
+		return
+	# Bridge: a green target cell + the actual deck art lifted above it, oriented to the water run
+	if _mode == Mode.BRIDGE:
+		_update_bridge_hover(cell)
 		return
 	# Wall / Door placement and Select: a green cell cursor marks the target cell
 	if _mode == Mode.WALL or _mode == Mode.DOOR or _mode == Mode.SELECT:
@@ -1523,9 +1560,13 @@ func _erase_structure_at(local: Vector2) -> bool:
 	if not _in_bounds(cell):
 		return false
 	var obs = get_node_or_null("../Obstacles")
-	if obs == null or obs.remove_structure(cell) == "":
+	if obs == null:
 		return false
-	_restore_faded() # the erased wall/door was dimmed under the cursor; drop the stale node ref
+	# topmost-first: a wall/door goes before a bridge (they never coexist, but keep the order explicit),
+	# and both go before the floor beneath. remove_bridge is only tried when no wall/door was removed.
+	if obs.remove_structure(cell) == "" and not obs.remove_bridge(cell):
+		return false
+	_restore_faded() # the erased wall/door/bridge was dimmed under the cursor; drop the stale node ref
 	MapIO.apply_serialized(MapIO.serialize(), true) # rebuild nodes + lighting + floors + shadows
 	EditHistory.commit("erase")
 	_reset_highlight()
@@ -1595,6 +1636,36 @@ func _place_door_at(local: Vector2) -> void:
 		return
 	_reapply_map()
 	EditHistory.commit("door")
+
+# BRIDGE tool: drop a crossable deck on the clicked cell, auto-oriented to the water run it spans.
+# A horizontal river (water to the left/right) is crossed north-south, so the bridge is "vertical";
+# a vertical river (water above/below) gets a "horizontal" bridge. When the run is ambiguous (water on
+# both axes, or none) fall back to _bridge_orient (R flips it), mirroring the door open-space default.
+func _place_bridge_at(local: Vector2) -> void:
+	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	if not _in_bounds(cell):
+		return
+	var obs = get_node_or_null("../Obstacles")
+	if obs == null:
+		return
+	var orient := _bridge_river_orientation(cell)
+	if orient == "":
+		orient = _bridge_orient
+	if not obs.add_bridge(cell, orient):
+		return
+	_reapply_map()
+	EditHistory.commit("bridge")
+
+# the bridge orientation the water around `cell` implies, or "" if ambiguous. A horizontal river
+# (water left/right) -> "vertical" bridge; a vertical river (water above/below) -> "horizontal".
+func _bridge_river_orientation(cell: Vector2i) -> String:
+	var horiz_river := is_cell_impassable(cell + Vector2i(1, 0)) or is_cell_impassable(cell + Vector2i(-1, 0))
+	var vert_river := is_cell_impassable(cell + Vector2i(0, 1)) or is_cell_impassable(cell + Vector2i(0, -1))
+	if horiz_river and not vert_river:
+		return "vertical"
+	if vert_river and not horiz_river:
+		return "horizontal"
+	return ""
 
 # Select tool: load the door or wall on the clicked cell into the properties inspector (a door wins
 # if somehow both are present, matching the topmost-structure model). An empty cell clears it.
@@ -1682,6 +1753,15 @@ func _erase_single(cell: Vector2i) -> void:
 		_reset_highlight()
 		call_deferred("_update_hover")
 		return
+	# a bridge is the next layer down (over the water floor): erase it before the ground beneath
+	if obs != null and obs.is_bridge(cell):
+		obs.remove_bridge(cell)
+		_restore_faded()
+		MapIO.apply_serialized(MapIO.serialize(), true)
+		EditHistory.commit("erase")
+		_reset_highlight()
+		call_deferred("_update_hover")
+		return
 	var changed := false
 	for q in _cell_quads(cell):
 		if _quad_mat.has(q) or _quad_pattern.has(q) or _quad_tint.has(q):
@@ -1705,6 +1785,28 @@ func _update_structure_placement_hover(cell: Vector2i) -> void:
 		return
 	_cursor.set_role(PaintCursor.Role.ADD) # green: placing a wall/door is additive
 	_cursor.show_rect(Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL))
+
+# Bridge placement hover: a green ADD cell cursor (like wall/door) PLUS the real deck art lifted a few
+# px above the cell, oriented to the water run the click would span (or the R-flippable default). Shows
+# the bridge that will land instead of the last floor material's drop-preview.
+const _BRIDGE_PREVIEW_LIFT := 6.0
+func _update_bridge_hover(cell: Vector2i) -> void:
+	_clear_room_hover()
+	_restore_faded()
+	_preview.hide_preview() # never show the leftover floor-material drop-preview in BRIDGE mode
+	if not _in_bounds(cell):
+		_cursor.hide_cursor()
+		_bridge_preview.visible = false
+		return
+	_cursor.set_role(PaintCursor.Role.ADD)
+	_cursor.show_rect(Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL))
+	var orient := _bridge_river_orientation(cell)
+	if orient == "":
+		orient = _bridge_orient
+	_bridge_preview.orientation = orient
+	_bridge_preview.position = Vector2(cell.x * CELL + CELL / 2.0, cell.y * CELL + CELL / 2.0 - _BRIDGE_PREVIEW_LIFT)
+	_bridge_preview.visible = true
+	_bridge_preview.queue_redraw()
 
 # set one quarter's material ("" erases it back to grass). Returns whether anything changed,
 # so a drag that stays inside the same quarter doesn't trigger a redundant rebuild.
@@ -1869,7 +1971,32 @@ func _rebuild() -> void:
 		if _quad_mat.has(q):
 			continue
 		_base_fills.append([Rect2(q.x * HALF, q.y * HALF, HALF, HALF), GRASS, _quad_tint[q]])
+	# River-bank auto-edge: every non-water quarter touching water (8-neighbour, in-bounds) draws the
+	# brown bank on TOP of whatever is there. Appended last so it renders over the underlying fill;
+	# untinted (native brown). Derived only, so it is neither saved nor blocking (see RIVER_BANK).
+	for bq in _bank_quads():
+		_base_fills.append([Rect2(bq.x * HALF, bq.y * HALF, HALF, HALF), RIVER_BANK, Color.WHITE])
 	_redraw_floor_layers()
+
+# the set of 16px quarter coords that render as river bank: any in-bounds quarter that is NOT a
+# BANK_AROUND material but is 8-neighbour-adjacent to one. Returned as a dict (used as a set) so a
+# quarter shared by several water quarters is emitted once. Purely derived from _quad_mat.
+func _bank_quads() -> Dictionary:
+	var bank := {}
+	for q in _quad_mat:
+		if not BANK_AROUND.has(_quad_mat[q]):
+			continue
+		for dy in [-1, 0, 1]:
+			for dx in [-1, 0, 1]:
+				if dx == 0 and dy == 0:
+					continue
+				var n := Vector2i(q.x + dx, q.y + dy)
+				if BANK_AROUND.has(_quad_mat.get(n, "")):
+					continue # a neighbouring water quarter is not bank
+				if not _in_bounds(Vector2i(floori(n.x / 2.0), floori(n.y / 2.0))):
+					continue # keep bank inside the map grid, not out in the void
+				bank[n] = true
+	return bank
 
 func _redraw_floor_layers() -> void:
 	var gb = get_node_or_null("../GridBackground")

@@ -70,5 +70,49 @@ func _ready() -> void:
 	_check("water cell blocks via floor (not wall)", blocked)
 	_check("player.floor_manager wired", player.floor_manager == fm)
 
+	# --- river-bank auto-edge (derived, walkable, not saved) ---
+	_check("river-bank texture registered (RIVER_BANK)", fm.RIVER_BANK != null)
+	_check("water is a BANK_AROUND source", fm.BANK_AROUND.has("water"))
+
+	fm._quad_mat = {} # isolate: one full-water cell in open ground, well away from the map edge
+	var wcell := Vector2i(30, 10)
+	for qq in _quads(wcell):
+		fm._quad_mat[qq] = "water"
+	fm._rebuild()
+	var bank: Dictionary = fm._bank_quads()
+
+	# a single 2x2 water block has a 12-quarter ring (its 4x4 8-neighbourhood minus the 4 water quarters)
+	_check("bank rings the water (12 quarters)", bank.size() == 12)
+	# the water quarters themselves are never bank
+	var water_in_bank := false
+	for qq in _quads(wcell):
+		if bank.has(qq):
+			water_in_bank = true
+	_check("water quarters are not bank", not water_in_bank)
+	# a specific orthogonal-neighbour quarter is bank; a diagonal corner too
+	_check("orthogonal neighbour quarter is bank", bank.has(Vector2i(59, 20)))
+	_check("diagonal corner quarter is bank", bank.has(Vector2i(59, 19)))
+
+	# bank is WALKABLE: the cell above the water (its bottom quarters are bank, no water) is passable
+	_check("bank cell is passable (bank never blocks)", not fm.is_cell_impassable(Vector2i(30, 9)))
+
+	# bank renders: a RIVER_BANK-textured fill exists in base_fills
+	var bank_fill := false
+	for f in fm.base_fills():
+		if f[1] == fm.RIVER_BANK:
+			bank_fill = true
+	_check("base_fills carries a river-bank fill", bank_fill)
+
+	# bank stays inside the map grid: water in the corner never emits an out-of-bounds bank quarter
+	fm._quad_mat = {}
+	for qq in _quads(Vector2i(0, 0)):
+		fm._quad_mat[qq] = "water"
+	fm._rebuild()
+	var all_in_bounds := true
+	for bq in fm._bank_quads():
+		if not fm._in_bounds(Vector2i(floori(bq.x / 2.0), floori(bq.y / 2.0))):
+			all_in_bounds = false
+	_check("corner water emits no out-of-bounds bank", all_in_bounds)
+
 	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
 	get_tree().quit(_fails)
