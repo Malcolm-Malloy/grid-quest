@@ -20,12 +20,15 @@ MapIO="*res://systems/map_io.gd"
 MapEdit="*res://systems/map_edit.gd"
 EditHistory="*res://systems/edit_history.gd"
 EditorMode="*res://systems/editor_mode.gd"
+WindowMode="*res://systems/window_mode.gd"
 
 [display]
 
 window/size/viewport_width=800
 window/size/viewport_height=600
+window/size/mode=3
 window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
 
 [rendering]
 

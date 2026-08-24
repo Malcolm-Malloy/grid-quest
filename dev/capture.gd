@@ -12,6 +12,11 @@ extends Node
 # spawn. GQ_OUT is where the PNG lands; defaults to res://_shot.png.
 
 func _ready() -> void:
+	# Force a consistent windowed 800x600 for captures, overriding the game's fullscreen launch default
+	# (project.godot window/size/mode=3), so shots stay a comparable size and don't flash fullscreen over
+	# the user's desktop. Harmless in headless (DisplayServer window ops no-op there).
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	DisplayServer.window_set_size(Vector2i(800, 600))
 	# tests drive loading explicitly via GQ_LOAD, so auto-reload is off unless GQ_AUTOLOAD=1
 	MapIO.auto_load = OS.get_environment("GQ_AUTOLOAD") == "1"
 	var main: Node = load("res://main.tscn").instantiate()
