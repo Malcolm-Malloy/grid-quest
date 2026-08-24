@@ -12,11 +12,11 @@ extends Node
 # spawn. GQ_OUT is where the PNG lands; defaults to res://_shot.png.
 
 func _ready() -> void:
-	# Force a consistent windowed 800x600 for captures, overriding the game's fullscreen launch default
-	# (project.godot window/size/mode=3), so shots stay a comparable size and don't flash fullscreen over
-	# the user's desktop. Harmless in headless (DisplayServer window ops no-op there).
+	# Drop the game's fullscreen launch default (project.godot window/size/mode=3) to a normal WINDOW for
+	# captures, so a grab doesn't take over the user's screen. (The window keeps the screen SIZE on macOS -
+	# window_set_size won't shrink a just-unfullscreened window here - so shots come out at the screen
+	# resolution, which is fine for eyeballing.) Harmless in headless (DisplayServer window ops no-op).
 	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-	DisplayServer.window_set_size(Vector2i(800, 600))
 	# tests drive loading explicitly via GQ_LOAD, so auto-reload is off unless GQ_AUTOLOAD=1
 	MapIO.auto_load = OS.get_environment("GQ_AUTOLOAD") == "1"
 	var main: Node = load("res://main.tscn").instantiate()
@@ -226,6 +226,30 @@ func _ready() -> void:
 				var cams := main.get_node_or_null("Camera2D")
 				if cams and cams.has_method("fit_map"):
 					cams.fit_map()
+
+	# GQ_WALLHOVER="x,y[,material[,rrggbb]]" shows the WALL-mode placement GHOST over cell x,y (the real
+	# shape a click would place, from the surrounding walls), optionally in a material/colour, so the
+	# hover-drop preview can be verified. Pair with GQ_STRUCT to build the neighbouring walls first, e.g.
+	# GQ_STRUCT="wall:20,19;wall:19,20" GQ_WALLHOVER="20,20,brick,cc3322". Frames whole map unless _NOFIT=1.
+	var wallhover := OS.get_environment("GQ_WALLHOVER")
+	if wallhover != "":
+		var fmwh := main.get_node_or_null("World/FloorManager")
+		if fmwh:
+			var p := wallhover.split(",")
+			if p.size() >= 2:
+				var cell := Vector2i(int(p[0]), int(p[1]))
+				fmwh.set_mode(4) # Mode.WALL (resets the highlight; the hover call below re-shows the ghost)
+				if p.size() >= 3 and p[2] != "":
+					fmwh.arm_wall_material(p[2])
+				if p.size() >= 4 and p[3] != "":
+					fmwh.arm_wall_color(Color.html(p[3]))
+				await get_tree().process_frame
+				fmwh._update_structure_placement_hover(cell)
+				await get_tree().process_frame
+				if OS.get_environment("GQ_WALLHOVER_NOFIT") != "1":
+					var camwh := main.get_node_or_null("Camera2D")
+					if camwh and camwh.has_method("fit_map"):
+						camwh.fit_map()
 
 	# GQ_BRIDGE="x,y;x,y;..." drops a crossable bridge on each cell via the real _place_bridge_at path
 	# (mode set + world-pixel click), so the deck render + water auto-orient can be verified. Pair with

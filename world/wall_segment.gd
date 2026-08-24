@@ -46,9 +46,20 @@ var cap_texture := preload("res://world/stone_cap.png")
 const FENCE := {"wood_fence": true, "metal_bars": true, "chainlink": true}
 const FENCE_H := 16.0
 
+# preview mode: a lifted, translucent GHOST of the wall a click would place (see FloorManager's Wall-mode
+# hover). Reuses the exact render (so the ghost shows the real corner/T/cross shape + colour + material,
+# fences included), but must NOT join the "walls" group (build_world frees those) or occlude the
+# floor-highlight mask. Set true BEFORE add_child so _ready sees it.
+var preview := false
+
 func _ready() -> void:
 	texture_filter = TEXTURE_FILTER_NEAREST
 	texture_repeat = TEXTURE_REPEAT_ENABLED # per-cell slices region-sample a tiled texture
+	if preview:
+		z_index = 1100 # lifted above the paint cursor (1000) so the ghost reads as floating over the map
+		modulate.a = 0.55
+		queue_redraw()
+		return
 	visibility_layer |= FloorHighlightMask.MASK_BIT # occlude the floor-highlight mask
 	add_to_group("walls") # so a map reload can free every spawned wall in one sweep
 	queue_redraw()

@@ -310,6 +310,33 @@ func _in_wall_line(cell: Vector2i, horizontal: bool) -> bool:
 		return true
 	return _gate_orient.get(cell, "") == ("horizontal" if horizontal else "vertical")
 
+# The wall PIECE(S) a cell WOULD get if a wall were placed there, using the SAME per-cell shaping as
+# build_world (the horizontal + vertical passes + corner trimming) against the CURRENT walls/doors, so a
+# hover ghost can show the real horizontal / vertical / corner / T / cross shape. Each entry is a segment
+# config {run_length, align, x_start, width} (width 0 = the segment's default full width); FloorManager
+# applies them to translucent preview wall_segments. Assumes `cell` itself becomes blocked.
+func preview_wall_configs(cell: Vector2i) -> Array:
+	var out: Array = []
+	var has_left := _in_wall_line(Vector2i(cell.x - 1, cell.y), true)
+	var has_right := _in_wall_line(Vector2i(cell.x + 1, cell.y), true)
+	var has_vertical := _in_wall_line(Vector2i(cell.x, cell.y - 1), false) or _in_wall_line(Vector2i(cell.x, cell.y + 1), false)
+	# horizontal pass: a full-width piece, or a trimmed L-arm at a corner (mirrors build_world exactly)
+	if has_left or has_right:
+		if has_vertical and has_right and not has_left:
+			out.append({"run_length": 1, "align": 0.0, "x_start": -CAP_HEIGHT / 2.0, "width": CELL_SIZE / 2.0 + CAP_HEIGHT / 2.0})
+		elif has_vertical and has_left and not has_right:
+			out.append({"run_length": 1, "align": 0.0, "x_start": -CELL_SIZE / 2.0, "width": CELL_SIZE / 2.0 + CAP_HEIGHT / 2.0})
+		else:
+			out.append({"run_length": 1, "align": 0.0, "x_start": 0.0, "width": 0.0})
+	# vertical pass: a thin, centered rail when the cell is part of a vertical line (also gives T/cross the
+	# vertical arm on top of the horizontal piece above)
+	if has_vertical:
+		out.append({"run_length": 1, "align": 0.0, "x_start": -CAP_HEIGHT / 2.0, "width": CAP_HEIGHT})
+	# a lone cell (no wall-line neighbour) is a thin standalone post, matching build_world
+	if not (has_left or has_right or has_vertical):
+		out.append({"run_length": 1, "align": 0.0, "x_start": -CAP_HEIGHT / 2.0, "width": CAP_HEIGHT})
+	return out
+
 # --- structure removal (Erase tool) ---
 
 # is there a wall OR a door on this cell? (the structure layer of the cell-occupancy model)
