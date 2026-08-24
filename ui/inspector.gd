@@ -17,7 +17,7 @@ const WALL_COLORS := [
 ]
 
 # wall material list, mirrored from floor_manager.WALL_MATERIALS (kept in sync by hand)
-const WALL_MATERIALS := [["Stone", "stone"], ["Wood", "wood"], ["Slate", "slate"], ["Brick", "brick"], ["Hedge", "hedge"]]
+const WALL_MATERIALS := [["Stone", "stone"], ["Wood", "wood"], ["Slate", "slate"], ["Brick", "brick"], ["Hedge", "hedge"], ["Wood Fence", "wood_fence"], ["Metal Bars", "metal_bars"], ["Chainlink", "chainlink"]]
 
 var _kind := ""            # "", "door" or "wall"
 var _cell := Vector2i.ZERO

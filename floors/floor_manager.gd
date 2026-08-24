@@ -154,6 +154,8 @@ const PATTERN_BASE_ID := 700
 const WALL_MAT_BASE_ID := 600
 const WALL_MATERIALS := [
 	["Stone", "stone"], ["Wood", "wood"], ["Slate", "slate"], ["Brick", "brick"], ["Hedge", "hedge"],
+	# see-through fences (short, gappy; rendered procedurally in wall_segment). Same colour-tint system.
+	["Wood Fence", "wood_fence"], ["Metal Bars", "metal_bars"], ["Chainlink", "chainlink"],
 ]
 # the cap (top-face) texture per wall material, for the Brush panel's wall preview swatch. Mirrors
 # WallSegment.MATERIALS (kept in sync); the panel shows the cap tinted by the armed wall colour.
@@ -163,6 +165,10 @@ const WALL_TEX := {
 	"slate": preload("res://world/slate_cap.png"),
 	"brick": preload("res://world/brick_cap.png"),
 	"hedge": preload("res://world/hedge_cap.png"),
+	# fences have no cap texture (drawn procedurally); these icons are just the Brush-panel/inspector swatch.
+	"wood_fence": preload("res://floors/wood_fence_icon.png"),
+	"metal_bars": preload("res://floors/metal_bars_icon.png"),
+	"chainlink": preload("res://floors/chainlink_icon.png"),
 }
 
 # wall colours (a tint over the stone). Natural = white = reset. Menu id is WALL_BASE_ID + index.
@@ -233,11 +239,11 @@ var _armed := false          # Cell/Fine only: is a material armed to drop? Clea
 var _wall_color := Color.WHITE # active wall colour tint (white = natural / reset)
 var _wall_mat := "stone"     # active wall material ("stone" = default)
 var _pattern := 0            # active floor pattern index (for the "pattern" tool drag)
-# Build Wall brush: the colour + material that Wall-mode placement stamps onto each wall it lays, set
-# via the "Build Wall" configurator submenu (ROADMAP "Build Wall configurator flow"). White/stone =
-# natural, so the plain Wall tool is unchanged until the brush is configured.
-var _wall_brush_color := Color.WHITE
-var _wall_brush_mat := "stone"
+# The armed wall brush is UNIFIED: _wall_color / _wall_mat above are BOTH the colour/material that
+# recolour an existing wall (a selection, or a clicked wall) AND the ones Wall-mode placement stamps onto
+# each NEW wall it lays. So picking a wall colour/material in the left Brush panel (or the right-click
+# "Build Wall" configurator) applies to whatever you build next, exactly like the floor brush. White/stone
+# = natural, so a plain wall stays plain.
 var _build_wall_sub: PopupMenu # the Build Wall configurator (colour + material + Start), built in _ready
 var _floor_color := Color.WHITE # active floor tint (white = natural / reset the tint)
 var _picker_popup: PopupPanel   # the "Custom..." floor-colour picker popup
@@ -259,6 +265,10 @@ var _box_base := {}           # selection quads snapshot at drag start (the base
 var _cursor: Node2D          # the Cell/Fine square paint cursor (see paint_cursor.gd)
 var _preview: Node2D         # the lifted terrain drop-preview sprite (see terrain_preview.gd)
 var _bridge_preview: Node2D  # the lifted BRIDGE deck preview (bridge.gd in preview mode), BRIDGE mode only
+const WallSegmentScript := preload("res://world/wall_segment.gd")
+var _wall_ghost: Array = []  # up to 2 reused translucent wall_segments: the shape a WALL-mode click would
+							 # place (horizontal/vertical/corner/T/cross), in the armed wall colour+material
+var _wall_ghost_key := ""    # dedupe: cell + colour + material + piece-count, so the ghost only re-configs on change
 var _selection: Node2D       # marching-ants selection overlay (see selection_overlay.gd)
 var _mouse_inside := true    # false while the OS cursor is off the game window; hides all highlights
 # Magic Wand selection state, so a repeat click on the same selection grows its scope:
@@ -394,6 +404,16 @@ func _ready() -> void:
 	_bridge_preview.preview = true
 	_bridge_preview.visible = false
 	add_child(_bridge_preview)
+	# Wall placement ghost pool: 2 translucent preview wall_segments (a cell gets at most a horizontal
+	# piece + a vertical rail). Shown on WALL-mode hover, configured from obstacles.preview_wall_configs so
+	# the ghost is the REAL shape a click would place, in the armed wall colour+material.
+	for _i in 2:
+		var wp := Node2D.new()
+		wp.set_script(WallSegmentScript)
+		wp.preview = true
+		wp.visible = false
+		add_child(wp)
+		_wall_ghost.append(wp)
 	# when the cursor leaves the game window, drop every highlight (ROADMAP "Terrain placement UX":
 	# cursor off screen clears all highlights); restore tracking when it returns
 	get_window().mouse_exited.connect(_on_window_mouse_exited)
@@ -1236,6 +1256,7 @@ func _reset_highlight() -> void:
 	_preview.hide_preview()
 	if _bridge_preview != null:
 		_bridge_preview.visible = false
+	_hide_wall_ghost()
 
 # --- reference grid toggle ---
 
@@ -1624,33 +1645,35 @@ func _place_wall_at(local: Vector2) -> void:
 	var obs = get_node_or_null("../Obstacles")
 	if obs == null or not obs.add_wall(cell):
 		return
-	# stamp the armed Build Wall brush onto the new wall (set the source-of-truth dicts BEFORE the
-	# rebuild so serialize carries them). Natural white / stone leave the wall plain.
-	if _wall_brush_color != Color.WHITE:
-		obs.wall_colors[cell] = _wall_brush_color
-	if _wall_brush_mat != "stone":
-		obs.wall_materials[cell] = _wall_brush_mat
+	# stamp the armed wall brush onto the new wall (set the source-of-truth dicts BEFORE the rebuild so
+	# serialize carries them). Natural white / stone leave the wall plain. Same _wall_color / _wall_mat the
+	# Brush panel and the Build Wall configurator arm, so what you picked is what you build.
+	if _wall_color != Color.WHITE:
+		obs.wall_colors[cell] = _wall_color
+	if _wall_mat != "stone":
+		obs.wall_materials[cell] = _wall_mat
 	_walls_dirty = true # rebuild once in _process (coalesces a fast drag's many cells into one rebuild/frame)
 
 # --- Build Wall configurator (right-click "Build Wall" submenu) ---
 
-# reflect the current wall brush (_wall_brush_color / _wall_brush_mat) as the checked radio items
+# reflect the current wall brush (_wall_color / _wall_mat) as the checked radio items
 func _sync_build_wall_checks() -> void:
 	if _build_wall_sub == null:
 		return
 	for i in WALL_COLORS.size():
-		_build_wall_sub.set_item_checked(_build_wall_sub.get_item_index(i), WALL_COLORS[i][1] == _wall_brush_color)
+		_build_wall_sub.set_item_checked(_build_wall_sub.get_item_index(i), WALL_COLORS[i][1] == _wall_color)
 	for j in WALL_MATERIALS.size():
-		_build_wall_sub.set_item_checked(_build_wall_sub.get_item_index(100 + j), WALL_MATERIALS[j][1] == _wall_brush_mat)
+		_build_wall_sub.set_item_checked(_build_wall_sub.get_item_index(100 + j), WALL_MATERIALS[j][1] == _wall_mat)
 
 func _on_build_wall_id(id: int) -> void:
 	if id == 999:
 		_arm_wall_build() # done configuring: enter Wall mode with the brush, close the menu
 		return
 	if id >= 100:
-		_wall_brush_mat = WALL_MATERIALS[id - 100][1]
+		_wall_mat = WALL_MATERIALS[id - 100][1]
 	else:
-		_wall_brush_color = WALL_COLORS[id][1]
+		_wall_color = WALL_COLORS[id][1]
+	brush_changed.emit() # keep the left Brush panel's Wall section in sync with the configurator
 	_sync_build_wall_checks() # update the ticks in place (the menu stays open for more options)
 
 # arm the draggable wall brush: switch to Wall mode (so a drag draws a wall line carrying the brush),
@@ -1824,9 +1847,53 @@ func _update_structure_placement_hover(cell: Vector2i) -> void:
 	_preview.hide_preview()
 	if not _in_bounds(cell):
 		_cursor.hide_cursor()
+		_hide_wall_ghost()
 		return
 	_cursor.set_role(PaintCursor.Role.ADD) # green: placing a wall/door is additive
 	_cursor.show_rect(Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL))
+	# WALL mode: also float the REAL shape a click would place (horizontal/vertical/corner/T/cross), in the
+	# armed colour+material, like the bridge deck preview. Only over an empty cell (an occupied cell no-ops).
+	var obs = get_node_or_null("../Obstacles")
+	if _mode == Mode.WALL and obs != null and not obs.is_blocked(cell):
+		_show_wall_ghost(cell)
+	else:
+		_hide_wall_ghost()
+
+# configure + show the wall placement ghost for `cell`: obstacles computes the piece config(s) the cell
+# would get (same shaping as build_world), which we apply to the reused preview wall_segments, carrying
+# the armed wall colour+material so the ghost previews exactly what a click builds.
+func _show_wall_ghost(cell: Vector2i) -> void:
+	var obs = get_node_or_null("../Obstacles")
+	if obs == null:
+		return
+	var configs: Array = obs.preview_wall_configs(cell)
+	var key := "%s|%s|%s|%d" % [cell, _wall_color, _wall_mat, configs.size()]
+	if key == _wall_ghost_key:
+		return # nothing changed (same cell + brush + shape): leave the ghost as-is
+	_wall_ghost_key = key
+	var center := Vector2(cell.x * CELL + CELL / 2.0, cell.y * CELL + CELL / 2.0)
+	for i in _wall_ghost.size():
+		var wp = _wall_ghost[i]
+		if i < configs.size():
+			var cfg: Dictionary = configs[i]
+			wp.run_length = int(cfg["run_length"])
+			wp.align_offset_x = float(cfg["align"])
+			wp.seg_x_start = float(cfg["x_start"])
+			wp.seg_width = float(cfg["width"])
+			wp.cell_colors = [_wall_color]
+			wp.cell_materials = [_wall_mat]
+			wp.position = center
+			wp.visible = true
+			wp.queue_redraw()
+		else:
+			wp.visible = false
+
+func _hide_wall_ghost() -> void:
+	if _wall_ghost_key == "":
+		return
+	_wall_ghost_key = ""
+	for wp in _wall_ghost:
+		wp.visible = false
 
 # Bridge placement hover: a green ADD cell cursor (like wall/door) PLUS the real deck art lifted a few
 # px above the cell, oriented to the water run the click would span (or the R-flippable default). Shows

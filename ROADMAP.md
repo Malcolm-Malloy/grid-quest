@@ -73,9 +73,9 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
    *Progress:* Coloured floors slice 1 (fun swatches) + slice 2 (picker) DONE; **WALL materials
    (Stone/Wood/Slate) DONE 2026-08-17, + Brick + Hedge DONE 2026-08-23**; **FLOOR terrain patterns (real
    pattern axis) DONE 2026-08-17, + GRASS patterns (Plain/Wild/Tuft) DONE 2026-08-23** (both under
-   "Terrain patterns and material variants" -> As built). Still to do here: SEE-THROUGH fences (Wood
-   Fence pickets, Metal Bars, Chainlink) which need a distinct short/see-through structure (walls render
-   as tall solid bodies), and the deferred material-aware floor swatch row.
+   "Terrain patterns and material variants" -> As built); **SEE-THROUGH fences (Wood Fence, Metal Bars,
+   Chainlink) DONE 2026-08-24** (short/gappy procedural render, no solid shadow; see the as-built note in
+   the WALL-materials section). Only remaining item-7 work: the deferred material-aware floor swatch row.
 8. **Ground layer phase 2: auto-matching plus better edging. FEATHERED AUTO-MATCH BUILT 2026-08-23**
    for the OUTDOOR naturals (grass/sand/snow, + water's shoreline): a precedence-driven feathered edge
    autotile blends adjacent naturals (see "Auto-matching terrain edges" as-built). Still open: material
@@ -2429,10 +2429,18 @@ open, via `hide_on_checkable_item_selection = false`), then **Start Building (dr
 draggable wall brush and closes the menu, so you drag to lay walls carrying that colour + material.
 - As built in `floors/floor_manager.gd`: a `build_wall_sub` submenu (local id scheme: colour `i`,
   material `100+j`, Start `999`, routed to `_on_build_wall_id`, so it needs no global id range);
-  `_wall_brush_color` / `_wall_brush_mat` brush state synced to the ticks by `_sync_build_wall_checks`;
   `_arm_wall_build` enters `Mode.WALL`, lights the strip's Wall radio via the new
   `tool_strip.reflect_mode`, and hides the menu; `_place_wall_at` stamps the brush colour + material
   onto each wall it lays (natural white / stone leave it plain, so the bare Wall tool is unchanged).
+- **UNIFIED wall brush 2026-08-24 (fix: sidebar wall picks now build).** Previously a separate
+  `_wall_brush_color`/`_wall_brush_mat` (set only by this configurator) fed `_place_wall_at`, while the
+  left Brush panel's Wall section set `_wall_color`/`_wall_mat` (which only recoloured an existing
+  wall/selection), so picking a wall colour+material in the sidebar did NOT change the wall you then
+  drew, unlike the floor brush. Unified onto `_wall_color`/`_wall_mat` for BOTH editing and building:
+  `_place_wall_at` and the configurator now read/write those, and the panel handlers
+  (`tool_strip._on_wall_material`/`_on_wall_color`) drop into `Mode.WALL` when nothing is selected, so a
+  sidebar pick lets you drag to build in that colour+material exactly like laying terrain (a wall
+  selection still edits in place). The configurator emits `brush_changed` so the panel stays in sync.
   The context menu's "Build Wall" is now a submenu (`_apply_menu_context`). Verified by
   `dev/test_menu_actions` (colour/material arm, Start -> Wall mode, placed wall carries the brush).
 - Note: the wall brush **persists** (the strip Wall button uses the last-configured brush too; defaults
@@ -2491,8 +2499,24 @@ structure yet, only referenced in gate.gd comments). What was touched:
   `world/{brick,hedge}_{face,cap}.png` (tinted by the wall colour), added to `wall_segment.MATERIALS`,
   `floor_manager.WALL_MATERIALS` + `WALL_TEX`, and `inspector.WALL_MATERIALS`. No MapIO bump (new
   material-name values only). Verified `dev/test_wall_material.tscn` (now 25 checks). They render on the
-  tall SOLID wall body; the see-through fences (Wood Fence pickets, Metal Bars, Chainlink) still need
-  their own short/see-through structure (a distinct render), deferred.
+  tall SOLID wall body.
+- **SEE-THROUGH fences DONE 2026-08-24 (Wood Fence, Metal Bars, Chainlink).** The rest of the canonical
+  roster, as wall materials that RENDER differently: short and gappy so the floor shows through, instead
+  of the tall solid cap+face body. They still block, enclose, tint, save, and undo like any wall.
+  - `wall_segment.gd`: a `FENCE` set + a per-cell procedural motif in `_draw` (a fence cell draws its
+    motif instead of the solid cap slice; the bottom-cell solid face is skipped for a fence bottom). Motif
+    is FENCE_H tall, greyscale, tinted by the wall colour: **pickets** (Wood Fence), **bars** (Metal
+    Bars), **diamond mesh** (Chainlink) face-on for an E-W line, a thin **edge-on line+post** for a N-S
+    line. Orientation is read from `run_length`/`width` (thin/`run_length>1` = vertical).
+  - `obstacles.gd`: `FENCE_MATERIALS` + `_is_fence`; `spawn_shadows` skips fence cells, so a see-through
+    fence casts NO solid wall shadow (a mixed run's shadow just splits at the fence).
+  - `floor_manager.WALL_MATERIALS` + `WALL_TEX` (procedural render, so the panel/inspector swatch uses
+    small generated icons `floors/{wood_fence,metal_bars,chainlink}_icon.png`) and `inspector`. No MapIO
+    bump. Verified `dev/test_fence.tscn` (15 checks: registration, set sync, `_is_fence`, collision
+    unchanged, segment reports the material, all-fence map casts no shadow). Eyeballed both orientations.
+  - **Deferred:** rail-HEIGHT/perspective art (still flat), and the game-pillar strength/breakability
+    tiers (Hedge < Wood Fence < ... < Metal Bars, Chainlink industrial) live in the creature/resource
+    sections, not the editor render.
 
 ### As built: FLOOR terrain patterns (real pattern axis) (BUILT 2026-08-17)
 The pattern axis landed as decided (a real per-quarter pattern index, NOT flat extra materials), so a
