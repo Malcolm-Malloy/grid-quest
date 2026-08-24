@@ -239,11 +239,11 @@ var _armed := false          # Cell/Fine only: is a material armed to drop? Clea
 var _wall_color := Color.WHITE # active wall colour tint (white = natural / reset)
 var _wall_mat := "stone"     # active wall material ("stone" = default)
 var _pattern := 0            # active floor pattern index (for the "pattern" tool drag)
-# Build Wall brush: the colour + material that Wall-mode placement stamps onto each wall it lays, set
-# via the "Build Wall" configurator submenu (ROADMAP "Build Wall configurator flow"). White/stone =
-# natural, so the plain Wall tool is unchanged until the brush is configured.
-var _wall_brush_color := Color.WHITE
-var _wall_brush_mat := "stone"
+# The armed wall brush is UNIFIED: _wall_color / _wall_mat above are BOTH the colour/material that
+# recolour an existing wall (a selection, or a clicked wall) AND the ones Wall-mode placement stamps onto
+# each NEW wall it lays. So picking a wall colour/material in the left Brush panel (or the right-click
+# "Build Wall" configurator) applies to whatever you build next, exactly like the floor brush. White/stone
+# = natural, so a plain wall stays plain.
 var _build_wall_sub: PopupMenu # the Build Wall configurator (colour + material + Start), built in _ready
 var _floor_color := Color.WHITE # active floor tint (white = natural / reset the tint)
 var _picker_popup: PopupPanel   # the "Custom..." floor-colour picker popup
@@ -1630,33 +1630,35 @@ func _place_wall_at(local: Vector2) -> void:
 	var obs = get_node_or_null("../Obstacles")
 	if obs == null or not obs.add_wall(cell):
 		return
-	# stamp the armed Build Wall brush onto the new wall (set the source-of-truth dicts BEFORE the
-	# rebuild so serialize carries them). Natural white / stone leave the wall plain.
-	if _wall_brush_color != Color.WHITE:
-		obs.wall_colors[cell] = _wall_brush_color
-	if _wall_brush_mat != "stone":
-		obs.wall_materials[cell] = _wall_brush_mat
+	# stamp the armed wall brush onto the new wall (set the source-of-truth dicts BEFORE the rebuild so
+	# serialize carries them). Natural white / stone leave the wall plain. Same _wall_color / _wall_mat the
+	# Brush panel and the Build Wall configurator arm, so what you picked is what you build.
+	if _wall_color != Color.WHITE:
+		obs.wall_colors[cell] = _wall_color
+	if _wall_mat != "stone":
+		obs.wall_materials[cell] = _wall_mat
 	_walls_dirty = true # rebuild once in _process (coalesces a fast drag's many cells into one rebuild/frame)
 
 # --- Build Wall configurator (right-click "Build Wall" submenu) ---
 
-# reflect the current wall brush (_wall_brush_color / _wall_brush_mat) as the checked radio items
+# reflect the current wall brush (_wall_color / _wall_mat) as the checked radio items
 func _sync_build_wall_checks() -> void:
 	if _build_wall_sub == null:
 		return
 	for i in WALL_COLORS.size():
-		_build_wall_sub.set_item_checked(_build_wall_sub.get_item_index(i), WALL_COLORS[i][1] == _wall_brush_color)
+		_build_wall_sub.set_item_checked(_build_wall_sub.get_item_index(i), WALL_COLORS[i][1] == _wall_color)
 	for j in WALL_MATERIALS.size():
-		_build_wall_sub.set_item_checked(_build_wall_sub.get_item_index(100 + j), WALL_MATERIALS[j][1] == _wall_brush_mat)
+		_build_wall_sub.set_item_checked(_build_wall_sub.get_item_index(100 + j), WALL_MATERIALS[j][1] == _wall_mat)
 
 func _on_build_wall_id(id: int) -> void:
 	if id == 999:
 		_arm_wall_build() # done configuring: enter Wall mode with the brush, close the menu
 		return
 	if id >= 100:
-		_wall_brush_mat = WALL_MATERIALS[id - 100][1]
+		_wall_mat = WALL_MATERIALS[id - 100][1]
 	else:
-		_wall_brush_color = WALL_COLORS[id][1]
+		_wall_color = WALL_COLORS[id][1]
+	brush_changed.emit() # keep the left Brush panel's Wall section in sync with the configurator
 	_sync_build_wall_checks() # update the ticks in place (the menu stays open for more options)
 
 # arm the draggable wall brush: switch to Wall mode (so a drag draws a wall line carrying the brush),

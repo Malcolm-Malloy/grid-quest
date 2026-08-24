@@ -2429,10 +2429,18 @@ open, via `hide_on_checkable_item_selection = false`), then **Start Building (dr
 draggable wall brush and closes the menu, so you drag to lay walls carrying that colour + material.
 - As built in `floors/floor_manager.gd`: a `build_wall_sub` submenu (local id scheme: colour `i`,
   material `100+j`, Start `999`, routed to `_on_build_wall_id`, so it needs no global id range);
-  `_wall_brush_color` / `_wall_brush_mat` brush state synced to the ticks by `_sync_build_wall_checks`;
   `_arm_wall_build` enters `Mode.WALL`, lights the strip's Wall radio via the new
   `tool_strip.reflect_mode`, and hides the menu; `_place_wall_at` stamps the brush colour + material
   onto each wall it lays (natural white / stone leave it plain, so the bare Wall tool is unchanged).
+- **UNIFIED wall brush 2026-08-24 (fix: sidebar wall picks now build).** Previously a separate
+  `_wall_brush_color`/`_wall_brush_mat` (set only by this configurator) fed `_place_wall_at`, while the
+  left Brush panel's Wall section set `_wall_color`/`_wall_mat` (which only recoloured an existing
+  wall/selection), so picking a wall colour+material in the sidebar did NOT change the wall you then
+  drew, unlike the floor brush. Unified onto `_wall_color`/`_wall_mat` for BOTH editing and building:
+  `_place_wall_at` and the configurator now read/write those, and the panel handlers
+  (`tool_strip._on_wall_material`/`_on_wall_color`) drop into `Mode.WALL` when nothing is selected, so a
+  sidebar pick lets you drag to build in that colour+material exactly like laying terrain (a wall
+  selection still edits in place). The configurator emits `brush_changed` so the panel stays in sync.
   The context menu's "Build Wall" is now a submenu (`_apply_menu_context`). Verified by
   `dev/test_menu_actions` (colour/material arm, Start -> Wall mode, placed wall carries the brush).
 - Note: the wall brush **persists** (the strip Wall button uses the last-configured brush too; defaults

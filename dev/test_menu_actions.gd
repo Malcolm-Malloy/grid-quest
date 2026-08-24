@@ -94,9 +94,9 @@ func _ready() -> void:
 
 	# --- Build Wall configurator: pick colour + material, Start arms Wall mode, placed walls carry them ---
 	fm._on_build_wall_id(2)   # WALL_COLORS[2] = Green
-	_check("build-wall: colour armed", fm._wall_brush_color == fm.WALL_COLORS[2][1])
+	_check("build-wall: colour armed", fm._wall_color == fm.WALL_COLORS[2][1])
 	fm._on_build_wall_id(101) # WALL_MATERIALS[1] = Wood
-	_check("build-wall: material armed", fm._wall_brush_mat == fm.WALL_MATERIALS[1][1])
+	_check("build-wall: material armed", fm._wall_mat == fm.WALL_MATERIALS[1][1])
 	fm._on_build_wall_id(999) # Start Building -> Wall mode
 	_check("build-wall: Start arms Wall mode", fm._mode == 4) # Mode.WALL
 	var bw := Vector2i(24, 20)
@@ -104,6 +104,16 @@ func _ready() -> void:
 	_check("build-wall: placed wall is blocked", obs.is_blocked(bw))
 	_check("build-wall: placed wall carries the brush colour", obs.get_wall_color(bw) == fm.WALL_COLORS[2][1])
 	_check("build-wall: placed wall carries the brush material", obs.get_wall_material(bw) == fm.WALL_MATERIALS[1][1])
+
+	# --- UNIFIED brush: arming a wall colour/material from the LEFT PANEL also builds with it (no wall
+	# selection, so arm_wall_* just set the brush), matching the floor flow ---
+	fm._clear_selection()
+	fm.arm_wall_color(fm.WALL_COLORS[1][1])       # Red, via the panel path
+	fm.arm_wall_material(fm.WALL_MATERIALS[2][1]) # Slate, via the panel path
+	var pw := Vector2i(26, 20)
+	fm._place_wall_at(_center(pw))
+	_check("panel brush: a wall built after a panel pick carries that colour", obs.get_wall_color(pw) == fm.WALL_COLORS[1][1])
+	_check("panel brush: a wall built after a panel pick carries that material", obs.get_wall_material(pw) == fm.WALL_MATERIALS[2][1])
 
 	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
 	get_tree().quit(_fails)

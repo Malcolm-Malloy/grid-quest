@@ -329,17 +329,24 @@ func _on_brush_color(cval: Color) -> void:
 		_select_mode(M_CELL)
 	fm.arm_floor_color(cval)
 
-# wall picks: with a wall selection active they EDIT it in place (arm_wall_* do the fill); otherwise they
-# just arm the wall tool. Walls don't use the Cell/Fine paint grain, so no mode switch is needed.
+# wall picks: with a wall selection active they EDIT it in place (arm_wall_* do the fill); with NO
+# selection, picking a wall material/colour means "I want to build with it", so drop into Wall mode (the
+# same _wall brush also stamps new walls now) - mirroring the floor brush dropping into Cell to paint.
 func _on_wall_material(mval: String) -> void:
 	var fm := get_node_or_null("../World/FloorManager")
-	if fm != null:
-		fm.arm_wall_material(mval)
+	if fm == null:
+		return
+	if not fm.has_wall_selection() and fm.mode() != M_WALL:
+		_select_mode(M_WALL)
+	fm.arm_wall_material(mval)
 
 func _on_wall_color(cval: Color) -> void:
 	var fm := get_node_or_null("../World/FloorManager")
-	if fm != null:
-		fm.arm_wall_color(cval)
+	if fm == null:
+		return
+	if not fm.has_wall_selection() and fm.mode() != M_WALL:
+		_select_mode(M_WALL)
+	fm.arm_wall_color(cval)
 
 func _edge_button(text: String, edge: String, mode: String) -> Button:
 	var b := Button.new()
