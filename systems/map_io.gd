@@ -8,7 +8,7 @@ extends Node
 # Maps live in user://maps/<name>.json (persistent, writable, cross-platform). Writes are
 # atomic (temp file, then rename) so a crash mid-save can't corrupt an existing map.
 
-const VERSION := 8 # v8: bridges (crossable decks over water); v7: per-quarter floor patterns; v6: per-cell wall materials; v5: per-quarter floor tints; v4: per-door authored open+swing; v3: per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
+const VERSION := 9 # v9: per-quarter liquid river-bank OFF flags; v8: bridges (crossable decks over water); v7: per-quarter floor patterns; v6: per-cell wall materials; v5: per-quarter floor tints; v4: per-door authored open+swing; v3: per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
 const DIR := "user://maps"
 const LAST_FILE := "user://last_map.txt" # remembers the map to reload on next launch
 
@@ -93,6 +93,10 @@ func serialize() -> Dictionary:
 	var floor_patterns: Array = []
 	for q in fm._quad_pattern:
 		floor_patterns.append([q.x, q.y, fm._quad_pattern[q]])
+	# per-quarter LIQUID river-bank OFF flags as [qx, qy]; sparse (only bank-suppressed liquid quarters)
+	var floor_no_bank: Array = []
+	for q in fm._quad_no_bank:
+		floor_no_bank.append([q.x, q.y])
 
 	return {
 		"version": VERSION,
@@ -106,6 +110,7 @@ func serialize() -> Dictionary:
 		"wall_materials": wall_materials,
 		"floor_tints": floor_tints,
 		"floor_patterns": floor_patterns,
+		"floor_no_bank": floor_no_bank,
 	}
 
 # apply a serialize()-shaped dict onto the live level without touching disk. Used by
@@ -165,6 +170,13 @@ func _apply(data: Dictionary, keep_player := false) -> void:
 	for a in data.get("floor_patterns", []):
 		fpat.append([int(a[0]), int(a[1]), int(a[2])])
 	fm.apply_patterns(fpat)
+
+	# 4a-pre2. liquid river-bank OFF flags (v9+). Set BEFORE apply_tints' final rebuild, like patterns.
+	# A pre-v9 map has no "floor_no_bank" key, so apply_no_bank([]) leaves every liquid with its bank on.
+	var nobank: Array = []
+	for a in data.get("floor_no_bank", []):
+		nobank.append([int(a[0]), int(a[1])])
+	fm.apply_no_bank(nobank)
 
 	# 4a. floor tints (v5+; runs after the materials above so the rebuild draws tints over them).
 	# A pre-v5 map has no "floor_tints" key, so apply_tints([]) just clears any stale tints.
@@ -308,5 +320,5 @@ func _blank_map() -> Dictionary:
 		"grid": {"width": w, "height": h},
 		"spawn": {"x": w * CELL / 2.0, "y": h * CELL / 2.0},
 		"walls": [], "doors": [], "quads": [], "wall_colors": [], "wall_materials": [], "floor_tints": [],
-		"floor_patterns": [],
+		"floor_patterns": [], "floor_no_bank": [],
 	}

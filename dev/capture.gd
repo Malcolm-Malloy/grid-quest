@@ -62,6 +62,13 @@ func _ready() -> void:
 			if fm:
 				fm.set_room_style(Vector2i(int(fp[0]), int(fp[1])), fp[2])
 
+	# GQ_BANK="0" turns the river-bank switch OFF before any liquid is painted below, so GQ_WATER /
+	# GQ_TERRAIN lay water/lava with no brown bank (default is on).
+	if OS.get_environment("GQ_BANK") == "0":
+		var fmbk := main.get_node_or_null("World/FloorManager")
+		if fmbk:
+			fmbk.set_bank_on(false)
+
 	# GQ_WATER="x,y;x,y;..." paints FULL-CELL water at each listed cell (all four quarters), then
 	# rebuilds, so the derived river-bank auto-edge can be seen (a brown walkable ring around the water).
 	# Frames the whole map unless GQ_WATER_NOFIT=1. e.g. GQ_WATER="20,10;21,10;22,10" draws a short river.

@@ -85,9 +85,9 @@ func _ready() -> void:
 	var node_count := get_tree().get_nodes_in_group("bridges").size()
 	_check("a bridge deck node spawns in group 'bridges'", node_count == 1)
 
-	# --- MapIO round-trips bridges at v8 (bridge_cells is now [30,15] from apply_map above) ---
+	# --- MapIO round-trips bridges (bridge_cells is now [30,15] from apply_map above) ---
 	var data: Dictionary = MapIO.serialize()
-	_check("serialize bumps VERSION to 8", int(data["version"]) == 8)
+	_check("serialize writes the current VERSION", int(data["version"]) == MapIO.VERSION)
 	_check("serialize writes the bridges section", data.has("bridges") and data["bridges"].size() == 1)
 	_check("serialized bridge keeps cell + orientation",
 		data["bridges"][0]["cell"] == [30, 15] and data["bridges"][0]["orientation"] == "vertical")

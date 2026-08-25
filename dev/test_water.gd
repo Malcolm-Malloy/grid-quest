@@ -126,9 +126,9 @@ func _ready() -> void:
 	fm._rebuild()
 	# neighbour LAND mask (N=1 E=2 S=4 W=8): the NW-corner quarter faces land N+W; a top-edge quarter
 	# faces land only N; a fully-surrounded interior quarter faces no land (mask 0 -> flat tiled tile).
-	_check("NW-corner water quarter mask = N|W (9)", fm._water_land_mask(Vector2i(60, 20)) == 9)
-	_check("top-edge water quarter mask = N (1)", fm._water_land_mask(Vector2i(61, 20)) == 1)
-	_check("interior water quarter mask = 0 (open water)", fm._water_land_mask(Vector2i(61, 21)) == 0)
+	_check("NW-corner water quarter mask = N|W (9)", fm._liquid_edge_mask(Vector2i(60, 20), "water") == 9)
+	_check("top-edge water quarter mask = N (1)", fm._liquid_edge_mask(Vector2i(61, 20), "water") == 1)
+	_check("interior water quarter mask = 0 (open water)", fm._liquid_edge_mask(Vector2i(61, 21), "water") == 0)
 	# atlas src rect for a mask indexes the 4x4 grid of 32px cells (m%4 across, m/4 down)
 	_check("shore src for mask 9 = cell (1,2)", fm._shore_src(9) == Rect2(32, 64, 32, 32))
 	# _rebuild emits, for the 12 edge quarters, a feathered shore tile (atlas src override) over a bank
