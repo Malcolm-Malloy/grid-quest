@@ -1356,6 +1356,19 @@ where each lands. Universal rule: **every graphic follows the top/front perspect
     tiles (they shimmer together); the brown bank underlay stays static. Purely visual: material +
     collision + save unchanged. Verified `dev/test_water.tscn` (dry = no animation; water fills flagged,
     wood not); eyeballed a pond showing the position-varying brightness wave.
+  - **As built: LAVA + river-bank SWITCH, 2026-08-25.** LAVA is a second impassable "liquid" that works
+    like water (feathered shoreline, shimmer, bank) but is its OWN material, so wooden bridges cannot be
+    built over it. The water shoreline generalised into a `LIQUID_SHORE` set `{water, lava}`; the mask
+    helper became `_liquid_edge_mask(q, mat)` / `_liquid_edge(nq, mat)`. New molten art
+    `floors/lava_{still,shore}.png`; registered in `textures`/`MENU`/`PATTERN_NAMES`/`IMPASSABLE`/
+    `BANK_AROUND`/`TERRAIN_RANK` (rank 99, like water). **Bridges refuse lava:** `_cell_liquid(cell)` tells
+    water from lava; `_place_bridge_at` refuses a lava cell, `_bridge_river_orientation` counts only water,
+    and the bridge hover shows a red (invalid) cursor with no deck over lava. **River bank is now a per-
+    body SWITCH** set before laying a liquid (a "River Bank" CheckButton in the Brush panel -> `_bank_on`):
+    quarters painted with it OFF go in `_quad_no_bank`, and both the derived ring and the shore underlay
+    skip them (the liquid then feathers straight into grass). Persisted via MapIO **VERSION 9**
+    (`floor_no_bank`); pre-v9 maps load fully banked. Verified `dev/test_lava.tscn` (21 checks); eyeballed
+    a molten lava pond beside water, and a bank-off pond with no brown ring.
 - **Bridges (cross a river, both directions). SLICE 1 BUILT 2026-08-23 (flat deck + auto-orient +
   passable-over-impassable + placement tool + save); richer deck art is a follow-up.** A crossable
   overlay over water, in **north-south and east-west** orientations. Introduces
