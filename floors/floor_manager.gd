@@ -289,6 +289,7 @@ var _door_preview: Node2D    # the lifted DOOR ghost (gate.gd in preview mode), 
 var _door_ghost_key := ""    # dedupe the door ghost by cell + orientation
 var _selection: Node2D       # marching-ants selection overlay (see selection_overlay.gd)
 var _mouse_inside := true    # false while the OS cursor is off the game window; hides all highlights
+var _ui_hid := false         # true while the cursor is over the editor menu/panels, so hover is cleared
 # Magic Wand selection state, so a repeat click on the same selection grows its scope:
 var _sel_kind := ""          # "" none, "floor" (quarters) or "wall" (cells)
 var _sel_quads := {}         # floor selection FILL set: quarter Vector2i (16px grid) -> true (incl. the
@@ -472,9 +473,28 @@ func _process(_delta: float) -> void:
 	if _walls_dirty:
 		_walls_dirty = false
 		_reapply_map()
+	# while the cursor is over the editor menu/panels, stand down: clear the hover once on entering the
+	# menu and keep it hidden, so no paint cursor / preview / select highlight shows over the UI.
+	if _pointer_over_ui():
+		if not _ui_hid:
+			_ui_hid = true
+			_reset_highlight()
+			_restore_faded()
+		return
+	elif _ui_hid:
+		_ui_hid = false
 	_update_hover()
 
+# true when a GUI Control (the tool strip, inspector, save menu, a popup, ...) is under the cursor, so
+# map editing/preview must stand down. Respects each Control's mouse_filter (IGNORE controls don't count).
+func _pointer_over_ui() -> bool:
+	return get_viewport().gui_get_hovered_control() != null
+
 func _unhandled_input(event: InputEvent) -> void:
+	# a mouse PRESS that starts over the editor menu/panels is not a map action (paint, any select, or the
+	# right-click menu): the GUI owns it. Motion/release still pass so a drag begun on the map can finish.
+	if event is InputEventMouseButton and event.pressed and _pointer_over_ui():
+		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 		var local := get_local_mouse_position()
 		var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))

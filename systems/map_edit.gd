@@ -90,6 +90,233 @@ func shrink(edge: String) -> bool:
 	print("MapEdit: shrank %s -> %dx%d" % [edge, nw, nh])
 	return true
 
+# --- single-cell edge editing (jagged / non-square maps, the cell-existence model) ---
+# These enable NON-SQUARE maps: instead of whole-row/column grow/shrink, add or remove ONE perimeter
+# cell. The map stays a bounding box (grid_width x grid_height) minus a sparse `absent_cells` set of
+# holes (see GridBackground). Both ops are pure transforms on the serialized dict re-applied through
+# MapIO, so they undo/redo and persist like every other edit.
+
+# add one cell at the map edge; returns success. A single add is ITS OWN undo entry. For a DRAG that
+# lays several cells, the tool calls add_cell_applied() per cell and commits once (see below).
+func add_cell(cell: Vector2i) -> bool:
+	if add_cell_applied(cell):
+		EditHistory.commit("add cell")
+		return true
+	return false
+
+# add one cell and apply it to the live map, but do NOT commit an undo entry (so a drag can add many
+# cells and commit ONCE on release, matching the paint-stroke "one gesture = one undo entry" rule).
+# Returns whether the map actually changed. Two cases:
+#  - a HOLE inside the box (an absent cell): fill it back in.
+#  - a cell one step BEYOND exactly one edge: grow the box to include it, leaving the REST of the new
+#    row/column absent, so only this one cell is added (a spur). This is what makes maps non-square.
+# The new cell copies the terrain of its inward neighbour, matching the row/column grow behaviour.
+func add_cell_applied(cell: Vector2i) -> bool:
+	var d := MapIO.serialize()
+	var w := int(d["grid"]["width"])
+	var h := int(d["grid"]["height"])
+	# case 1: an existing hole inside the box -> just un-absent it
+	if cell.x >= 0 and cell.x < w and cell.y >= 0 and cell.y < h:
+		var absent_in := _absent_set(d)
+		if not absent_in.has(cell):
+			return false # already present, nothing to add
+		absent_in.erase(cell)
+		d["absent_cells"] = _absent_list(absent_in)
+		var src := _copy_source(absent_in, cell, w, h)
+		if src != _NONE:
+			_copy_cell_terrain(d, cell, src)
+		MapIO.apply_serialized(d)
+		return true
+	# case 2: one step beyond exactly one edge -> grow the box, keep only this cell present
+	var edge := _beyond_edge(cell, w, h)
+	if edge == "":
+		return false # not an addable perimeter cell (too far out, or a diagonal corner)
+	var dx := 0
+	var dy := 0
+	var nw := w
+	var nh := h
+	match edge:
+		"top": dy = 1; nh = h + 1
+		"bottom": nh = h + 1
+		"left": dx = 1; nw = w + 1
+		"right": nw = w + 1
+	d = _shift(d, dx, dy, nw, nh)
+	var target := Vector2i(cell.x + dx, cell.y + dy) # target in the new (possibly shifted) coords
+	var absent_out := _absent_set(d)
+	# mark the whole fresh row/column absent, then carve out the one added cell
+	if edge == "left" or edge == "right":
+		var col := 0 if edge == "left" else nw - 1
+		for j in range(nh):
+			absent_out[Vector2i(col, j)] = true
+	else:
+		var row := 0 if edge == "top" else nh - 1
+		for i in range(nw):
+			absent_out[Vector2i(i, row)] = true
+	absent_out.erase(target)
+	d["absent_cells"] = _absent_list(absent_out)
+	var src2 := _copy_source(absent_out, target, nw, nh)
+	if src2 != _NONE:
+		_copy_cell_terrain(d, target, src2)
+	MapIO.apply_serialized(d)
+	return true
+
+# remove one present cell, deleting whatever sat on it (paint, walls, doors, objects) in the same
+# action, so Ctrl+Z restores the cell and its contents together. Marks the cell absent (a hole);
+# returns success. Never removes the last remaining cell.
+func remove_cell(cell: Vector2i) -> bool:
+	var d := MapIO.serialize()
+	var w := int(d["grid"]["width"])
+	var h := int(d["grid"]["height"])
+	var absent := _absent_set(d)
+	var in_box := cell.x >= 0 and cell.x < w and cell.y >= 0 and cell.y < h
+	if not in_box or absent.has(cell):
+		return false # not a present cell
+	if (w * h) - absent.size() <= 1:
+		return false # would empty the map
+	absent[cell] = true
+	d["absent_cells"] = _absent_list(absent)
+	_strip_cell(d, cell) # delete walls/doors/floors/objects sitting on the removed cell
+	_relocate_spawn_if_on(d, cell, absent, w, h) # keep the player off the new hole
+	MapIO.apply_serialized(d)
+	EditHistory.commit("remove cell")
+	print("MapEdit: removed cell %s (hole)" % cell)
+	return true
+
+# true if add_cell(cell) would succeed, without mutating (drives the hover highlight). A cell is
+# addable when it is a hole inside the box with a present neighbour, or one step beyond exactly one edge.
+func can_add_cell(cell: Vector2i) -> bool:
+	var gb = _grid_bg()
+	if gb == null:
+		return false
+	var w: int = gb.grid_width
+	var h: int = gb.grid_height
+	if cell.x >= 0 and cell.x < w and cell.y >= 0 and cell.y < h:
+		if gb.cell_present(cell.x, cell.y):
+			return false # already there
+		return _copy_source(_absent_from_grid(gb), cell, w, h) != _NONE # a hole with a present neighbour
+	return _beyond_edge(cell, w, h) != ""
+
+# true if remove_cell(cell) would succeed, without mutating.
+func can_remove_cell(cell: Vector2i) -> bool:
+	var gb = _grid_bg()
+	if gb == null:
+		return false
+	var w: int = gb.grid_width
+	var h: int = gb.grid_height
+	if not gb.cell_present(cell.x, cell.y):
+		return false
+	return (w * h) - gb.absent_cells.size() > 1 # never the last present cell
+
+# --- single-cell helpers ---
+
+const _NONE := Vector2i(-2147483648, -2147483648) # "no cell" sentinel for _copy_source
+
+# the live GridBackground (via the obstacles group, like MapIO finds the world), or null.
+func _grid_bg():
+	var obs = get_tree().get_first_node_in_group("obstacles")
+	var w = obs.get_parent() if obs else null
+	return w.get_node_or_null("GridBackground") if w else null
+
+func _absent_from_grid(gb) -> Dictionary:
+	return gb.absent_cells
+
+func _absent_set(d: Dictionary) -> Dictionary:
+	var s := {}
+	for a in d.get("absent_cells", []):
+		s[Vector2i(int(a[0]), int(a[1]))] = true
+	return s
+
+func _absent_list(s: Dictionary) -> Array:
+	var out: Array = []
+	for c in s:
+		out.append([c.x, c.y])
+	return out
+
+# the edge a cell lies just beyond (one step out, in-range on the other axis), or "" if it is not a
+# valid single perimeter add (inside the box, too far out, or a diagonal past a corner).
+func _beyond_edge(cell: Vector2i, w: int, h: int) -> String:
+	if cell.x == -1 and cell.y >= 0 and cell.y < h:
+		return "left"
+	if cell.x == w and cell.y >= 0 and cell.y < h:
+		return "right"
+	if cell.y == -1 and cell.x >= 0 and cell.x < w:
+		return "top"
+	if cell.y == h and cell.x >= 0 and cell.x < w:
+		return "bottom"
+	return ""
+
+# a present orthogonal neighbour to copy terrain from (prefers the interior), or _NONE if isolated.
+func _copy_source(absent: Dictionary, cell: Vector2i, w: int, h: int) -> Vector2i:
+	for n in [Vector2i(cell.x - 1, cell.y), Vector2i(cell.x + 1, cell.y),
+			Vector2i(cell.x, cell.y - 1), Vector2i(cell.x, cell.y + 1)]:
+		if n.x >= 0 and n.x < w and n.y >= 0 and n.y < h and not absent.has(n):
+			return n
+	return _NONE
+
+# copy the four floor quarters of `src` onto `dst` (terrain only, like _copy_edge_terrain does for a
+# whole grown row/column). Only quarters that actually carry a material are copied; grass copies nothing.
+func _copy_cell_terrain(d: Dictionary, dst: Vector2i, src: Vector2i) -> void:
+	var have := {}
+	for a in d["quads"]:
+		have[Vector2i(int(a[0]), int(a[1]))] = a[2]
+	for oy in [0, 1]:
+		for ox in [0, 1]:
+			var sq := Vector2i(src.x * 2 + ox, src.y * 2 + oy)
+			if have.has(sq):
+				d["quads"].append([dst.x * 2 + ox, dst.y * 2 + oy, have[sq]])
+
+# strip everything sitting on `cell` from the dict (its removal is part of the same undo entry).
+func _strip_cell(d: Dictionary, cell: Vector2i) -> void:
+	d["walls"] = _filter_cells(d.get("walls", []), cell)
+	d["wall_colors"] = _filter_cells(d.get("wall_colors", []), cell)
+	d["wall_materials"] = _filter_cells(d.get("wall_materials", []), cell)
+	d["doors"] = _filter_door_cells(d.get("doors", []), cell)
+	d["bridges"] = _filter_door_cells(d.get("bridges", []), cell)
+	d["quads"] = _filter_quarters(d.get("quads", []), cell)
+	d["floor_tints"] = _filter_quarters(d.get("floor_tints", []), cell)
+	d["floor_patterns"] = _filter_quarters(d.get("floor_patterns", []), cell)
+	d["floor_no_bank"] = _filter_quarters(d.get("floor_no_bank", []), cell)
+
+# drop [cx, cy, ...] rows on `cell`
+func _filter_cells(rows: Array, cell: Vector2i) -> Array:
+	var out: Array = []
+	for a in rows:
+		if not (int(a[0]) == cell.x and int(a[1]) == cell.y):
+			out.append(a)
+	return out
+
+# drop {cell:[cx,cy], ...} records on `cell` (doors, bridges)
+func _filter_door_cells(rows: Array, cell: Vector2i) -> Array:
+	var out: Array = []
+	for r in rows:
+		if not (int(r["cell"][0]) == cell.x and int(r["cell"][1]) == cell.y):
+			out.append(r)
+	return out
+
+# drop [qx, qy, ...] quarter rows whose cell is `cell` (the 2x2 quarters under it)
+func _filter_quarters(rows: Array, cell: Vector2i) -> Array:
+	var out: Array = []
+	for a in rows:
+		var qc := Vector2i(int(a[0]) / 2, int(a[1]) / 2)
+		if qc != cell:
+			out.append(a)
+	return out
+
+# if the player's spawn sits on the just-removed cell, move it to a present cell so a reload/undo
+# never lands the player on the void.
+func _relocate_spawn_if_on(d: Dictionary, cell: Vector2i, absent: Dictionary, w: int, h: int) -> void:
+	var sx := float(d["spawn"]["x"])
+	var sy := float(d["spawn"]["y"])
+	var scell := Vector2i(floori(sx / CELL), floori(sy / CELL))
+	if scell != cell:
+		return
+	for y in range(h):
+		for x in range(w):
+			var c := Vector2i(x, y)
+			if not absent.has(c):
+				d["spawn"] = {"x": c.x * CELL + CELL / 2.0, "y": c.y * CELL + CELL / 2.0}
+				return
+
 # --- transform: shift every store by (dx, dy) cells, resize to (nw, nh), clip out-of-range ---
 
 func _shift(d: Dictionary, dx: int, dy: int, nw: int, nh: int) -> Dictionary:
@@ -118,7 +345,9 @@ func _shift(d: Dictionary, dx: int, dy: int, nw: int, nh: int) -> Dictionary:
 		var x := int(dr["cell"][0]) + dx
 		var y := int(dr["cell"][1]) + dy
 		if _in_cells(x, y, nw, nh):
-			doors.append({"cell": [x, y], "orientation": dr["orientation"]})
+			# carry the authored open/swing through the resize too (they were being dropped before)
+			doors.append({"cell": [x, y], "orientation": dr["orientation"],
+				"open": dr.get("open", false), "swing": dr.get("swing", false)})
 	out["doors"] = doors
 
 	# floors are on the 16px quarter grid, so a cell shift is a two-quarter shift
@@ -137,6 +366,58 @@ func _shift(d: Dictionary, dx: int, dy: int, nw: int, nh: int) -> Dictionary:
 		if _in_cells(x, y, nw, nh):
 			wcols.append([x, y, a[2], a[3], a[4]])
 	out["wall_colors"] = wcols
+
+	# cell-existence holes shift with the map and clip to the new bounds, exactly like the walls above,
+	# so a jagged map keeps its shape through a row/column resize (the removed band's holes drop away).
+	var absent: Array = []
+	for a in d.get("absent_cells", []):
+		var x := int(a[0]) + dx
+		var y := int(a[1]) + dy
+		if _in_cells(x, y, nw, nh):
+			absent.append([x, y])
+	out["absent_cells"] = absent
+
+	# carry through the remaining stores untouched by geometry (materials, tints, patterns, bank flags,
+	# bridges), each shifted/clipped like their siblings so a resize never leaves one behind.
+	var wmats: Array = []
+	for a in d.get("wall_materials", []):
+		var x := int(a[0]) + dx
+		var y := int(a[1]) + dy
+		if _in_cells(x, y, nw, nh):
+			wmats.append([x, y, a[2]])
+	out["wall_materials"] = wmats
+
+	var ftints: Array = []
+	for a in d.get("floor_tints", []):
+		var qx := int(a[0]) + dx * 2
+		var qy := int(a[1]) + dy * 2
+		if qx >= 0 and qy >= 0 and qx < nw * 2 and qy < nh * 2:
+			ftints.append([qx, qy, a[2], a[3], a[4]])
+	out["floor_tints"] = ftints
+
+	var fpat: Array = []
+	for a in d.get("floor_patterns", []):
+		var qx := int(a[0]) + dx * 2
+		var qy := int(a[1]) + dy * 2
+		if qx >= 0 and qy >= 0 and qx < nw * 2 and qy < nh * 2:
+			fpat.append([qx, qy, a[2]])
+	out["floor_patterns"] = fpat
+
+	var nobank: Array = []
+	for a in d.get("floor_no_bank", []):
+		var qx := int(a[0]) + dx * 2
+		var qy := int(a[1]) + dy * 2
+		if qx >= 0 and qy >= 0 and qx < nw * 2 and qy < nh * 2:
+			nobank.append([qx, qy])
+	out["floor_no_bank"] = nobank
+
+	var brs: Array = []
+	for b in d.get("bridges", []):
+		var x := int(b["cell"][0]) + dx
+		var y := int(b["cell"][1]) + dy
+		if _in_cells(x, y, nw, nh):
+			brs.append({"cell": [x, y], "orientation": b["orientation"]})
+	out["bridges"] = brs
 
 	return out
 

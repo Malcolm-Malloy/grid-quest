@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://c7uiguard4prb"]
+
+[ext_resource type="Script" path="res://dev/test_ui_guard.gd" id="1"]
+
+[node name="TestUIGuard" type="Node"]
+script = ExtResource("1")

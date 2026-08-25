@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://d2krawm3ncell"]
+
+[ext_resource type="Script" path="res://dev/test_cell_existence.gd" id="1"]
+
+[node name="TestCellExistence" type="Node"]
+script = ExtResource("1")

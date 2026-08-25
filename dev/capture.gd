@@ -42,6 +42,49 @@ func _ready() -> void:
 					MapEdit.shrink(parts[1])
 		await get_tree().process_frame
 
+	# GQ_CELLEDIT="add:x,y;remove:x,y;..." drives MapEdit's single-cell edge editing (jagged maps) so the
+	# cell-existence model can be seen: add makes a spur/fills a hole, remove punches a hole. Runs after
+	# GQ_RESIZE. Frames the whole map unless GQ_CELLEDIT_NOFIT=1.
+	var celledit := OS.get_environment("GQ_CELLEDIT")
+	if celledit != "":
+		for op in celledit.split(";", false):
+			var parts := op.split(":")
+			if parts.size() == 2:
+				var xy := parts[1].split(",")
+				if xy.size() == 2:
+					var c := Vector2i(int(xy[0]), int(xy[1]))
+					if parts[0] == "add":
+						MapEdit.add_cell(c)
+					elif parts[0] == "remove":
+						MapEdit.remove_cell(c)
+		await get_tree().process_frame
+		if OS.get_environment("GQ_CELLEDIT_NOFIT") != "1":
+			var camce := main.get_node_or_null("Camera2D")
+			if camce and camce.has_method("fit_map"):
+				camce.fit_map()
+
+	# GQ_SIZEHOVER="x,y" shows the single-cell edge-add GREEN highlight on cell (x,y): puts the editor in
+	# Cell mode, turns the Map Size tool on, and draws the highlight the tool shows on hover. It calls
+	# EdgeHighlight.show_cell directly (not via a mouse warp, which is unreliable in this windowed capture)
+	# so the highlight lands DETERMINISTICALLY on the requested perimeter/hole cell. Frames whole map unless
+	# GQ_SIZEHOVER_NOFIT=1. Verifies show_cell's geometry; the mouse-driven path itself is covered by tests.
+	var sizehover := OS.get_environment("GQ_SIZEHOVER")
+	if sizehover != "":
+		var sh := sizehover.split(",")
+		if sh.size() == 2:
+			var fmsh := main.get_node_or_null("World/FloorManager")
+			var mst := main.get_node_or_null("World/MapSizeTool")
+			var eh := main.get_node_or_null("World/EdgeHighlight")
+			var camsh := main.get_node_or_null("Camera2D")
+			if fmsh and mst and eh:
+				fmsh.set_mode(1) # Mode.CELL -> single-cell grain
+				mst.active = false # stop _process from clearing/overwriting our explicit highlight each frame
+				if OS.get_environment("GQ_SIZEHOVER_NOFIT") != "1" and camsh and camsh.has_method("fit_map"):
+					camsh.fit_map()
+				await get_tree().process_frame
+				eh.show_cell(Vector2i(int(sh[0]), int(sh[1])), "add")
+				await get_tree().process_frame
+
 	var pos := OS.get_environment("GQ_POS")
 	if pos != "":
 		var parts := pos.split(",")

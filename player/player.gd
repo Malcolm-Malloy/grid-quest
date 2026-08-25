@@ -24,6 +24,9 @@ const SIDE_FRAMES := [
 var is_moving := false
 var target_position := Vector2.ZERO
 var facing := "down"
+# what the character carries; persisted by CharacterIO. Empty until the item/pickup system lands
+# (ROADMAP Phase B item 10); keys will live here so locked doors (item 11) can check it.
+var inventory: Array = []
 var frame_index := 0
 var in_shadow := false
 var shadow_scale := 1.0 # 1 outdoors; shrinks to a third indoors (softer indoor light)
@@ -160,8 +163,10 @@ func _physics_process(delta: float) -> void:
 			var min_pos: Vector2 = grid_bg.min_walkable_position()
 			var max_pos: Vector2 = grid_bg.max_walkable_position()
 			var in_bounds := new_target.x >= min_pos.x and new_target.x <= max_pos.x and new_target.y >= min_pos.y and new_target.y <= max_pos.y
-			if in_bounds:
-				var cell := Vector2i(floori(new_target.x / CELL_SIZE), floori(new_target.y / CELL_SIZE))
+			var cell := Vector2i(floori(new_target.x / CELL_SIZE), floori(new_target.y / CELL_SIZE))
+			# a jagged map has holes: the target cell must actually exist (in-box and not absent), else the
+			# coarse box clamp above would let the player step onto void where a single edge cell was removed.
+			if in_bounds and grid_bg.cell_present(cell.x, cell.y):
 				# blocked by a wall/gate (is_blocked) OR by an impassable floor (water). Kept as two
 				# separate checks so is_blocked stays "is a wall" for the editor; floors block here.
 				# A bridge re-enables crossing on the water cell it covers (passable-over-impassable).
