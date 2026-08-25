@@ -2233,6 +2233,16 @@ Built exactly per the spec above. Touched: `floors/terrain_preview.gd` (new), `f
   bottom of the cell and a contact shadow (the tile reads as lifted, exactly as specced). The drop
   tween reuses the same verified draw path. Not captured mid-drop (a sub-frame tween).
 
+**As-built (2026-08-24): Wall + Door hover-drop previews.** WALL/DOOR mode showed only a green target
+cursor; both now also float a translucent GHOST of exactly what a click would place, like the bridge deck
+preview. Walls: `obstacles.preview_wall_configs(cell)` runs the SAME per-cell shaping as `build_world` so
+the ghost is the real horizontal/vertical/corner/T/cross shape, in the armed colour+material (fences
+included), via a reused 2-node pool of `wall_segment`s in a new `preview` mode. Doors: a `gate.gd` in
+`preview` mode, auto-oriented to the wall run under the cursor exactly like `_place_door_at`
+(`wall_run_orientation`, else the R-flippable default). Both reuse the REAL renderer (lifted + translucent,
+not in the walls/gates groups, no shadow), so the preview matches placement pixel-for-pixel. Verified
+`dev/test_wall_preview.tscn` + `dev/test_door_preview.tscn`; capture hooks `GQ_WALLHOVER` / `GQ_DOORHOVER`.
+
 ## Wall editing and outside reclassification (logged 2026-08-16, Phase A + analysis)
 The user wants to add and remove wall pieces in Cell Mode. Removing a perimeter wall that exposes a
 room to the outside makes that room "become outside". **Analysis of what this affects (good news:
