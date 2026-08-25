@@ -269,6 +269,8 @@ const WallSegmentScript := preload("res://world/wall_segment.gd")
 var _wall_ghost: Array = []  # up to 2 reused translucent wall_segments: the shape a WALL-mode click would
 							 # place (horizontal/vertical/corner/T/cross), in the armed wall colour+material
 var _wall_ghost_key := ""    # dedupe: cell + colour + material + piece-count, so the ghost only re-configs on change
+var _door_preview: Node2D    # the lifted DOOR ghost (gate.gd in preview mode), DOOR mode only
+var _door_ghost_key := ""    # dedupe the door ghost by cell + orientation
 var _selection: Node2D       # marching-ants selection overlay (see selection_overlay.gd)
 var _mouse_inside := true    # false while the OS cursor is off the game window; hides all highlights
 # Magic Wand selection state, so a repeat click on the same selection grows its scope:
@@ -414,6 +416,13 @@ func _ready() -> void:
 		wp.visible = false
 		add_child(wp)
 		_wall_ghost.append(wp)
+	# Door placement ghost: gate.gd in preview mode, auto-oriented to the wall run under the cursor,
+	# shown on DOOR-mode hover (mirrors the wall ghost + bridge deck preview).
+	_door_preview = Node2D.new()
+	_door_preview.set_script(load("res://world/gate.gd"))
+	_door_preview.preview = true
+	_door_preview.visible = false
+	add_child(_door_preview)
 	# when the cursor leaves the game window, drop every highlight (ROADMAP "Terrain placement UX":
 	# cursor off screen clears all highlights); restore tracking when it returns
 	get_window().mouse_exited.connect(_on_window_mouse_exited)
@@ -1257,6 +1266,7 @@ func _reset_highlight() -> void:
 	if _bridge_preview != null:
 		_bridge_preview.visible = false
 	_hide_wall_ghost()
+	_hide_door_ghost()
 
 # --- reference grid toggle ---
 
@@ -1848,16 +1858,45 @@ func _update_structure_placement_hover(cell: Vector2i) -> void:
 	if not _in_bounds(cell):
 		_cursor.hide_cursor()
 		_hide_wall_ghost()
+		_hide_door_ghost()
 		return
 	_cursor.set_role(PaintCursor.Role.ADD) # green: placing a wall/door is additive
 	_cursor.show_rect(Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL))
-	# WALL mode: also float the REAL shape a click would place (horizontal/vertical/corner/T/cross), in the
-	# armed colour+material, like the bridge deck preview. Only over an empty cell (an occupied cell no-ops).
+	# Also float the REAL thing a click would place, like the bridge deck preview. WALL: the wall shape
+	# (horizontal/vertical/corner/T/cross) in the armed colour+material, over an empty cell. DOOR: the
+	# closed door, auto-oriented to the wall run it would bridge.
 	var obs = get_node_or_null("../Obstacles")
 	if _mode == Mode.WALL and obs != null and not obs.is_blocked(cell):
 		_show_wall_ghost(cell)
+		_hide_door_ghost()
+	elif _mode == Mode.DOOR and obs != null:
+		_hide_wall_ghost()
+		_show_door_ghost(cell, obs)
 	else:
 		_hide_wall_ghost()
+		_hide_door_ghost()
+
+# configure + show the door ghost for `cell`: auto-orient exactly like _place_door_at (the wall run it
+# bridges, else the R-flippable default), positioned at the cell centre, drawn closed + translucent.
+func _show_door_ghost(cell: Vector2i, obs) -> void:
+	if _door_preview == null:
+		return
+	var orient: String = obs.wall_run_orientation(cell)
+	if orient == "":
+		orient = _door_orient
+	var key := "%s|%s" % [cell, orient]
+	if key == _door_ghost_key and _door_preview.visible:
+		return
+	_door_ghost_key = key
+	_door_preview.set_preview_orientation(orient)
+	_door_preview.position = Vector2(cell.x * CELL + CELL / 2.0, cell.y * CELL + CELL / 2.0)
+	_door_preview.visible = true
+
+func _hide_door_ghost() -> void:
+	if _door_preview == null or not _door_preview.visible:
+		return
+	_door_ghost_key = ""
+	_door_preview.visible = false
 
 # configure + show the wall placement ghost for `cell`: obstacles computes the piece config(s) the cell
 # would get (same shaping as build_world), which we apply to the reused preview wall_segments, carrying

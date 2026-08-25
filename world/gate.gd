@@ -8,11 +8,20 @@ const FRONT_SPLIT_ROW := 49 # texture rows below this are the front (bottom) pos
 const BACK_LIFT := 8.0 # how far up (in y) the back layer sits, so y-sort puts it behind the player
 const SHADOW_CAST := 12.0 # 45-degree shadow smear length; must match obstacles.SHADOW_CAST
 const POST_W := 5.0 # horizontal-gate post thickness for its shadow
+# closed-door textures for the DOOR-mode hover GHOST (see FloorManager), preloaded so preview_orientation
+# can swap them as the door auto-orients under the cursor.
+const CLOSED_H := preload("res://world/gate_closed.png")
+const CLOSED_V := preload("res://world/gate_vertical_closed.png")
 
 # "horizontal": embedded in a horizontal fence, walked through top-to-bottom.
 # "vertical": embedded in a vertical fence, walked through left-to-right.
 # more orientations/styles can be added the same way as the gate roster grows.
 var orientation := "horizontal"
+
+# preview mode: a lifted, translucent GHOST of the closed door a DOOR-mode click would place, auto-oriented
+# to the wall run under the cursor (see FloorManager). Draws only the CLOSED door (no back layer, no
+# shadow, not in the "gates" group build_world frees). Set true BEFORE add_child so _ready sees it.
+var preview := false
 
 var cell: Vector2i
 var is_open := false
@@ -36,6 +45,11 @@ var back_layer: Node2D # vertical gates only: draws the back post + door behind 
 
 func _ready() -> void:
 	texture_filter = TEXTURE_FILTER_NEAREST
+	if preview:
+		z_index = 1150 # lifted above the paint cursor (1000) / wall ghost (1100) so it reads as floating
+		modulate.a = 0.6
+		set_preview_orientation(orientation) # load the matching closed texture
+		return
 	visibility_layer |= FloorHighlightMask.MASK_BIT # occlude the floor-highlight mask
 	add_to_group("gates")
 	# VERTICAL gates overlap the wall above/below in their own column, so they need
@@ -54,6 +68,13 @@ func _ready() -> void:
 		open_texture = preload("res://world/gate_open.png")
 		open_texture_north = preload("res://world/gate_open_north.png")
 	refresh_shadow.call_deferred() # draw once this gate is in the tree/group
+	queue_redraw()
+
+# ghost only: point the preview door at orientation `o`, loading the matching CLOSED texture, then redraw.
+# Called by FloorManager as the door auto-orients to the wall run under the cursor.
+func set_preview_orientation(o: String) -> void:
+	orientation = o
+	closed_texture = CLOSED_V if o == "vertical" else CLOSED_H
 	queue_redraw()
 
 func spawn_back_layer() -> void:

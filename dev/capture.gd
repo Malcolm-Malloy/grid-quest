@@ -234,22 +234,45 @@ func _ready() -> void:
 	var wallhover := OS.get_environment("GQ_WALLHOVER")
 	if wallhover != "":
 		var fmwh := main.get_node_or_null("World/FloorManager")
-		if fmwh:
+		var camwh := main.get_node_or_null("Camera2D")
+		if fmwh and camwh:
 			var p := wallhover.split(",")
 			if p.size() >= 2:
 				var cell := Vector2i(int(p[0]), int(p[1]))
-				fmwh.set_mode(4) # Mode.WALL (resets the highlight; the hover call below re-shows the ghost)
+				fmwh.set_mode(4) # Mode.WALL
 				if p.size() >= 3 and p[2] != "":
 					fmwh.arm_wall_material(p[2])
 				if p.size() >= 4 and p[3] != "":
 					fmwh.arm_wall_color(Color.html(p[3]))
+				if OS.get_environment("GQ_WALLHOVER_NOFIT") != "1" and camwh.has_method("fit_map"):
+					camwh.fit_map()
 				await get_tree().process_frame
+				# freeze the per-frame hover (as if the cursor left the window) so it can't clobber this
+				# explicit ghost with the real mouse position, then show the ghost for the requested cell
+				fmwh._mouse_inside = false
 				fmwh._update_structure_placement_hover(cell)
 				await get_tree().process_frame
-				if OS.get_environment("GQ_WALLHOVER_NOFIT") != "1":
-					var camwh := main.get_node_or_null("Camera2D")
-					if camwh and camwh.has_method("fit_map"):
-						camwh.fit_map()
+
+	# GQ_DOORHOVER="x,y" shows the DOOR-mode placement GHOST over cell x,y (the closed door auto-oriented
+	# to the wall run it would bridge), so the door hover-drop can be verified. Pair with GQ_STRUCT to
+	# build the surrounding walls first. Frames whole map unless GQ_DOORHOVER_NOFIT=1.
+	var doorhover := OS.get_environment("GQ_DOORHOVER")
+	if doorhover != "":
+		var fmdh := main.get_node_or_null("World/FloorManager")
+		var camdh := main.get_node_or_null("Camera2D")
+		if fmdh and camdh:
+			var dp := doorhover.split(",")
+			if dp.size() >= 2:
+				var cell := Vector2i(int(dp[0]), int(dp[1]))
+				fmdh.set_mode(5) # Mode.DOOR
+				if OS.get_environment("GQ_DOORHOVER_NOFIT") != "1" and camdh.has_method("fit_map"):
+					camdh.fit_map()
+				await get_tree().process_frame
+				# freeze the per-frame hover (as if the cursor left the window) so it can't clobber this
+				# explicit ghost with the real mouse position, then show the ghost for the requested cell
+				fmdh._mouse_inside = false
+				fmdh._update_structure_placement_hover(cell)
+				await get_tree().process_frame
 
 	# GQ_BRIDGE="x,y;x,y;..." drops a crossable bridge on each cell via the real _place_bridge_at path
 	# (mode set + world-pixel click), so the deck render + water auto-orient can be verified. Pair with
