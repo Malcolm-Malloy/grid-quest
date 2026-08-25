@@ -78,9 +78,11 @@ var textures := {
 	# via the shared edge autotile (see TERRAIN_RANK / EDGE_ATLAS below), so grass/sand/snow blend.
 	"sand": [preload("res://floors/sand.png")],
 	"snow": [preload("res://floors/snow.png")],
-	# water is the first IMPASSABLE floor (see IMPASSABLE below): a still, blue, tintable tile. Slice 1
-	# ships STILL + flat (no shoreline autotile, no flow animation) per the locked water spec.
+	# water + lava are the IMPASSABLE "liquids" (see IMPASSABLE / LIQUID_SHORE): still, tintable tiles that
+	# shimmer and grow a feathered shore. Lava works just like water but is its OWN material, so wooden
+	# bridges cannot be built over it (see _place_bridge_at).
 	"water": [preload("res://floors/water_still.png")],
+	"lava": [preload("res://floors/lava_still.png")],
 }
 # human names for each material's pattern variants, aligned by index with `textures`. Drives the
 # per-material Pattern submenu (rebuilt per right-click from the clicked quarter's material).
@@ -93,6 +95,7 @@ const PATTERN_NAMES := {
 	"sand": ["Sand"],
 	"snow": ["Snow"],
 	"water": ["Still"],
+	"lava": ["Still"],
 }
 # the grass base, so a quarter that carries a floor TINT but no material still draws (a tinted
 # patch of grass): _rebuild emits it as a tinted grass fill. Matches grid_background/shadow_manager.
@@ -101,13 +104,13 @@ const GRASS := preload("res://world/ground_grass.png")
 # popup id -> [label, material]; "" is the grass base (the eraser)
 const MENU := [
 	["Grass", "grass"], ["Wood", "wood"], ["Concrete", "concrete"], ["Tile", "tile"], ["Carpet", "carpet"],
-	["Sand", "sand"], ["Snow", "snow"], ["Water", "water"],
+	["Sand", "sand"], ["Snow", "snow"], ["Water", "water"], ["Lava", "lava"],
 ]
 
 # floor materials that BLOCK the player. Today only walls/gates block (obstacles.is_blocked, which
 # every editor tool reads as "is a wall"); water is the first FLOOR that blocks, so the check lives
 # here (is_cell_impassable) and is consulted separately by the player, NOT folded into is_blocked.
-const IMPASSABLE := {"water": true}
+const IMPASSABLE := {"water": true, "lava": true}
 
 # River-bank auto-edge: the surrounding tile-quarters of water auto-render a brown, WALKABLE bank
 # texture that outlines every body of water regardless of the neighbouring terrain. It is DERIVED
@@ -115,7 +118,10 @@ const IMPASSABLE := {"water": true}
 # (is_cell_impassable only counts _quad_mat water quarters, so a bank quarter never blocks). The
 # first concrete case of the Ground-layer phase-2 auto-matching / better-edging system.
 const RIVER_BANK := preload("res://floors/river_bank.png")
-const BANK_AROUND := {"water": true} # materials whose non-matching quarter-neighbours become bank
+const BANK_AROUND := {"water": true, "lava": true} # materials whose non-matching quarter-neighbours become bank
+# The river bank is now a per-body SWITCH (set before laying a liquid): a liquid quarter painted with the
+# bank OFF is recorded in _quad_no_bank, and both the derived ring (_bank_quads) and the shore underlay
+# skip it, so that body has no brown bank. Default ON, matching older maps (no _quad_no_bank entries).
 
 # Shoreline autotile (feathered beach): a water quarter that touches LAND on an orthogonal side draws
 # a per-configuration variant whose blue feathers into a wavy, foam-fringed transparent edge, so a body
@@ -125,7 +131,11 @@ const BANK_AROUND := {"water": true} # materials whose non-matching quarter-neig
 # the flat, seamless, world-tiled tile). Under a shore quarter we lay the brown bank first so the feather
 # reveals wet sand, extending the dry river-bank ring (RIVER_BANK) onto the water side.
 const WATER_SHORE := preload("res://floors/water_shore.png")
+const LAVA_SHORE := preload("res://floors/lava_shore.png")
 const SHORE_TILE := 32 # one atlas cell is 32px (drawn stretched into the 16px quarter)
+# the feathered shore atlas per LIQUID (water/lava). A liquid quarter renders through the shoreline branch
+# in _rebuild (bank underlay + this atlas), NOT the EDGE_ATLAS auto-match path. Both shimmer.
+const LIQUID_SHORE := {"water": WATER_SHORE, "lava": LAVA_SHORE}
 
 # Auto-matching (ground-layer phase 2, item 8): OUTDOOR natural terrains blend where they meet, using
 # the SAME feathered edge autotile the water shoreline pioneered. Each natural has a PRECEDENCE rank;
@@ -135,7 +145,7 @@ const SHORE_TILE := 32 # one atlas cell is 32px (drawn stretched into the 16px q
 # branch (it also lays a brown bank underlay, unlike the dry naturals). INDOOR/constructed materials
 # (wood/concrete/tile/carpet) are absent from this table, so they never auto-match: a hard edge is
 # correct for a rug or a wood floor. A quarter's stored material is unchanged, so collision/save are too.
-const TERRAIN_RANK := {"": 0, "grass": 0, "sand": 1, "snow": 2, "water": 99}
+const TERRAIN_RANK := {"": 0, "grass": 0, "sand": 1, "snow": 2, "water": 99, "lava": 99}
 # the feathered edge atlas per auto-matching terrain (4x4 of 32px cells, same layout as WATER_SHORE).
 # Water is NOT here: it renders through the dedicated shoreline branch (bank underlay + WATER_SHORE).
 const EDGE_ATLAS := {
@@ -223,6 +233,9 @@ var _quad_tint := {}  # quarter coord (Vector2i, 16px grid) -> Color; a multiply
 var _quad_pattern := {} # quarter coord (Vector2i, 16px grid) -> int pattern index into the material's
 					  # `textures` variant array. Parallel to _quad_mat and also SOURCE OF TRUTH (MapIO
 					  # saves it). Absent / 0 = the default pattern. Only meaningful with a material.
+var _quad_no_bank := {} # LIQUID quarter coords (Vector2i, 16px grid) painted with the bank switch OFF.
+					  # SOURCE OF TRUTH (MapIO saves it). Absent = bank ON (default). Both the derived bank
+					  # ring and the shore underlay skip these, so that body has no brown river bank.
 var _base_fills: Array = [] # [Rect2, Texture2D, Color, (src_override), (animate)], one per painted/tinted
 							# quarter. A 4th element overrides the sampled src rect (shoreline atlas); a 5th
 							# truthy element flags an ANIMATED water fill (grid_background shimmers it).
@@ -239,6 +252,9 @@ var _armed := false          # Cell/Fine only: is a material armed to drop? Clea
 var _wall_color := Color.WHITE # active wall colour tint (white = natural / reset)
 var _wall_mat := "stone"     # active wall material ("stone" = default)
 var _pattern := 0            # active floor pattern index (for the "pattern" tool drag)
+var _bank_on := true         # river-bank switch: when a LIQUID (water/lava) is painted, its quarters get a
+							 # brown bank ring iff this is on. Set from the Brush panel BEFORE laying; only
+							 # affects quarters painted while it is on/off (stored per quarter in _quad_no_bank).
 # The armed wall brush is UNIFIED: _wall_color / _wall_mat above are BOTH the colour/material that
 # recolour an existing wall (a selection, or a clicked wall) AND the ones Wall-mode placement stamps onto
 # each NEW wall it lays. So picking a wall colour/material in the left Brush panel (or the right-click
@@ -269,6 +285,8 @@ const WallSegmentScript := preload("res://world/wall_segment.gd")
 var _wall_ghost: Array = []  # up to 2 reused translucent wall_segments: the shape a WALL-mode click would
 							 # place (horizontal/vertical/corner/T/cross), in the armed wall colour+material
 var _wall_ghost_key := ""    # dedupe: cell + colour + material + piece-count, so the ghost only re-configs on change
+var _door_preview: Node2D    # the lifted DOOR ghost (gate.gd in preview mode), DOOR mode only
+var _door_ghost_key := ""    # dedupe the door ghost by cell + orientation
 var _selection: Node2D       # marching-ants selection overlay (see selection_overlay.gd)
 var _mouse_inside := true    # false while the OS cursor is off the game window; hides all highlights
 # Magic Wand selection state, so a repeat click on the same selection grows its scope:
@@ -414,6 +432,13 @@ func _ready() -> void:
 		wp.visible = false
 		add_child(wp)
 		_wall_ghost.append(wp)
+	# Door placement ghost: gate.gd in preview mode, auto-oriented to the wall run under the cursor,
+	# shown on DOOR-mode hover (mirrors the wall ghost + bridge deck preview).
+	_door_preview = Node2D.new()
+	_door_preview.set_script(load("res://world/gate.gd"))
+	_door_preview.preview = true
+	_door_preview.visible = false
+	add_child(_door_preview)
 	# when the cursor leaves the game window, drop every highlight (ROADMAP "Terrain placement UX":
 	# cursor off screen clears all highlights); restore tracking when it returns
 	get_window().mouse_exited.connect(_on_window_mouse_exited)
@@ -1219,8 +1244,10 @@ func _fill_floor_selection(mat: String) -> void:
 	for q in _sel_quads:
 		if valid:
 			_quad_mat[q] = mat
+			_stamp_bank(q, mat)
 		else:
 			_quad_mat.erase(q)
+			_quad_no_bank.erase(q)
 	_rebuild()
 
 # world-space quarter rects of the current floor selection, EXCLUDING quarters under a wall/door (the
@@ -1257,6 +1284,7 @@ func _reset_highlight() -> void:
 	if _bridge_preview != null:
 		_bridge_preview.visible = false
 	_hide_wall_ghost()
+	_hide_door_ghost()
 
 # --- reference grid toggle ---
 
@@ -1713,6 +1741,8 @@ func _place_bridge_at(local: Vector2) -> void:
 	var obs = get_node_or_null("../Obstacles")
 	if obs == null:
 		return
+	if _cell_liquid(cell) == "lava":
+		return # wooden bridges burn: they can only be built over WATER, not lava
 	var orient := _bridge_river_orientation(cell)
 	if orient == "":
 		orient = _bridge_orient
@@ -1721,11 +1751,28 @@ func _place_bridge_at(local: Vector2) -> void:
 	_reapply_map()
 	EditHistory.commit("bridge")
 
-# the bridge orientation the water around `cell` implies, or "" if ambiguous. A horizontal river
-# (water left/right) -> "vertical" bridge; a vertical river (water above/below) -> "horizontal".
+# the majority liquid material at `cell` ("water"/"lava"/""), using the same >=2-of-4-quarters rule as
+# is_cell_impassable. Lets bridges tell water (crossable) from lava (never bridgeable).
+func _cell_liquid(cell: Vector2i) -> String:
+	var water := 0
+	var lava := 0
+	for dx in 2:
+		for dy in 2:
+			match _quad_mat.get(Vector2i(cell.x * 2 + dx, cell.y * 2 + dy), ""):
+				"water": water += 1
+				"lava": lava += 1
+	if water >= 2:
+		return "water"
+	if lava >= 2:
+		return "lava"
+	return ""
+
+# the bridge orientation the WATER around `cell` implies, or "" if ambiguous. A horizontal river
+# (water left/right) -> "vertical" bridge; a vertical river (water above/below) -> "horizontal". Lava is
+# NOT counted here, so a bridge never orients to (or bridges) lava.
 func _bridge_river_orientation(cell: Vector2i) -> String:
-	var horiz_river := is_cell_impassable(cell + Vector2i(1, 0)) or is_cell_impassable(cell + Vector2i(-1, 0))
-	var vert_river := is_cell_impassable(cell + Vector2i(0, 1)) or is_cell_impassable(cell + Vector2i(0, -1))
+	var horiz_river := _cell_liquid(cell + Vector2i(1, 0)) == "water" or _cell_liquid(cell + Vector2i(-1, 0)) == "water"
+	var vert_river := _cell_liquid(cell + Vector2i(0, 1)) == "water" or _cell_liquid(cell + Vector2i(0, -1)) == "water"
 	if horiz_river and not vert_river:
 		return "vertical"
 	if vert_river and not horiz_river:
@@ -1848,16 +1895,45 @@ func _update_structure_placement_hover(cell: Vector2i) -> void:
 	if not _in_bounds(cell):
 		_cursor.hide_cursor()
 		_hide_wall_ghost()
+		_hide_door_ghost()
 		return
 	_cursor.set_role(PaintCursor.Role.ADD) # green: placing a wall/door is additive
 	_cursor.show_rect(Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL))
-	# WALL mode: also float the REAL shape a click would place (horizontal/vertical/corner/T/cross), in the
-	# armed colour+material, like the bridge deck preview. Only over an empty cell (an occupied cell no-ops).
+	# Also float the REAL thing a click would place, like the bridge deck preview. WALL: the wall shape
+	# (horizontal/vertical/corner/T/cross) in the armed colour+material, over an empty cell. DOOR: the
+	# closed door, auto-oriented to the wall run it would bridge.
 	var obs = get_node_or_null("../Obstacles")
 	if _mode == Mode.WALL and obs != null and not obs.is_blocked(cell):
 		_show_wall_ghost(cell)
+		_hide_door_ghost()
+	elif _mode == Mode.DOOR and obs != null:
+		_hide_wall_ghost()
+		_show_door_ghost(cell, obs)
 	else:
 		_hide_wall_ghost()
+		_hide_door_ghost()
+
+# configure + show the door ghost for `cell`: auto-orient exactly like _place_door_at (the wall run it
+# bridges, else the R-flippable default), positioned at the cell centre, drawn closed + translucent.
+func _show_door_ghost(cell: Vector2i, obs) -> void:
+	if _door_preview == null:
+		return
+	var orient: String = obs.wall_run_orientation(cell)
+	if orient == "":
+		orient = _door_orient
+	var key := "%s|%s" % [cell, orient]
+	if key == _door_ghost_key and _door_preview.visible:
+		return
+	_door_ghost_key = key
+	_door_preview.set_preview_orientation(orient)
+	_door_preview.position = Vector2(cell.x * CELL + CELL / 2.0, cell.y * CELL + CELL / 2.0)
+	_door_preview.visible = true
+
+func _hide_door_ghost() -> void:
+	if _door_preview == null or not _door_preview.visible:
+		return
+	_door_ghost_key = ""
+	_door_preview.visible = false
 
 # configure + show the wall placement ghost for `cell`: obstacles computes the piece config(s) the cell
 # would get (same shaping as build_world), which we apply to the reused preview wall_segments, carrying
@@ -1907,6 +1983,12 @@ func _update_bridge_hover(cell: Vector2i) -> void:
 		_cursor.hide_cursor()
 		_bridge_preview.visible = false
 		return
+	# lava can't be bridged (wooden bridges burn): mark it invalid (red cursor, no deck preview)
+	if _cell_liquid(cell) == "lava":
+		_cursor.set_role(PaintCursor.Role.ERASE)
+		_cursor.show_rect(Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL))
+		_bridge_preview.visible = false
+		return
 	_cursor.set_role(PaintCursor.Role.ADD)
 	_cursor.show_rect(Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL))
 	var orient := _bridge_river_orientation(cell)
@@ -1921,15 +2003,35 @@ func _update_bridge_hover(cell: Vector2i) -> void:
 # so a drag that stays inside the same quarter doesn't trigger a redundant rebuild.
 func _write_quad(q: Vector2i, mat: String) -> bool:
 	if mat != "" and textures.has(mat):
-		if _quad_mat.get(q) == mat:
-			return false
+		# a change is the material OR the bank flag flipping (re-painting a liquid with the switch toggled)
+		var want_no_bank: bool = LIQUID_SHORE.has(mat) and not _bank_on
+		var changed: bool = _quad_mat.get(q) != mat or _quad_no_bank.has(q) != want_no_bank
 		_quad_mat[q] = mat
-		return true
+		_stamp_bank(q, mat)
+		return changed
 	if not _quad_mat.has(q):
-		return false
+		return _quad_no_bank.erase(q) # erasing already-grass: only a change if it cleared a stray flag
 	_quad_mat.erase(q)
 	_quad_pattern.erase(q) # grass carries no pattern; drop the orphaned index
+	_quad_no_bank.erase(q)
 	return true
+
+# record the river-bank switch for a freshly-painted quarter: a LIQUID quarter laid with the switch OFF
+# goes into _quad_no_bank (so it grows no bank); anything else clears any stale flag.
+func _stamp_bank(q: Vector2i, mat: String) -> void:
+	if LIQUID_SHORE.has(mat) and not _bank_on:
+		_quad_no_bank[q] = true
+	else:
+		_quad_no_bank.erase(q)
+
+# the Brush-panel river-bank switch (set BEFORE laying a liquid): on = new liquid grows a brown bank,
+# off = none. Only affects quarters painted while it is on/off (stored per-quarter in _quad_no_bank).
+func set_bank_on(on: bool) -> void:
+	_bank_on = on
+	brush_changed.emit()
+
+func bank_on() -> bool:
+	return _bank_on
 
 # cells you may paint on: any cell inside the grid, walls included (the ground under a wall or
 # door is editable; the obstacle over it fades to 30% while you paint, see _fade_obstacles_at)
@@ -1997,9 +2099,11 @@ func _write_room(cells: Dictionary, style: String) -> void:
 	for q in quads:
 		if valid:
 			_quad_mat[q] = style
+			_stamp_bank(q, style)
 		else:
 			_quad_mat.erase(q)
 			_quad_pattern.erase(q) # grass carries no pattern
+			_quad_no_bank.erase(q)
 
 # replace all floors from a v1 per-room style list (used by the MapIO v1->v2 load migration).
 # Must run AFTER RoomLight has rebuilt, since the room a style fills is found by flood fill.
@@ -2015,12 +2119,20 @@ func apply_floors(list: Array) -> void:
 # replace all floors from a v2 quarter list [[qx, qy, material], ...] (used by MapIO on load).
 func apply_quads(list: Array) -> void:
 	_quad_mat.clear()
+	_quad_no_bank.clear() # repopulated by apply_no_bank (MapIO calls it before the final rebuild)
 	for a in list:
 		var mat: String = a[2]
 		if not textures.has(mat):
 			continue
 		_quad_mat[Vector2i(int(a[0]), int(a[1]))] = mat
 	_rebuild()
+
+# load the LIQUID river-bank OFF flags (MapIO v9+). No rebuild here (apply_tints does the final one),
+# mirroring apply_patterns. A pre-v9 load passes [] so every liquid keeps its default bank.
+func apply_no_bank(list: Array) -> void:
+	_quad_no_bank.clear()
+	for a in list:
+		_quad_no_bank[Vector2i(int(a[0]), int(a[1]))] = true
 
 # replace all floor patterns from a saved list [[qx, qy, index], ...] (used by MapIO on load). Only
 # meaningful over quarters that also carry a material; a stale index is clamped at draw. Does NOT
@@ -2076,17 +2188,19 @@ func _rebuild() -> void:
 		var rect := Rect2(q.x * HALF, q.y * HALF, HALF, HALF)
 		var mat: String = _quad_mat[q]
 		var tint: Color = _quad_tint.get(q, Color.WHITE)
-		if mat == "water":
-			# Shoreline autotile: a water quarter with LAND on an orthogonal side feathers toward it.
-			# Water fills carry a 5th `true` (animate) so grid_background shimmers them; the bank underlay
-			# stays static. mask 0 (open water) draws the flat, seamless, world-tiled tile, also animated.
+		if LIQUID_SHORE.has(mat):
+			# Liquids (water/lava): a feathered shore where they meet a different material, over a bank
+			# underlay UNLESS the bank switch was off for this quarter (then the feather reveals grass).
+			# Fills carry a 5th `true` so grid_background shimmers them; the bank underlay stays static.
+			# mask 0 (open liquid) draws the flat, seamless, world-tiled tile, also animated.
 			_has_water = true
-			var mask := _water_land_mask(q)
+			var mask := _liquid_edge_mask(q, mat)
 			if mask != 0:
-				_base_fills.append([rect, RIVER_BANK, Color.WHITE]) # wet-sand underlay the feather reveals
-				_base_fills.append([rect, WATER_SHORE, tint, _shore_src(mask), true]) # feathered water on top
+				if not _quad_no_bank.has(q):
+					_base_fills.append([rect, RIVER_BANK, Color.WHITE]) # bank the feather reveals
+				_base_fills.append([rect, LIQUID_SHORE[mat], tint, _shore_src(mask), true]) # feathered liquid
 			else:
-				_base_fills.append([rect, _mat_tex("water", 0), tint, GridBackground.tiled_src(rect), true])
+				_base_fills.append([rect, _mat_tex(mat, 0), tint, GridBackground.tiled_src(rect), true])
 			continue
 		elif EDGE_ATLAS.has(mat):
 			# Auto-match: a natural terrain feathers over its lower-precedence orthogonal neighbours.
@@ -2130,6 +2244,8 @@ func _bank_quads() -> Dictionary:
 	for q in _quad_mat:
 		if not BANK_AROUND.has(_quad_mat[q]):
 			continue
+		if _quad_no_bank.has(q):
+			continue # this liquid quarter was laid with the bank switch OFF
 		for dy in [-1, 0, 1]:
 			for dx in [-1, 0, 1]:
 				if dx == 0 and dy == 0:
@@ -2145,18 +2261,20 @@ func _bank_quads() -> Dictionary:
 # the 4-bit LAND mask for a water quarter's ORTHOGONAL neighbours (N=1 E=2 S=4 W=8), used to pick the
 # shoreline autotile variant. A side is "land" when its neighbour quarter is in-bounds and not water;
 # out-of-map neighbours are NOT land, so water never feathers toward the map edge (it just clips there).
-func _water_land_mask(q: Vector2i) -> int:
+func _liquid_edge_mask(q: Vector2i, mat: String) -> int:
 	var m := 0
-	if _is_shore_land(q + Vector2i(0, -1)): m |= 1 # N
-	if _is_shore_land(q + Vector2i(1, 0)):  m |= 2 # E
-	if _is_shore_land(q + Vector2i(0, 1)):  m |= 4 # S
-	if _is_shore_land(q + Vector2i(-1, 0)): m |= 8 # W
+	if _liquid_edge(q + Vector2i(0, -1), mat): m |= 1 # N
+	if _liquid_edge(q + Vector2i(1, 0), mat):  m |= 2 # E
+	if _liquid_edge(q + Vector2i(0, 1), mat):  m |= 4 # S
+	if _liquid_edge(q + Vector2i(-1, 0), mat): m |= 8 # W
 	return m
 
-func _is_shore_land(nq: Vector2i) -> bool:
+# a liquid `mat` quarter feathers toward neighbour `nq` when it is in-bounds and a DIFFERENT material (land,
+# or the other liquid); out-of-map neighbours are not, so a liquid clips at the map edge instead of feathering.
+func _liquid_edge(nq: Vector2i, mat: String) -> bool:
 	if not _in_bounds(Vector2i(floori(nq.x / 2.0), floori(nq.y / 2.0))):
-		return false # out-of-map void: don't feather toward the edge
-	return _quad_mat.get(nq, "") != "water"
+		return false
+	return _quad_mat.get(nq, "") != mat
 
 # the 4-bit edge mask for an auto-matching terrain quarter `mat` at `q` (N=1 E=2 S=4 W=8): a side is set
 # when its orthogonal neighbour is an IN-BOUNDS natural terrain of STRICTLY LOWER precedence (so `mat`

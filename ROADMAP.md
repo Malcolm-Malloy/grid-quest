@@ -1356,6 +1356,19 @@ where each lands. Universal rule: **every graphic follows the top/front perspect
     tiles (they shimmer together); the brown bank underlay stays static. Purely visual: material +
     collision + save unchanged. Verified `dev/test_water.tscn` (dry = no animation; water fills flagged,
     wood not); eyeballed a pond showing the position-varying brightness wave.
+  - **As built: LAVA + river-bank SWITCH, 2026-08-25.** LAVA is a second impassable "liquid" that works
+    like water (feathered shoreline, shimmer, bank) but is its OWN material, so wooden bridges cannot be
+    built over it. The water shoreline generalised into a `LIQUID_SHORE` set `{water, lava}`; the mask
+    helper became `_liquid_edge_mask(q, mat)` / `_liquid_edge(nq, mat)`. New molten art
+    `floors/lava_{still,shore}.png`; registered in `textures`/`MENU`/`PATTERN_NAMES`/`IMPASSABLE`/
+    `BANK_AROUND`/`TERRAIN_RANK` (rank 99, like water). **Bridges refuse lava:** `_cell_liquid(cell)` tells
+    water from lava; `_place_bridge_at` refuses a lava cell, `_bridge_river_orientation` counts only water,
+    and the bridge hover shows a red (invalid) cursor with no deck over lava. **River bank is now a per-
+    body SWITCH** set before laying a liquid (a "River Bank" CheckButton in the Brush panel -> `_bank_on`):
+    quarters painted with it OFF go in `_quad_no_bank`, and both the derived ring and the shore underlay
+    skip them (the liquid then feathers straight into grass). Persisted via MapIO **VERSION 9**
+    (`floor_no_bank`); pre-v9 maps load fully banked. Verified `dev/test_lava.tscn` (21 checks); eyeballed
+    a molten lava pond beside water, and a bank-off pond with no brown ring.
 - **Bridges (cross a river, both directions). SLICE 1 BUILT 2026-08-23 (flat deck + auto-orient +
   passable-over-impassable + placement tool + save); richer deck art is a follow-up.** A crossable
   overlay over water, in **north-south and east-west** orientations. Introduces
@@ -2232,6 +2245,16 @@ Built exactly per the spec above. Touched: `floors/terrain_preview.gd` (new), `f
   baseline shows the lifted tile sitting above the red cell cursor with grass showing through the
   bottom of the cell and a contact shadow (the tile reads as lifted, exactly as specced). The drop
   tween reuses the same verified draw path. Not captured mid-drop (a sub-frame tween).
+
+**As-built (2026-08-24): Wall + Door hover-drop previews.** WALL/DOOR mode showed only a green target
+cursor; both now also float a translucent GHOST of exactly what a click would place, like the bridge deck
+preview. Walls: `obstacles.preview_wall_configs(cell)` runs the SAME per-cell shaping as `build_world` so
+the ghost is the real horizontal/vertical/corner/T/cross shape, in the armed colour+material (fences
+included), via a reused 2-node pool of `wall_segment`s in a new `preview` mode. Doors: a `gate.gd` in
+`preview` mode, auto-oriented to the wall run under the cursor exactly like `_place_door_at`
+(`wall_run_orientation`, else the R-flippable default). Both reuse the REAL renderer (lifted + translucent,
+not in the walls/gates groups, no shadow), so the preview matches placement pixel-for-pixel. Verified
+`dev/test_wall_preview.tscn` + `dev/test_door_preview.tscn`; capture hooks `GQ_WALLHOVER` / `GQ_DOORHOVER`.
 
 ## Wall editing and outside reclassification (logged 2026-08-16, Phase A + analysis)
 The user wants to add and remove wall pieces in Cell Mode. Removing a perimeter wall that exposes a

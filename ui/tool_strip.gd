@@ -42,6 +42,7 @@ var _pending_level := ""          # the map a confirmed Level switch will load
 var _mat_buttons := {}            # floor material value -> Button (radio); the active one is highlighted
 var _col_swatches := []           # [{color, button}] clickable floor-colour boxes; active gets a border
 var _brush_preview: TextureRect   # floor combined-brush swatch: the armed texture tinted by the colour
+var _bank_check: CheckButton      # River Bank switch (on = liquids grow a brown bank when laid)
 var _wall_mat_buttons := {}       # wall material value -> Button (radio)
 var _wall_col_swatches := []      # [{color, button}] clickable wall-colour boxes
 var _wall_preview: TextureRect    # wall brush swatch: the armed wall cap texture tinted by the colour
@@ -119,6 +120,13 @@ func _ready() -> void:
 		# 4-column material grid: keeps the Brush section short as the roster grows (8 materials = 2 rows,
 		# not 4), so the panel needs little scrolling. Buttons hug their text, so 4 short labels stay narrow.
 		_brush_preview = _fill_brush_section(brush, fm.MENU, 4, _on_brush_material, fm.FLOOR_COLORS, _on_brush_color, _mat_buttons, _col_swatches)
+		# River Bank switch: set BEFORE laying a liquid (Water/Lava) to give that body a brown bank or not.
+		_bank_check = CheckButton.new()
+		_bank_check.text = "River Bank"
+		_bank_check.tooltip_text = "When on, Water/Lava you lay grows a brown bank ring. Set before painting."
+		_bank_check.button_pressed = fm.bank_on()
+		_bank_check.toggled.connect(func(on: bool): fm.set_bank_on(on))
+		brush.add_child(_bank_check)
 		# --- Wall accordion section: the armed wall brush (material + colour), same two-way binding as
 		# the floor Brush (a wall selection reflects here; picking here edits the selection in place) ---
 		var wall := _add_section(vb, "Wall", false) # collapsed by default; opens when a wall is selected
