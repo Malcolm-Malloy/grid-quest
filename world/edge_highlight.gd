@@ -47,6 +47,18 @@ func show_band(edge: String, mode: String) -> void:
 	_on = true
 	queue_redraw()
 
+# highlight a SINGLE cell (the single-cell edge-editing grain for non-square maps): green to add
+# (a void/hole cell a click will fill), red to remove (a present cell a click will punch out). Shares
+# the band's draw + clear path, so only one highlight shows at a time.
+func show_cell(cell: Vector2i, mode: String) -> void:
+	var add := mode == "add"
+	_rect = Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL)
+	_fill = ADD_FILL if add else DEL_FILL
+	_line = ADD_LINE if add else DEL_LINE
+	_add = add
+	_on = true
+	queue_redraw()
+
 func clear_band() -> void:
 	if not _on:
 		return

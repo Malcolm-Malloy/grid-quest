@@ -33,12 +33,12 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
    rect and beyond it is an inactive-cell void (grey tiles with a subtle "+", not black), the default
    map is 48x32, and grid dims are unified onto GridBackground. See the As-built note under "Map
    extent and edge editing".
-3. **Add and remove cells at the map edge. ROW/COLUMN grain DONE 2026-08-16; single-cell + green
-   highlight pending.** The whole-row/column grain is built (`MapEdit.grow/shrink`, see the As-built
-   note under "Map extent and edge editing"). The single-cell grain and the green "will-be-added"
-   highlight are deferred: a lone jagged cell needs a per-cell existence model the rectangular map
-   lacks (tie to Architecture review Q1/Q2). Live UX (the tool strip that triggers grow/shrink, plus
-   the green highlight) is still the next step; interim control is IJKL keys + the GQ_RESIZE hook.
+3. **Add and remove cells at the map edge. ROW/COLUMN grain DONE 2026-08-16; SINGLE-CELL grain +
+   green highlight DONE 2026-08-25.** The whole-row/column grain is built (`MapEdit.grow/shrink`). The
+   single-cell grain now ships too, on the `absent_cells` cell-existence model: `MapEdit.add_cell` /
+   `remove_cell` make NON-SQUARE (jagged) maps, and the Map Size tool draws a single-cell green add
+   highlight in Cell mode (row/column grain stays in the other modes). See the As-built note under "Map
+   extent and edge editing" -> cell-existence model.
 4. **Right-click menu (renamed modes plus coloured highlights). Tool strip modes DONE 2026-08-16.**
    The persistent left tool strip has the Map Size (edge grow/shrink) control, the green/red edge
    band, and now the **Tools radio group**: Magic Wand / Cell Selector / Fine Details / Erase, with
@@ -83,8 +83,10 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
    wanted (currently hard-edged on purpose).
 
 **Phase B: persistence (needed to save the maps you build, then to play them).**
-9. **Character save (position, facing, inventory) plus whole-game saves.** Reuses the MapIO
-   atomic-write path. Inventory must persist before keys can.
+9. **Character save (position, facing, inventory) plus whole-game saves. CHARACTER SAVE BUILT
+   2026-08-25** (`CharacterIO`; see the Saving section as-built). Whole-game saves (bundle the character
+   file + current map name) still open. Reuses the MapIO atomic-write path. Inventory persists now, so
+   keys can.
 10. **Item and pickup system.** Prerequisite for keys (keys are editor-placed pickups); see "Items
     and pickups".
 11. **Locked doors and keys.** Terminal dependency: needs the door menu (4), inventory (9), and
@@ -326,9 +328,27 @@ questions to answer, roughly in dependency order:
     (no render), verified by parse + logic.
   - **Deferred to slice 2:** map thumbnails (need a render, which hangs headless here), folders/
     categories, quit-time unsaved warning, export/import for sharing.
-- Character save (live position, facing, inventory) as a separate JSON section/file reusing
-  the same MapIO atomic-write + versioning path.
-- Whole-game saves, so the player can eventually collect items that persist.
+- **Character save (live position, facing, inventory). BUILT 2026-08-25.** New `CharacterIO` autoload
+  (`systems/character_io.gd`, registered in project.godot after the other autoloads) persists the
+  player's live state to `user://character.json`, a SEPARATE file from the map, using the same atomic
+  write (temp file then rename) + `version` field as MapIO. API: `serialize()` -> `{version, position,
+  facing, inventory}`, `apply(data)` (snaps position + target_position, clears any in-progress step,
+  restores facing via `player.update_sprite()`, loads inventory), `save_character()`, `load_character()`,
+  `has_save()`, `delete_character()`.
+  - **Inventory is ready but empty.** `player.gd` gained an `inventory: Array` (empty until the item/
+    pickup system, item 10); CharacterIO serializes it as-is (deep-`duplicate`d so a live mutation can't
+    change an already-handed-out dict) so keys will persist here for locked doors (item 11) with no
+    further save work.
+  - **Not auto-restored on startup (decision).** `auto_load` defaults to FALSE (mirrors MapIO): the game
+    defaults to EDIT mode and a map load uses that map's authored spawn, so silently teleporting the
+    player to a saved position would fight the editor. Restoring is explicit (`load_character()`), to be
+    wired into a future Continue/Play flow.
+  - **Verified headlessly:** `dev/test_character_io.tscn` (19 checks): serialize/apply round-trip,
+    atomic save/load to disk, facing + inventory (string and dict items) restore, in-progress step
+    cleared on load, the inventory copy is independent, empty-inventory round trip, load-with-no-save is
+    a safe no-op, and delete. Persistence suite still green; startup smoke (capture) clean.
+- Whole-game saves, so the player can eventually collect items that persist. (Character save above is
+  the first slice; a whole-game save can bundle the character file + the current map name.)
 
 ### As built (step 1, 2026-08-15)
 Storage refactor landed exactly per the execution spec below. What changed:
@@ -1546,23 +1566,41 @@ where each lands. Universal rule: **every graphic follows the top/front perspect
   edge is void. Resolved the open "walkable range" question: walkable range IS the grid bounds (the
   player already clamps to grid dims and `floor_manager.in_bounds` checks the same), so there is no
   separate per-map movement extent. See the As-built note under "Map extent and edge editing".
-- **Fix the way wall caps are made.** (User-requested 2026-08-16.) Revisit how the wall cap is
-  constructed in `wall_segment._draw`: today the cap is a thin continuous top surface and a front
-  face is drawn only on a run's bottom cell. Surfaced during the coloured-walls work (the cap is now
-  drawn as per-cell slices), which put the cap model under scrutiny. Exact desired change to be
-  defined at build time.
+- **Fix the way wall caps are made. RESOLVED (superseded), confirmed with the user 2026-08-25.**
+  (Originally user-requested 2026-08-16.) The concern was how the wall cap is constructed in
+  `wall_segment._draw`: the cap is a thin continuous top surface and a front face is drawn only on a
+  run's bottom cell. This was superseded by later work and is no longer an open defect:
+  - The cap construction was reworked into **per-cell sliced caps** during the coloured-walls work
+    (each cell carries its own colour + material), see "Coloured walls" as-built.
+  - The junction appearance ("Wall cap T at junctions") was **RESOLVED 2026-08-22** via the greyscale
+    texture conversion (cap and face are the same grey, differing only in brightness), and a geometry
+    approach was deliberately reverted so **every wall cell keeps its 3D front face**; see the
+    "Wall/door notes batch" as-built.
+  - The one literal item left ("front face only on a run's bottom cell") is **correct by design** for
+    the top/front perspective: a vertical N-S wall's front/south face is only visible at its southern
+    end, so a face per cell of a vertical run would be wrong. Verified 2026-08-25 with the capture
+    harness that walls read as consistent solid 3D bodies all around (horizontal cap + face, vertical
+    cap strip + south-end face, clean corners). No code change needed.
 - **BUG: colour menu mislabelled "Wall Colour" for a floor (logged 2026-08-16).** Floor styling sat
   under "Floor" while wall styling sat under "Wall Colour", so colouring a floor felt miscalled. The
   correct fix is the **contextual right-click menu** under "Right-click menu overhaul" (only the
   clicked target's sections show), not a static relabel. (A first attempt renamed the submenu to
   "Wall"; the user rejected that and it was reverted to "Wall Colour".)
 - **BUG: growing the map north stretches a building's shadow upward (logged 2026-08-16, screenshot
-  taken).** Adding rows of new terrain to the north (`MapEdit.grow("top")`) makes a building's cast
-  shadow extend up into the new rows, which is unwanted. Likely cause: after the top-grow shifts
-  every store +1 in y and rebuilds, `shadow_manager` re-projects the wall/building shadow onto the
-  freshly added northern floor cells (they are now valid ground above the building) instead of
-  keeping the shadow's original length. Investigate the shadow cast length / clipping in
-  `shadow_manager` against the resize path; confirm against the user's screenshot in `Screenshots/`.
+  taken). VERIFIED FIXED 2026-08-25, no longer reproduces.** Adding rows of new terrain to the north
+  (`MapEdit.grow("top")`) once made a building's cast shadow appear to extend up into the new rows.
+  Root cause was a stale, un-shifted shadow: the earlier resize path did not rebuild the wall shadows
+  on the shifted geometry, so after the +1 y shift the old shadow stayed at its former screen position
+  and read as a smear above the building that had moved down. The consolidated rebuild path now fixes
+  this. `MapEdit.grow` calls `MapIO.apply_serialized`, which calls `obs.apply_map` then `build_world`
+  then `spawn_shadows()` (which runs `wall_shadow_polys.clear()` and re-collects from the shifted
+  `blocked_cells`, then `set_static`), plus `rl.rebuild()`, so shadows are recomputed from scratch on the
+  new geometry and move down with the building. Verified headlessly 2026-08-25 with the capture harness
+  (`GQ_RESIZE=grow:top`): a north grow with identical framing relative to the building is pixel-identical
+  for the building AND its cast shadow, with the only diff being the extra grass row at the void/grass
+  seam (expected). Also checked the building-at-top-edge case (shrink to the edge, then grow) and the
+  grass above the north wall stays clean, with no shadow band. Nothing to change in
+  `shadow_manager`/`obstacles`; entry kept as a record of the fix.
 
 ## Map extent and edge editing (logged 2026-08-16, Phase A priority)
 The user wants to start designing levels now, so map size and edges become editable in the editor.
@@ -1647,15 +1685,67 @@ cell-existence model).** New autoload `MapEdit` (`systems/map_edit.gd`) with `gr
   wood.
 - **Player stays valid.** Spawn is clamped into the new walkable range after a shift, so removing the
   band the player stood on lands it on a real cell, not the void.
-- **Single-cell grain deferred, and why (finding).** The map is a solid rectangle today
-  (`grid_width x grid_height`, every cell present, ground drawn for the whole rect). A lone jagged
-  edge cell has nowhere to live: there is no per-cell existence set. Adding one is the "shared
-  tile-entity / cell-existence model" question in the Architecture review (Q1/Q2); do that first,
-  then single-cell add/remove and the green will-be-added highlight are a small follow-on.
-- **Interim control (scaffolding, replace with the tool strip + green highlight).** IJKL keys (Shift
-  = grow that edge, Ctrl/Cmd = shrink that edge); capture-harness `GQ_RESIZE="grow:left;shrink:top"`
-  for headless checks; and `dev/test_resize.tscn` (a fast headless logic tester, prints serialize
-  before/after, has a `GQ_PAINTEDGE` hook). None of this is the real UX, which is still pending.
+- **Interim control (scaffolding).** IJKL keys (Shift = grow that edge, Ctrl/Cmd = shrink that edge);
+  capture-harness `GQ_RESIZE="grow:left;shrink:top"` for headless checks; and `dev/test_resize.tscn`
+  (a fast headless logic tester, prints serialize before/after, has a `GQ_PAINTEDGE` hook).
+- **`_shift` was silently dropping later stores (fixed 2026-08-25).** When the single-cell work went
+  through `_shift`, it turned out the resize transform still only carried the ORIGINAL stores (walls,
+  doors-without-open/swing, quads, wall_colors) and dropped everything added since v5: wall materials,
+  floor tints, floor patterns, river-bank flags, bridges, and the doors' authored open/swing. So a
+  row/column grow/shrink was wiping all of those. `_shift` now shifts/clips every store in lockstep
+  (matching the "moves every store together" design claim), covered by the resize regression check in
+  `dev/test_cell_existence.tscn`.
+
+**As-built (2026-08-25): SINGLE-CELL grain + NON-SQUARE maps DONE (the cell-existence model).** Built
+exactly the decided `absent_cells` design: the map stays a bounding box (`grid_width x grid_height`)
+MINUS a sparse set of hole cells. An empty set is today's solid rectangle, so old saves, the fast render
+path, and every rectangle assumption keep working unchanged.
+- **Data model on `GridBackground`:** `absent_cells` (Vector2i -> true), `set_absent_cells()`, and one
+  predicate `cell_present(cx, cy)` (in-box AND not a hole) that ground rendering, walkability, and the
+  void look all share, so "what cells exist" has a single answer.
+- **Rendering.** `grid_background._draw` keeps the one-tiled-rect fast path when there are no holes, and
+  falls to a per-cell ground draw (skipping holes) when jagged. `_draw_void` fills in-box holes with the
+  same inactive-cell tiles as beyond-the-edge void, so a hole and a spur read identically.
+- **Walkability.** `player.gd` adds a `grid_bg.cell_present(cell)` gate, so a removed edge cell can't be
+  walked onto even though the coarse box clamp would allow it.
+- **`MapEdit.add_cell(cell)` / `remove_cell(cell)`** (pure dict transforms re-applied through MapIO, so
+  they undo/redo + persist like every edit): `add_cell` fills an in-box hole OR, one step beyond exactly
+  one edge, grows the box and marks the rest of the new row/column absent so only that spur is added
+  (this is what makes maps non-square); the new cell copies its inward neighbour's terrain. `remove_cell`
+  marks a cell absent and strips everything on it (walls, doors, bridges, floor quads/tints/patterns/bank
+  flags) in the same undo entry, relocating the spawn if the player stood there, and never removes the
+  last cell. `can_add_cell` / `can_remove_cell` are pure predicates that drive the highlight without
+  mutating.
+- **Save (v10).** MapIO serializes `absent_cells` (sparse `[cx, cy]`); a pre-v10 map has no key, so it
+  loads as a full rectangle. Set together with grid size in `_apply` before anything reads bounds.
+- **UI: single-cell green add highlight in Cell mode, with DRAG (2026-08-26).** `map_size_tool` is
+  grain-aware: in Cell mode the hover-add previews and adds perimeter cells (`EdgeHighlight.show_cell`,
+  green + "+"), while the wand/line modes keep the whole-row/column grain. **Press-and-drag lays a
+  continuous STRIP of edge cells** (each `MapEdit.add_cell_applied` is idempotent, so the drag fills every
+  addable cell the cursor passes) committed as ONE undo entry on release, matching the paint-stroke rule
+  (`add_cell` splits into `add_cell_applied` = mutate+apply-no-commit and the committing wrapper). The
+  add-drag only begins when the press starts over an addable void/hole cell, so a paint-drag that reaches
+  the edge never adds cells. Verified: `dev/test_cell_existence.tscn` drag block (four `add_cell_applied`
+  + one commit -> one undo reverts the whole strip; redo restores it).
+  - Remove is available via `MapEdit.remove_cell` (tested, capture hook `GQ_CELLEDIT`); a dedicated live
+    single-cell REMOVE affordance in the editor is the one follow-on left (a UX decision: which
+    mode/gesture, since Cell-mode left-click already paints).
+- **Editing stands down over the editor menu (2026-08-26).** All map interactions now bail when the
+  pointer is over the editor UI: `floor_manager` (paint + every select: Wand, Box, Cell, Fine, Erase,
+  Wall, Door, Bridge, Select, and the right-click menu) guards its `_unhandled_input` mouse-press and
+  clears its hover in `_process`; `map_size_tool` (which uses `_input`, so it runs BEFORE the GUI) guards
+  both its click and its preview. The check is `get_viewport().gui_get_hovered_control() != null`, which
+  respects each Control's `mouse_filter` (the `MOUSE_FILTER_IGNORE` floor-highlight-mask rect does not
+  count, and the closed save-menu's full-rect backdrop is invisible so it does not count either). A
+  press/motion/release begun on the map still finishes even if it ends over the menu. Verified in the
+  real renderer by `dev/test_ui_guard.tscn` (windowed, injects motion): over the tool strip a Button is
+  hovered (editing blocked); over open map the hovered control is null (editing works).
+- **Verified:** `dev/test_cell_existence.tscn` (headless, 35+ checks): hole make/fill, spur add beyond
+  each edge with the origin shift, contents-stripped-on-remove, terrain copy, undo restore, save/load of
+  holes, old-format-loads-as-rectangle, resize carries holes + the previously-dropped stores, walkability
+  predicate, and the can_add/can_remove predicates (no mutation). Visually (capture `GQ_CELLEDIT`,
+  `GQ_SIZEHOVER`): holes render as void cutouts, a spur sticks out past the edge, and the green add
+  highlight lands exactly on the target perimeter cell with its "+" glyph.
 
 **Hover-to-add UX + non-square commitment (decided 2026-08-16).** The user chose hover-over-the-
 target as the edge-add interaction instead of buttons (now feasible because the editor camera can

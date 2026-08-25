@@ -8,7 +8,7 @@ extends Node
 # Maps live in user://maps/<name>.json (persistent, writable, cross-platform). Writes are
 # atomic (temp file, then rename) so a crash mid-save can't corrupt an existing map.
 
-const VERSION := 9 # v9: per-quarter liquid river-bank OFF flags; v8: bridges (crossable decks over water); v7: per-quarter floor patterns; v6: per-cell wall materials; v5: per-quarter floor tints; v4: per-door authored open+swing; v3: per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
+const VERSION := 10 # v10: sparse absent_cells (jagged/non-square maps); v9: per-quarter liquid river-bank OFF flags; v8: bridges (crossable decks over water); v7: per-quarter floor patterns; v6: per-cell wall materials; v5: per-quarter floor tints; v4: per-door authored open+swing; v3: per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
 const DIR := "user://maps"
 const LAST_FILE := "user://last_map.txt" # remembers the map to reload on next launch
 
@@ -97,10 +97,16 @@ func serialize() -> Dictionary:
 	var floor_no_bank: Array = []
 	for q in fm._quad_no_bank:
 		floor_no_bank.append([q.x, q.y])
+	# cell-existence holes as [cx, cy]; sparse (only absent cells). Empty = a solid rectangle (v9-and-
+	# earlier maps have no key, so they load as the full rect). See GridBackground.absent_cells.
+	var absent_cells: Array = []
+	for c in gb.absent_cells:
+		absent_cells.append([c.x, c.y])
 
 	return {
 		"version": VERSION,
 		"grid": {"width": gb.grid_width, "height": gb.grid_height},
+		"absent_cells": absent_cells,
 		"spawn": {"x": player.position.x, "y": player.position.y},
 		"walls": walls,
 		"doors": doors,
@@ -130,9 +136,14 @@ func _apply(data: Dictionary, keep_player := false) -> void:
 	var fm = w.get_node("FloorManager")
 	var player = w.get_node("Player")
 
-	# 1. grid size
+	# 1. grid size + cell-existence holes (both define the map's extent, so set them together before
+	# anything reads bounds). A pre-v10 map has no "absent_cells" key -> an empty set -> a solid rectangle.
 	var grid: Dictionary = data.get("grid", {"width": gb.grid_width, "height": gb.grid_height})
 	gb.set_grid_size(int(grid["width"]), int(grid["height"]))
+	var absent := {}
+	for a in data.get("absent_cells", []):
+		absent[Vector2i(int(a[0]), int(a[1]))] = true
+	gb.set_absent_cells(absent)
 
 	# 2. walls + doors -> rebuild wall/gate nodes and shadows
 	var walls: Array = []
@@ -318,6 +329,7 @@ func _blank_map() -> Dictionary:
 	return {
 		"version": VERSION,
 		"grid": {"width": w, "height": h},
+		"absent_cells": [],
 		"spawn": {"x": w * CELL / 2.0, "y": h * CELL / 2.0},
 		"walls": [], "doors": [], "quads": [], "wall_colors": [], "wall_materials": [], "floor_tints": [],
 		"floor_patterns": [], "floor_no_bank": [],

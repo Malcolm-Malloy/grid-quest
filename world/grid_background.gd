@@ -11,10 +11,28 @@ const FLOOR_TEX := 128 # floor textures are 128x128, tiled by world position
 var grid_width := 48
 var grid_height := 32
 
+# Cell-existence model for NON-SQUARE (jagged) maps (ROADMAP "Map extent and edge editing" ->
+# cell-existence model). The map is a bounding box grid_width x grid_height MINUS this sparse set of
+# holes: `absent_cells` lists the in-box cells that are NOT part of the map. An EMPTY set is exactly
+# today's solid rectangle, so old maps, the fast render path, and every rectangle assumption keep
+# working; a jagged map just lists its missing cells. Keyed by Vector2i, value true (used as a set).
+var absent_cells := {}
+
 func set_grid_size(w: int, h: int) -> void:
 	grid_width = w
 	grid_height = h
 	queue_redraw()
+
+# replace the hole set (Vector2i -> true). Called by MapIO on load and MapEdit on single-cell edits.
+func set_absent_cells(cells: Dictionary) -> void:
+	absent_cells = cells
+	queue_redraw()
+
+# true if cell (cx, cy) is part of the map: inside the bounding box AND not a hole. The one predicate
+# ground rendering, walkability, and the void look all share, so "what cells exist" has a single answer.
+func cell_present(cx: int, cy: int) -> bool:
+	return cx >= 0 and cx < grid_width and cy >= 0 and cy < grid_height \
+		and not absent_cells.has(Vector2i(cx, cy))
 
 # Walkable bounds in world pixels, derived from the grid. The player clamps movement to
 # these so its range always matches the grid edge (beyond the grid is void, not walkable).
@@ -83,8 +101,19 @@ func _draw() -> void:
 	# Draw ground ONLY within the grid, tiled to fill it. Everything beyond the grid edge is the
 	# inactive-cell void above, so the map edge reads clearly. Previously the full ground texture
 	# was blitted at origin, overrunning the walkable area and hiding where the map ends.
-	var grid_px := Vector2(grid_width * CELL_SIZE, grid_height * CELL_SIZE)
-	draw_texture_rect(ground_texture, Rect2(Vector2.ZERO, grid_px), true)
+	if absent_cells.is_empty():
+		# fast path: a solid rectangle blits the whole ground in one tiled draw
+		var grid_px := Vector2(grid_width * CELL_SIZE, grid_height * CELL_SIZE)
+		draw_texture_rect(ground_texture, Rect2(Vector2.ZERO, grid_px), true)
+	else:
+		# jagged map: draw ground per cell so holes stay void. Only the present cells get grass; the
+		# absent ones fall through to the inactive-cell void drawn above.
+		for cy in range(grid_height):
+			for cx in range(grid_width):
+				if absent_cells.has(Vector2i(cx, cy)):
+					continue
+				var r := Rect2(cx * CELL_SIZE, cy * CELL_SIZE, CELL_SIZE, CELL_SIZE)
+				draw_texture_rect_region(ground_texture, r, tiled_src(r))
 	# any room with a floor style fills its WHOLE area (interior cells + the room-facing
 	# wall/door quadrants) with that texture, so no grass shows between floor and walls.
 	# FloorManager supplies the [dst_rect, texture] pieces; they tile by world position.
@@ -130,8 +159,8 @@ func _draw_void() -> void:
 	var vy := VOID_PLUS_ARM / ys # counter World's y-scale so the "+" reads square
 	for cy in range(cy0, cy1):
 		for cx in range(cx0, cx1):
-			if cx >= 0 and cx < grid_width and cy >= 0 and cy < grid_height:
-				continue # inside the map; the ground covers this cell
+			if cell_present(cx, cy):
+				continue # a present cell; the ground covers it. Absent (hole) cells fall through to void.
 			var o := Vector2(cx * CELL_SIZE, cy * CELL_SIZE)
 			var r := Rect2(o, Vector2(CELL_SIZE, CELL_SIZE))
 			draw_rect(r, VOID_FILL, true)
