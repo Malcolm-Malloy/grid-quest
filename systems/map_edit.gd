@@ -182,6 +182,87 @@ func remove_cell(cell: Vector2i) -> bool:
 	print("MapEdit: removed cell %s (hole)" % cell)
 	return true
 
+# --- clip stamping: paste and move a copied REGION (ROADMAP "Copy, paste, and duplicate", "Move tool") ---
+# Both are pure transforms on the serialized dict, re-applied through MapIO exactly like every other
+# edit here, so a stamp rebuilds walls/lighting/shadows/floors together and lands as ONE undo entry.
+# See MapClipboard for the clip format and the rotate/flip orientation remap.
+
+# paste `clip` with its bounding box's top-left at `origin`. Target cells off the map (or on an
+# absent-cell hole) are CLIPPED; the rest still land. Returns the cells actually stamped ({} = nothing
+# landed, e.g. the whole clip fell outside the map, in which case nothing is committed).
+func stamp_clip(clip: Dictionary, origin: Vector2i, label := "paste") -> Dictionary:
+	if clip.is_empty():
+		return {}
+	var d := MapIO.serialize()
+	var stamped := _apply_clip(d, clip, origin)
+	if stamped.is_empty():
+		return {}
+	MapIO.apply_serialized(d, true) # keep_player: a paste must never teleport the character
+	EditHistory.commit(label)
+	return stamped
+
+# move a region: clear `src_cells`, then stamp `clip` (built from those cells, optionally rotated or
+# flipped) at `origin`. One dict, one re-apply, ONE undo entry, so the region never flickers through a
+# half-moved state. Each record is carried across verbatim, so a moved door keeps its authored state
+# (and, once objects carry durable ids, its id) -- the "move keeps identity" contract that separates
+# a move from delete-then-place. Returns the cells actually stamped.
+func move_clip(src_cells: Dictionary, clip: Dictionary, origin: Vector2i, label := "move") -> Dictionary:
+	if clip.is_empty() or src_cells.is_empty():
+		return {}
+	var d := MapIO.serialize()
+	for c in src_cells:
+		_strip_cell(d, c)
+	var stamped := _apply_clip(d, clip, origin)
+	if stamped.is_empty():
+		return {} # nothing landed: leave the map untouched rather than deleting the source
+	MapIO.apply_serialized(d, true)
+	EditHistory.commit(label)
+	return stamped
+
+# write `clip` into the dict `d` at `origin` (no apply, no undo). Every target cell is STRIPPED first,
+# so a paste overwrites within its footprint instead of half-merging with what was there.
+func _apply_clip(d: Dictionary, clip: Dictionary, origin: Vector2i) -> Dictionary:
+	var w := int(d["grid"]["width"])
+	var h := int(d["grid"]["height"])
+	var absent := _absent_set(d)
+	var target := {}
+	for a in clip.get("cells", []):
+		var cell := origin + Vector2i(int(a[0]), int(a[1]))
+		if cell.x < 0 or cell.y < 0 or cell.x >= w or cell.y >= h or absent.has(cell):
+			continue # clipped at the map edge / on a hole
+		target[cell] = true
+	if target.is_empty():
+		return {}
+	for cell in target:
+		_strip_cell(d, cell)
+	for key in ["walls", "wall_colors", "wall_materials"]:
+		for a in clip.get(key, []):
+			var cell := origin + Vector2i(int(a[0]), int(a[1]))
+			if not target.has(cell):
+				continue
+			var row: Array = a.duplicate()
+			row[0] = cell.x
+			row[1] = cell.y
+			d[key].append(row)
+	for key in ["doors", "bridges"]:
+		for r in clip.get(key, []):
+			var cell := origin + Vector2i(int(r["cell"][0]), int(r["cell"][1]))
+			if not target.has(cell):
+				continue
+			var rec: Dictionary = r.duplicate(true)
+			rec["cell"] = [cell.x, cell.y]
+			d[key].append(rec)
+	for key in ["quads", "floor_tints", "floor_patterns", "floor_no_bank"]:
+		for a in clip.get(key, []):
+			var q := Vector2i(origin.x * 2 + int(a[0]), origin.y * 2 + int(a[1]))
+			if not target.has(Vector2i(floori(q.x / 2.0), floori(q.y / 2.0))):
+				continue
+			var row: Array = a.duplicate()
+			row[0] = q.x
+			row[1] = q.y
+			d[key].append(row)
+	return target
+
 # true if add_cell(cell) would succeed, without mutating (drives the hover highlight). A cell is
 # addable when it is a hole inside the box with a present neighbour, or one step beyond exactly one edge.
 func can_add_cell(cell: Vector2i) -> bool:

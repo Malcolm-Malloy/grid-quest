@@ -132,7 +132,8 @@ authoring, which was inert because the player's proximity logic overwrites door 
 4. **Selection + power tools:** **Magic Wand** (click-to-grow, marching-ants) and **Box-select**,
    with **add/subtract** modifiers and **selection-fill**; then **Move** (keeps id), **copy/paste**
    (cross-map clipboard, rotate+flip), the **properties inspector**, the **status bar**, and
-   **wall/door authoring** (roster + door authored state).
+   **wall/door authoring** (roster + door authored state). *Progress: all DONE except the status bar --
+   **Move + copy/paste/duplicate DONE 2026-08-30** (see "Copy, paste, and duplicate" -> As built).*
 5. **Persistence + library:** **autosave+warn**, **New Map** flow, **map thumbnails**, **folders/
    categories**, and **export/import** for sharing.
 6. **Multi-tile object footprints** and **coloured floors / patterns / material variants** slot in as
@@ -1975,6 +1976,9 @@ region), then **drag it to a new cell**; the hover/drop-preview shows the destin
 - Reuses the selection, drop-preview, and undo systems already specced; the new piece is the "move
   op preserves id" path that the copy/paste and erase paths deliberately do not.
 
+**BUILT 2026-08-30** as the **Move (V)** tool, together with copy/paste/duplicate (they share the clip,
+the ghost and the stamp). See the as-built note under "Copy, paste, and duplicate".
+
 ## Editor camera: pan and zoom (decided 2026-08-16, Phase A)
 The 48x32 default map is larger than the screen, so the editor needs its own camera, **decoupled
 from the player while editing**:
@@ -2116,6 +2120,65 @@ already specced, so it is a natural fast-follow rather than new machinery:
   door gets a fresh id, like any new placement) and clips or auto-extends at that map's edges.
 - **Timing:** after the core Phase A tools (needs the Magic Wand selection, placement drop-preview,
   and undo all working first); a Phase A fast-follow, not the first pass.
+
+**As-built (2026-08-30): COPY / PASTE / DUPLICATE + the MOVE tool, all DONE.** Built together because
+they are one mechanism with three entry points: a region is captured as a *clip*, previewed as a hover
+ghost, and stamped. Covered by `dev/test_clipboard` (64 checks).
+- **`MapClipboard` autoload (`systems/map_clipboard.gd`).** A clip is an ORIGIN-RELATIVE slice of the
+  same layers `MapIO.serialize()` stores (walls, doors, bridges, wall colours/materials, floor
+  quarters/tints/patterns/bank flags) plus the **footprint of cells** it covers. Because it is data in
+  the serialized shape, pasting is a pure dict transform re-applied through MapIO -- the same path
+  load, resize and undo use -- so a paste rebuilds everything derived (shadows, lighting, room
+  topology) and lands as **one undo entry**.
+- **Grain (the "settle at build" questions, answered).**
+  - *Footprint = CELLS.* A floor selection contributes every cell owning a selected quarter, so
+    magic-wand-selecting a room (interior + wall ring) and copying takes the room's floor **and** its
+    walls and doors -- the "build a room once, reuse it across levels" case. A Fine-Details part-cell
+    selection therefore copies its whole cell; sub-cell clips are not a thing (v1 caveat).
+  - *Paste OVERWRITES within its footprint.* Every target cell is stripped first, so a stamp never
+    half-merges with what was under it.
+  - *Paste CLIPS at the map edge.* Target cells off the grid or on an absent-cell hole are dropped and
+    the rest still land (nothing auto-extends the map). The ghost outlines those cells in **red** so
+    the clipping reads before the click; a wholly off-map paste does nothing and commits nothing.
+  - *Anchor:* a paste **centres** the block on the cursor (it reads as carrying it); a move keeps the
+    offset from the cell the drag grabbed.
+- **Rotate + flip, with the orientation-remap table (`MapClipboard._reorient`).** Clips transform as
+  DATA, not as rotated images: cell and quarter coordinates remap within the bounding box and every
+  directional record goes through the table -- a horizontal door becomes vertical, and its **swing side
+  follows the transform** (rotate CW: north->east, east->south, so a vertical source inverts; flip_h
+  inverts a vertical door's side, flip_v a horizontal one's). Walls carry no orientation of their own
+  (their shape is derived from neighbours) and floor materials/patterns are non-directional, so **every
+  clip can rotate today**; the table is the single source the R-key placement override should reuse.
+- **The hover ghost (`floors/clip_preview.gd`).** Draws the armed clip over the cells it will occupy:
+  the footprint washed and outlined in ADD-green (ERASE-red where it would clip), the clip's floor
+  drawn with its real material textures at the destination's tile phase, lifted a few px with a contact
+  shadow like the terrain drop-preview. Walls/doors show as lifted grey blocks marking WHERE they land
+  (their real art is derived from neighbours at build time, so faking the shape would lie) -- upgrading
+  those to real wall/gate preview nodes is the obvious polish pass.
+- **Keys.** **Ctrl+C** copies the selection, **Ctrl+V** arms a paste brush, **Ctrl+D** duplicates
+  (copy + arm). While a clip is armed: **R** rotates 90 degrees CW, **H** flips horizontally,
+  **Shift+H** flips vertically, **Esc** or a **right-click** drops it. The armed paste owns the next
+  left-click in any mode, and switching tools cancels it.
+- **MOVE tool (V on the tool strip).** Select with the Magic Wand or Box-select, then press **inside**
+  the selection and drag; the ghost follows the grab point, release drops it. The move clears the source
+  and stamps the destination **in one dict, one re-apply, one undo entry**, so the region never flickers
+  through a half-moved state, and every record is carried across **verbatim** -- a moved door keeps its
+  authored open/swing (and will keep its durable id once objects have one). That is the "move keeps
+  identity" contract that separates it from delete-then-place. A move never touches the clipboard, so
+  it cannot clobber what you copied. Dropping where it started is a no-op (unless you rotated).
+  - **Hotkey note:** the roadmap pencilled in M for Move, but M is the map menu; V is the
+    Photoshop/Illustrator move-tool key and Ctrl+V still pastes. The hotkey section says the final
+    letters are tunable at build.
+- **After a paste or a move the landed region becomes the selection**, so it can be moved again, filled
+  or erased immediately.
+- **Cross-map + restart.** The clipboard lives in the autoload (so it survives loading another map) and
+  mirrors to `user://clipboard.json` (so it survives a restart). Ids are not minted yet anywhere, so
+  "a pasted locked door gets a fresh id" is a no-op until doors carry ids.
+- **Capture harness:** `GQ_CLIP="sx,sy,w,h:px,py[:rotations[:drop]]"` copies a cell rectangle and either
+  ghosts it at a cell or stamps it. Since the ghost follows the OS cursor (which a capture run cannot
+  place), `FloorManager._ghost_origin_pin` pins the origin for the harness only. Verified by render: a
+  5x5 clip rotated once draws its green footprint, its wood floor and its wall blocks over the target
+  cells, and reads red past the map edge.
 
 ## Coloured highlight system (logged 2026-08-16, Phase A)
 
@@ -2783,6 +2846,9 @@ while editing, so letter keys are free):
   I = Eyedropper, M = Move, D = Door, plus a key each for Wall and Set Spawn (assign at build).
 - **Actions:** Ctrl+Z / Ctrl+Y = undo / redo, Ctrl+C / Ctrl+V = copy / paste, R = rotate (Shift+R or
   a flip key for flip), Esc = clear selection / cancel.
+  - *As built 2026-08-30:* Ctrl+C / Ctrl+V / **Ctrl+D (duplicate)**; while a clip is armed **R** rotates,
+    **H** flips horizontally, **Shift+H** flips vertically, **Esc**/right-click cancels. **Move took V**
+    (Photoshop's move key) rather than M, which is the map menu.
 - **Modifiers (already decided):** Shift = add to selection, Alt = subtract (or eyedropper while a
   paint brush is active), Space+drag / MMB = pan, wheel = zoom.
 - Final letter assignments tunable at build; the scheme is mnemonic-first. Consider making them

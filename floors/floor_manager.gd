@@ -59,7 +59,7 @@ const GRID_COLOR := Color(0.38, 0.64, 0.95, 0.4)
 # Cell/Fine/Erase paint directly on click/drag; Wand builds a selection the menu then fills. See
 # ROADMAP "Authoring surface" (mode rename), "Applying edits to a selection" and "Wall editing".
 # NOTE: BRIDGE is appended LAST so existing Mode indices stay stable (tool_strip.M_* mirrors this).
-enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR, SELECT, BOX, BRIDGE }
+enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR, SELECT, BOX, BRIDGE, MOVE }
 
 # each material maps to an ARRAY of pattern variants (index 0 = default, matches the pre-pattern
 # single texture). The active pattern per quarter is stored in _quad_pattern (parallel to _quad_mat /
@@ -288,6 +288,19 @@ var _wall_ghost_key := ""    # dedupe: cell + colour + material + piece-count, s
 var _door_preview: Node2D    # the lifted DOOR ghost (gate.gd in preview mode), DOOR mode only
 var _door_ghost_key := ""    # dedupe the door ghost by cell + orientation
 var _selection: Node2D       # marching-ants selection overlay (see selection_overlay.gd)
+var _clip_ghost: Node2D      # hover ghost for an armed paste / an in-flight move (clip_preview.gd)
+# --- copy / paste / move: the ARMED clip and the gesture that will drop it (ROADMAP "Copy, paste,
+# and duplicate" + "Move tool"). One pending-clip state serves both, so the ghost, the rotate/flip
+# keys and the drop all have a single code path; only how the origin is computed differs.
+var _pending_clip := {}          # the clip about to land ({} = nothing armed)
+var _pending_kind := ""          # "paste" (armed by Ctrl+V, drops on click) or "move" (drag in MOVE mode)
+var _pending_id := 0             # bumped on every arm/rotate/flip so the ghost knows to redraw
+var _pending_changed := false    # the pending clip was rotated/flipped (so a zero-delta move still acts)
+var _move_src := {}              # MOVE: the source footprint cells, cleared when the move lands
+var _move_origin := Vector2i.ZERO # MOVE: the source footprint's top-left cell
+var _move_grab := Vector2i.ZERO  # MOVE: the cell the drag started on, so the ghost follows the grab point
+var _ghost_origin_pin := INVALID_CELL # dev hook (dev/capture.gd): pin the ghost's origin instead of
+									  # reading the OS cursor, which a capture run cannot place reliably
 var _mouse_inside := true    # false while the OS cursor is off the game window; hides all highlights
 var _ui_hid := false         # true while the cursor is over the editor menu/panels, so hover is cleared
 # Magic Wand selection state, so a repeat click on the same selection grows its scope:
@@ -449,6 +462,13 @@ func _ready() -> void:
 	_selection.set_script(load("res://floors/selection_overlay.gd"))
 	_selection.z_index = 1000
 	add_child(_selection)
+	# the paste/move hover ghost: draws the armed clip over the cells it would land on. It borrows
+	# this manager's texture lookup so the ghost shows the real material art, and its bounds test so
+	# cells that would be clipped at the map edge read red before the click.
+	_clip_ghost = Node2D.new()
+	_clip_ghost.set_script(load("res://floors/clip_preview.gd"))
+	add_child(_clip_ghost)
+	_clip_ghost.setup(func(mat: String, pat: int) -> Texture2D: return _mat_tex(mat, pat), _stampable)
 	call_deferred("_seed") # keep the existing wooden room once RoomLight has built
 
 func _seed() -> void:
@@ -498,6 +518,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 		var local := get_local_mouse_position()
 		var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+		# a right-click cancels an armed paste (the standard "drop the loaded brush" gesture, matching
+		# the Cell/Fine right-click-disarms rule); the clipboard keeps the clip for the next Ctrl+V.
+		if _pending_kind == "paste":
+			_cancel_pending()
+			get_viewport().set_input_as_handled()
+			return
 		# Cell/Fine: a right-click while a material is armed just cancels the brush (removes the floating
 		# drop-preview graphic), no menu. A second right-click (now un-armed) opens the menu as usual.
 		# See ROADMAP "Editor UX revisions" -> right-click disarms in Cell/Fine.
@@ -523,6 +549,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		_menu.popup()
 		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		# an armed paste owns the next left click, in ANY mode: it stamps the clip where the ghost sits.
+		if _pending_kind == "paste":
+			if event.pressed:
+				_drop_pending()
+			get_viewport().set_input_as_handled()
+			return
 		# clicking off the map deselects the current selection (any mode), per "Editor UX revisions"
 		# -> deselect a Wand selection ("clicking off the map would logically deselect").
 		if event.pressed and _selection.has_selection():
@@ -555,6 +587,19 @@ func _unhandled_input(event: InputEvent) -> void:
 					get_viewport().set_input_as_handled()
 			elif _box_active:
 				_box_active = false # selection already committed into _sel_quads during the drag
+				get_viewport().set_input_as_handled()
+			return
+		if _mode == Mode.MOVE:
+			# drag the current selection to a new place: press INSIDE it to grab (the ghost then follows
+			# the grab point), release to drop. Pressing outside does nothing, so a stray click never
+			# moves a room by accident. Rotate/flip (R / H / Shift+H) work mid-drag like they do for paste.
+			if event.pressed:
+				var ml := get_local_mouse_position()
+				if _selection.has_selection() and _click_in_selection(ml):
+					_begin_move(Vector2i(floori(ml.x / CELL), floori(ml.y / CELL)))
+					get_viewport().set_input_as_handled()
+			elif _pending_kind == "move":
+				_drop_pending()
 				get_viewport().set_input_as_handled()
 			return
 		if _mode == Mode.SELECT:
@@ -617,7 +662,35 @@ func _unhandled_input(event: InputEvent) -> void:
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return
-	if event.keycode == KEY_ESCAPE and _selection.has_selection():
+	# --- clipboard: copy / paste / duplicate (ROADMAP "Copy, paste, and duplicate") ---
+	var mod: bool = event.ctrl_pressed or event.meta_pressed
+	if mod and event.keycode == KEY_C:
+		_copy_selection()
+		get_viewport().set_input_as_handled()
+		return
+	if mod and event.keycode == KEY_V:
+		_arm_paste(MapClipboard.clip())
+		get_viewport().set_input_as_handled()
+		return
+	if mod and event.keycode == KEY_D:
+		# duplicate = copy the selection and immediately arm it, so the copy is dropped by the next click
+		if _copy_selection():
+			_arm_paste(MapClipboard.clip())
+		get_viewport().set_input_as_handled()
+		return
+	# --- rotate / flip the clip about to land (paste ghost or move drag) ---
+	if not _pending_clip.is_empty() and event.keycode == KEY_R:
+		_transform_pending(MapClipboard.rotate_cw(_pending_clip))
+		get_viewport().set_input_as_handled()
+		return
+	if not _pending_clip.is_empty() and event.keycode == KEY_H:
+		_transform_pending(MapClipboard.flip_v(_pending_clip) if event.shift_pressed else MapClipboard.flip_h(_pending_clip))
+		get_viewport().set_input_as_handled()
+		return
+	if event.keycode == KEY_ESCAPE and not _pending_clip.is_empty():
+		_cancel_pending() # Esc drops the armed paste / aborts the move drag before it lands
+		get_viewport().set_input_as_handled()
+	elif event.keycode == KEY_ESCAPE and _selection.has_selection():
 		_clear_selection()
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_DELETE and _selection.has_selection():
@@ -864,6 +937,7 @@ func set_mode(mode: int) -> void:
 		return
 	_mode = mode as Mode
 	_box_active = false # never carry a box drag across a mode switch
+	_cancel_pending()   # nor an armed paste / half-finished move drag
 	if _mode != Mode.WAND:
 		_tool_kind = "floor"
 	# Cell/Fine must not start with a material armed to drop: the user picks one from the menu first
@@ -1259,6 +1333,129 @@ func _click_in_selection(local: Vector2) -> bool:
 		return _sel_cells.has(Vector2i(floori(local.x / CELL), floori(local.y / CELL)))
 	return false
 
+# --- copy / paste / duplicate / move (ROADMAP "Copy, paste, and duplicate" + "Move tool") ---
+#
+# All four gestures ride ONE pending-clip state: an armed clip (`_pending_clip`) plus how it will be
+# dropped (`_pending_kind`). The hover ghost, the rotate/flip keys and the drop are shared; only the
+# origin differs (a paste centres on the cursor, a move follows the grab point) and what happens on
+# drop (a paste stamps, a move stamps AND clears its source, in one undo entry).
+
+# the CELLS the current selection covers: every cell owning a selected floor quarter, or the selected
+# wall cells. This is the clip footprint, so magic-wand-selecting a room (floor + its wall ring) and
+# copying takes the room's floor AND the walls/doors around it.
+func _selection_cells() -> Dictionary:
+	var out := {}
+	if _sel_kind == "floor":
+		for q in _sel_quads:
+			out[Vector2i(floori(q.x / 2.0), floori(q.y / 2.0))] = true
+	elif _sel_kind == "wall":
+		for c in _sel_cells:
+			out[c] = true
+	return out
+
+# would a stamped cell actually land? (in bounds and not an absent-cell hole) -- drives the ghost's
+# green/red footprint and matches MapEdit._apply_clip's clipping rule exactly.
+func _stampable(cell: Vector2i) -> bool:
+	if not _in_bounds(cell):
+		return false
+	var gb = get_node_or_null("../GridBackground")
+	return gb == null or gb.cell_present(cell.x, cell.y)
+
+# Ctrl+C: put the current selection's region on the (cross-map, disk-backed) clipboard.
+func _copy_selection() -> bool:
+	var cells := _selection_cells()
+	if cells.is_empty():
+		return false
+	MapClipboard.set_clip(MapClipboard.build_clip(MapIO.serialize(), cells))
+	return true
+
+# Ctrl+V (and duplicate): arm `clip` as a paste brush; the ghost follows the cursor until a click.
+func _arm_paste(clip: Dictionary) -> void:
+	if clip.is_empty():
+		return
+	_pending_clip = clip
+	_pending_kind = "paste"
+	_pending_changed = false
+	_pending_id += 1
+	_reset_highlight()
+	call_deferred("_update_hover")
+
+# MOVE mode: grab the current selection at `grab` and start dragging it.
+func _begin_move(grab: Vector2i) -> void:
+	var cells := _selection_cells()
+	if cells.is_empty():
+		return
+	var minc := Vector2i(1 << 30, 1 << 30)
+	for c in cells:
+		minc.x = mini(minc.x, c.x); minc.y = mini(minc.y, c.y)
+	# built from the live map, NOT from the clipboard: a move must never clobber what the user copied
+	_pending_clip = MapClipboard.build_clip(MapIO.serialize(), cells)
+	_pending_kind = "move"
+	_pending_changed = false
+	_pending_id += 1
+	_move_src = cells
+	_move_origin = minc
+	_move_grab = grab
+	call_deferred("_update_hover")
+
+# rotate/flip the armed clip in place (R / H / Shift+H), keeping the gesture going.
+func _transform_pending(clip: Dictionary) -> void:
+	if clip.is_empty():
+		return
+	_pending_clip = clip
+	_pending_changed = true # so a move that only rotates still counts as an edit
+	_pending_id += 1
+	call_deferred("_update_hover")
+
+# where the armed clip's top-left cell currently sits: a PASTE centres the block on the cursor (so
+# hovering reads as carrying it), a MOVE keeps the offset from the cell the drag grabbed.
+func _pending_origin() -> Vector2i:
+	if _ghost_origin_pin != INVALID_CELL:
+		return _ghost_origin_pin # pinned by the capture harness; never set in normal play
+	var local := get_local_mouse_position()
+	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	if _pending_kind == "move":
+		return _move_origin + (cell - _move_grab)
+	return cell - Vector2i(int(_pending_clip.get("w", 1)) / 2, int(_pending_clip.get("h", 1)) / 2)
+
+# drop the armed clip: stamp a paste, or complete a move (clear the source + stamp), one undo entry.
+# The landed region becomes the selection, so it can be moved again or filled straight away.
+func _drop_pending() -> void:
+	var origin := _pending_origin()
+	var stamped := {}
+	if _pending_kind == "move":
+		if origin != _move_origin or _pending_changed:
+			stamped = MapEdit.move_clip(_move_src, _pending_clip, origin)
+		else:
+			stamped = _move_src # dropped where it started: no edit, keep the selection put
+	else:
+		stamped = MapEdit.stamp_clip(_pending_clip, origin)
+	_cancel_pending()
+	if not stamped.is_empty():
+		_select_cells(stamped)
+	_reset_highlight()
+	call_deferred("_update_hover")
+
+# make `cells` the current selection (every quarter of each), used after a paste/move so the landed
+# region is immediately actionable.
+func _select_cells(cells: Dictionary) -> void:
+	_sel_kind = "floor"
+	_sel_cells = {}
+	_sel_level = 0
+	_sel_quads = {}
+	for c in cells:
+		for q in _cell_quads(c):
+			_sel_quads[q] = true
+	_refresh_selection_overlay()
+
+# drop the armed paste / abort the move drag without editing the map
+func _cancel_pending() -> void:
+	_pending_clip = {}
+	_pending_kind = ""
+	_pending_changed = false
+	_move_src = {}
+	_clip_ghost.hide_clip()
+
 func _fill_floor_selection(mat: String) -> void:
 	var valid := mat != "" and textures.has(mat)
 	for q in _sel_quads:
@@ -1305,6 +1502,8 @@ func _reset_highlight() -> void:
 		_bridge_preview.visible = false
 	_hide_wall_ghost()
 	_hide_door_ghost()
+	if _clip_ghost != null:
+		_clip_ghost.hide_clip() # an armed clip re-shows it on the next hover; off-window/over-UI it goes
 
 # --- reference grid toggle ---
 
@@ -1332,6 +1531,24 @@ func _update_hover() -> void:
 		return # cursor is off the game window; highlights were cleared on exit
 	var local := get_local_mouse_position()
 	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	# an armed paste / an in-flight move owns the hover surface: the clip ghost replaces every other
+	# cursor, so what is about to land is the only thing previewed.
+	if not _pending_clip.is_empty():
+		_clear_room_hover()
+		_cursor.hide_cursor()
+		_preview.hide_preview()
+		_restore_faded()
+		_clip_ghost.show_clip(_pending_clip, _pending_origin(), _pending_id)
+		return
+	_clip_ghost.hide_clip()
+	if _mode == Mode.MOVE:
+		# MOVE with nothing grabbed: the marching ants already mark what a drag would pick up, so no
+		# extra cursor (a paint cursor here would read as "this cell will be edited", which it will not)
+		_clear_room_hover()
+		_cursor.hide_cursor()
+		_preview.hide_preview()
+		_restore_faded()
+		return
 	# Wand: preview the ONE thing a click would select (building walls over a wall, room floor over
 	# a floor). The committed selection is drawn separately by the marching-ants overlay.
 	if _mode == Mode.WAND:
