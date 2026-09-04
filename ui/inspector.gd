@@ -56,6 +56,11 @@ func inspect_creature(cell: Vector2i) -> void:
 	_cell = cell
 	_rebuild()
 
+func inspect_zone(cell: Vector2i) -> void:
+	_kind = "zone"
+	_cell = cell
+	_rebuild()
+
 func clear() -> void:
 	_kind = ""
 	_rebuild()
@@ -84,6 +89,8 @@ func _rebuild() -> void:
 		_build_wall()
 	elif _kind == "creature":
 		_build_creature()
+	elif _kind == "zone":
+		_build_zone()
 	_refresh_visibility()
 
 func _title(text: String) -> void:
@@ -167,6 +174,85 @@ func _build_creature() -> void:
 	del.text = "Delete"
 	del.pressed.connect(func():
 		if cr.remove_creature(_cell):
+			_reapply()
+			clear())
+	_box.add_child(del)
+
+# A spawn zone: the region rule. ROADMAP "Editor layout" called for exactly this -- "a spawn zone's
+# type/rate/cap", and "complex ones (spawn zones) show more" than the couple of fields a simple object
+# gets. Rate and cap are SPINBOXES rather than buttons because they are continuous quantities with a
+# sensible range, not a small fixed roster like a creature type.
+func _build_zone() -> void:
+	var cr = _creature_layer()
+	var rec: Dictionary = cr.zone_at(_cell) if cr else {}
+	if rec.is_empty():
+		clear()
+		return
+	var rect: Rect2i = rec["rect"]
+	_title("Spawn Zone  (%d x %d)" % [rect.size.x, rect.size.y])
+
+	_title("Spawns")
+	var type_grid := GridContainer.new()
+	type_grid.columns = 2
+	for cid in Bestiary.ids():
+		var tb := Button.new()
+		tb.text = Bestiary.display_name(cid)
+		tb.flat = cid != String(rec["creature"])
+		tb.add_theme_color_override("font_color", Bestiary.rarity_color(cid))
+		tb.pressed.connect(func():
+			if cr.set_zone_type(_cell, cid):
+				_reapply()
+				inspect_zone(_cell))
+		type_grid.add_child(tb)
+	_box.add_child(type_grid)
+
+	# cap: how many of them the zone keeps alive at once
+	var cap_row := HBoxContainer.new()
+	var cap_lbl := Label.new()
+	cap_lbl.text = "Cap"
+	cap_row.add_child(cap_lbl)
+	var cap := SpinBox.new()
+	cap.min_value = Bestiary.ZONE_CAP_RANGE.x
+	cap.max_value = Bestiary.ZONE_CAP_RANGE.y
+	cap.step = 1
+	cap.value = int(rec["cap"])
+	cap.tooltip_text = "How many live creatures this zone keeps in the area"
+	cap.value_changed.connect(func(v: float):
+		if cr.set_zone_cap(_cell, int(v)):
+			_reapply())
+	cap_row.add_child(cap)
+	_box.add_child(cap_row)
+
+	# rate: seconds between spawn attempts
+	var rate_row := HBoxContainer.new()
+	var rate_lbl := Label.new()
+	rate_lbl.text = "Every"
+	rate_row.add_child(rate_lbl)
+	var rate := SpinBox.new()
+	rate.min_value = Bestiary.ZONE_RATE_RANGE.x
+	rate.max_value = Bestiary.ZONE_RATE_RANGE.y
+	rate.step = 0.5
+	rate.suffix = "s"
+	rate.value = float(rec["rate"])
+	rate.tooltip_text = "Seconds between spawn attempts while the zone is below its cap"
+	rate.value_changed.connect(func(v: float):
+		if cr.set_zone_rate(_cell, v):
+			_reapply())
+	rate_row.add_child(rate)
+	_box.add_child(rate_row)
+
+	var note := Label.new()
+	note.text = "Spawns while playing. Roaming AI is not built yet."
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.custom_minimum_size.x = 190
+	note.add_theme_font_size_override("font_size", 11)
+	note.add_theme_color_override("font_color", Color(0.65, 0.68, 0.74))
+	_box.add_child(note)
+
+	var del := Button.new()
+	del.text = "Delete Zone"
+	del.pressed.connect(func():
+		if cr.remove_zone_at(_cell):
 			_reapply()
 			clear())
 	_box.add_child(del)

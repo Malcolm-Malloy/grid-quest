@@ -75,7 +75,7 @@ func build_clip(d: Dictionary, cells: Dictionary) -> Dictionary:
 		"origin": [minc.x, minc.y], # where it was copied FROM (a move stamps back relative to this)
 		"cells": [],
 		"walls": [], "wall_colors": [], "wall_materials": [],
-		"doors": [], "bridges": [], "pickups": [], "creatures": [],
+		"doors": [], "bridges": [], "pickups": [], "creatures": [], "creature_zones": [],
 		"quads": [], "floor_tints": [], "floor_patterns": [], "floor_no_bank": [],
 	}
 	for c in cells:
@@ -90,6 +90,24 @@ func build_clip(d: Dictionary, cells: Dictionary) -> Dictionary:
 			row[0] = cell.x - minc.x
 			row[1] = cell.y - minc.y
 			out[key].append(row)
+	# spawn zones are regions, so "is it in the selection" means CONTAINED, not "does it touch": a zone
+	# clipped in half by a copy would paste a different rule from the one that was copied, which is
+	# worse than not copying it. One fully inside the footprint rides along, rebased like everything else.
+	for z in d.get("creature_zones", []):
+		var a: Array = z["rect"]
+		var zr := Rect2i(int(a[0]), int(a[1]), int(a[2]), int(a[3]))
+		var inside := true
+		for zx in range(zr.position.x, zr.position.x + zr.size.x):
+			for zy in range(zr.position.y, zr.position.y + zr.size.y):
+				if not cells.has(Vector2i(zx, zy)):
+					inside = false
+					break
+			if not inside:
+				break
+		if inside:
+			var zrec: Dictionary = z.duplicate(true)
+			zrec["rect"] = [zr.position.x - minc.x, zr.position.y - minc.y, zr.size.x, zr.size.y]
+			out["creature_zones"].append(zrec)
 	# {cell: [cx, cy], ...} records (doors, bridges, placed items, placed creatures)
 	for key in ["doors", "bridges", "pickups", "creatures"]:
 		for r in d.get(key, []):
@@ -149,7 +167,7 @@ func flip_v(c: Dictionary) -> Dictionary:
 func _remap(c: Dictionary, nw: int, nh: int, cell_fn: Callable, quad_fn: Callable, kind: String) -> Dictionary:
 	var out := {"w": nw, "h": nh, "origin": c.get("origin", [0, 0]).duplicate(),
 		"cells": [], "walls": [], "wall_colors": [], "wall_materials": [],
-		"doors": [], "bridges": [], "pickups": [], "creatures": [], "quads": [], "floor_tints": [], "floor_patterns": [],
+		"doors": [], "bridges": [], "pickups": [], "creatures": [], "creature_zones": [], "quads": [], "floor_tints": [], "floor_patterns": [],
 		"floor_no_bank": []}
 	for a in c.get("cells", []):
 		var p: Vector2i = cell_fn.call(Vector2i(int(a[0]), int(a[1])))
@@ -168,6 +186,17 @@ func _remap(c: Dictionary, nw: int, nh: int, cell_fn: Callable, quad_fn: Callabl
 			rec["cell"] = [p.x, p.y]
 			_reorient(rec, kind)
 			out[key].append(rec)
+	# a zone is a rect, so it is remapped by its two opposite CORNERS and rebuilt from them -- a
+	# rotate turns a wide zone into a tall one, which mapping the corners gets right for free
+	for z in c.get("creature_zones", []):
+		var a: Array = z["rect"]
+		var p0: Vector2i = cell_fn.call(Vector2i(int(a[0]), int(a[1])))
+		var p1: Vector2i = cell_fn.call(Vector2i(int(a[0]) + int(a[2]) - 1, int(a[1]) + int(a[3]) - 1))
+		var lo := Vector2i(mini(p0.x, p1.x), mini(p0.y, p1.y))
+		var hi := Vector2i(maxi(p0.x, p1.x), maxi(p0.y, p1.y))
+		var zrec2: Dictionary = z.duplicate(true)
+		zrec2["rect"] = [lo.x, lo.y, hi.x - lo.x + 1, hi.y - lo.y + 1]
+		out["creature_zones"].append(zrec2)
 	for key in ["quads", "floor_tints", "floor_patterns", "floor_no_bank"]:
 		for a in c.get(key, []):
 			var row: Array = a.duplicate()

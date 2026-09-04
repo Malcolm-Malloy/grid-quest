@@ -517,6 +517,29 @@ func _ready() -> void:
 				camcr.fit_map()
 			await get_tree().process_frame
 
+	# GQ_ZONES="x,y,w,h,creature;..." drags out spawn zones through the real Creature tool, so the
+	# zone overlay (wash, dashed border, label) can be eyeballed, e.g. GQ_ZONES="18,18,8,6,frost_frog".
+	# Pair with GQ_PLAY=1 to watch them fill. Frames the whole map unless GQ_ZONES_NOFIT=1.
+	var zoneenv := OS.get_environment("GQ_ZONES")
+	if zoneenv != "":
+		var fmz := main.get_node_or_null("World/FloorManager")
+		if fmz:
+			fmz.set_mode(13) # Mode.CREATURE
+			fmz.arm_creature_kind(Bestiary.ZONE)
+			for op in zoneenv.split(";", false):
+				var f := op.split(",")
+				if f.size() >= 5:
+					fmz.arm_creature(f[4])
+					fmz._zone_active = true
+					fmz._zone_start = Vector2i(int(f[0]), int(f[1]))
+					fmz._zone_active = false
+					fmz._commit_zone(Vector2i(int(f[0]) + int(f[2]) - 1, int(f[1]) + int(f[3]) - 1))
+			await get_tree().process_frame
+			var camz := main.get_node_or_null("Camera2D")
+			if OS.get_environment("GQ_ZONES_NOFIT") != "1" and camz and camz.has_method("fit_map"):
+				camz.fit_map()
+			await get_tree().process_frame
+
 	# GQ_LOCK="x,y,kind[,colour];..." authors a door's lock so the lock art can be eyeballed:
 	# kind is "colour" (with a LOCK_COLORS name) or "unique" (metal, and it stays on an OPEN door).
 	# e.g. GQ_LOCK="8,11,colour,red;10,5,unique". Pair with GQ_DOORSTATE to see an open unique lock.

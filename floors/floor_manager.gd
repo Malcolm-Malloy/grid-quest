@@ -308,7 +308,10 @@ var _item := "coin"          # ITEM mode: which item definition a click places (
 var _item_data := {}         # binding carried by the next placement: a Unique key's {door_id, name}
 var _creature := "frost_frog" # CREATURE mode: which creature a click places (set from the panel)
 var _creature_kind := Bestiary.SPAWN_POINT # ...and as which kind: a spawn point (the default, per
-							 # ROADMAP "the default, reliable-single-roamer tool") or a fixed instance
+							 # ROADMAP "the default, reliable-single-roamer tool"), a fixed instance,
+							 # or a ZONE, which is dragged out rather than clicked
+var _zone_active := false    # true while a zone rectangle is being dragged out
+var _zone_start := Vector2i.ZERO # the cell that drag began on
 var _key_warn: ConfirmationDialog # "deleting this door deletes its key" warning, built on first use
 var _ghost_origin_pin := INVALID_CELL # dev hook (dev/capture.gd): pin the ghost's origin instead of
 									  # reading the OS cursor, which a capture run cannot place reliably
@@ -498,6 +501,7 @@ func _exit_edit_state() -> void:
 	_painting = false
 	_box_active = false
 	_box_maybe = false
+	_cancel_zone_drag() # a half-dragged zone rectangle is live editor state like any other
 	_reset_highlight()
 	_restore_faded()
 	var inspector = get_tree().get_first_node_in_group("inspector")
@@ -670,6 +674,23 @@ func _unhandled_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 			return
 		if _mode == Mode.CREATURE:
+			# A ZONE is a REGION, so it is DRAGGED out (press, drag, release) rather than clicked --
+			# the same gesture box-select and wall-drawing already use. The two cell kinds stay a
+			# single click.
+			if _creature_kind == Bestiary.ZONE:
+				if event.pressed:
+					var zl := get_local_mouse_position()
+					var zc := _clamp_cell(Vector2i(floori(zl.x / CELL), floori(zl.y / CELL)))
+					if _in_bounds(zc):
+						_zone_active = true
+						_zone_start = zc
+						_update_zone_drag(zc)
+				elif _zone_active:
+					_zone_active = false
+					var rl := get_local_mouse_position()
+					_commit_zone(_clamp_cell(Vector2i(floori(rl.x / CELL), floori(rl.y / CELL))))
+				get_viewport().set_input_as_handled()
+				return
 			# one click = one placed creature = one undo entry (same shape as the item tool)
 			if event.pressed:
 				_place_creature_at(get_local_mouse_position())
@@ -743,6 +764,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion:
 		if _box_maybe and not _box_active and get_local_mouse_position().distance_to(_box_press) > DRAG_SLOP:
 			_box_active = true # far enough to mean "drag a box", not "click that thing"
+		if _zone_active:
+			var zl2 := get_local_mouse_position()
+			_update_zone_drag(_clamp_cell(Vector2i(floori(zl2.x / CELL), floori(zl2.y / CELL))))
 		if _painting:
 			_paint(get_local_mouse_position())
 		elif _box_active:
@@ -1621,11 +1645,42 @@ func arm_creature(creature: String) -> void:
 	call_deferred("_update_hover")
 
 func arm_creature_kind(kind: String) -> void:
-	if not Bestiary.is_kind(kind):
+	if not Bestiary.is_brush_kind(kind):
 		return
 	_creature_kind = kind
+	if kind != Bestiary.ZONE:
+		_cancel_zone_drag()
 	brush_changed.emit()
 	call_deferred("_update_hover")
+
+# the rectangle from the drag's start cell to `cur`, inclusive both ends
+func _zone_rect(cur: Vector2i) -> Rect2i:
+	var lo := Vector2i(mini(_zone_start.x, cur.x), mini(_zone_start.y, cur.y))
+	var hi := Vector2i(maxi(_zone_start.x, cur.x), maxi(_zone_start.y, cur.y))
+	return Rect2i(lo, hi - lo + Vector2i.ONE)
+
+func _update_zone_drag(cur: Vector2i) -> void:
+	var cr = get_node_or_null("../Creatures")
+	if cr != null:
+		cr.set_zone_preview(_zone_rect(cur), _creature)
+
+# the drag landed: turn the dragged rectangle into a real zone, as one undo entry
+func _commit_zone(cur: Vector2i) -> bool:
+	var cr = get_node_or_null("../Creatures")
+	if cr == null:
+		return false
+	cr.clear_zone_preview()
+	if cr.add_zone(_zone_rect(cur), _creature).is_empty():
+		return false
+	_reapply_map()
+	EditHistory.commit("spawn zone")
+	return true
+
+func _cancel_zone_drag() -> void:
+	_zone_active = false
+	var cr = get_node_or_null("../Creatures")
+	if cr != null:
+		cr.clear_zone_preview()
 
 # --- copy / paste / duplicate / move (ROADMAP "Copy, paste, and duplicate" + "Move tool") ---
 #
@@ -2341,6 +2396,10 @@ func _select_at(local: Vector2) -> void:
 		inspector.inspect_door(cell)
 	elif obs != null and obs.is_blocked(cell):
 		inspector.inspect_wall(cell)
+	elif cr != null and cr.has_zone(cell):
+		# a zone is a rule about the REGION, under every object and structure in it, so it is the last
+		# thing a click can mean -- clicking a wall inside a zone still means the wall
+		inspector.inspect_zone(cell)
 	else:
 		inspector.clear()
 
@@ -2516,6 +2575,14 @@ func _erase_single(cell: Vector2i) -> void:
 			changed = true
 	if changed:
 		_rebuild()
+		EditHistory.commit("erase")
+		_reset_highlight()
+		return
+	# A ZONE is the LAST thing erase can mean: it is a rule about the region, sitting under every
+	# object, structure and terrain in it, so it only goes once there is nothing else on the cell to
+	# take. Otherwise erasing a creature standing in a zone would delete the zone out from under it.
+	if cr != null and cr.remove_zone_at(cell):
+		_reapply_map()
 		EditHistory.commit("erase")
 	_reset_highlight()
 

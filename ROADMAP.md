@@ -1946,7 +1946,7 @@ many tools exist.
 - **Slots into the tool strip era:** every tool (Magic Wand fills, Cell/Fine Details paint, Erase,
   wall/door, edge-cell) wraps its mutation in a history entry at the point it writes.
 
-## Creature placement in the editor (decided 2026-08-16: all three) SPAWN POINT + FIXED INSTANCE BUILT 2026-09-05
+## Creature placement in the editor (decided 2026-08-16: all three) ALL THREE BUILT 2026-09-05
 The editor supports **three ways to author creatures (monsters/animals)**, each for a different design
 need. Ties into the creature systems (Wild Monsters, capture/absorb, respawn) which are Phase C.
 - **Spawn point:** marks a spot where a creature of a chosen type spawns on entering the map / play
@@ -1962,8 +1962,8 @@ need. Ties into the creature systems (Wild Monsters, capture/absorb, respawn) wh
 - Build order suggestion: fixed instance and spawn point first (single-cell records), spawn zone
   later (needs region storage + a spawn timer/cap).
 
-**As-built (2026-09-05): the two single-cell kinds are BUILT**, following this section's own build
-order. The SPAWN ZONE is deliberately still open (it needs region storage plus a spawn timer/cap).
+**As-built (2026-09-05): ALL THREE kinds are BUILT**, in this section's own build order -- the two
+single-cell kinds first, then the spawn zone.
 - **This is the EDITOR half only.** Roaming AI, fighting, Subdued/Entranced capture, domestication and
   absorb are Phase C and are NOT built. What exists is everything needed to author creatures into a map
   and save them, so the pillar has something to wake up to.
@@ -2013,9 +2013,52 @@ order. The SPAWN ZONE is deliberately still open (it needs region storage plus a
 - **Save v13** (`creatures`). A pre-v13 map has no such key and loads with no creatures rather than
   crashing. Creatures ride the resize shift, the clipboard and paste like every other cell-keyed
   record; a PASTE mints fresh ids, as it does for doors and pickups.
-- Covered by `dev/test_creatures` (47 checks) and a `GQ_CREATURES=` capture hook; verified by render.
-- **Still open here: the SPAWN ZONE** (a box-selected region with a spawn rate + cap), and everything
-  the creatures then do, which is Phase C.
+
+**As-built (2026-09-05): the SPAWN ZONE, the third kind.** "An area flagged to periodically spawn a
+chosen type within it, for populating wild areas."
+- **Authored by DRAGGING, not clicking.** A zone is a region, so the Creature tool's third kind draws
+  a rectangle with a press-drag-release, the gesture box-select and wall-drawing already use, with a
+  live preview rectangle following the cursor. The kind sits beside Spawn Point and Fixed Instance in
+  the strip, because it is the same tool answering "how is this creature placed".
+- **Stored as a RECT** (`{rect, creature, rate, cap, id}`), not a cell set: a rect is what dragging one
+  out produces, what the spawner samples from and what the overlay draws, so a sparse cell set would
+  cost all three for no authoring gain.
+- **A zone is a RULE ABOUT AN AREA, not an occupant of its cells**, so the one-object-per-cell model
+  does not apply to it: zones may overlap each other and anything in them (a zone over a room with
+  walls in it is a sensible thing to author). Where two overlap, the most recently drawn wins.
+- **It really spawns.** In PLAY each zone tops itself up toward its `cap`, one creature per `rate`
+  seconds, at a random FREE cell inside it (skipping walls, doors, impassable floor, items, authored
+  creatures and its own output). It samples a bounded number of random cells rather than scanning the
+  rect, so a nearly-full zone gives up cheaply instead of sweeping thousands of cells mid-play. There
+  is still no AI, so what a spawned creature does is stand there and block -- but the RULE is real and
+  testable now, which is what the record exists to express.
+- **What a zone produced belongs to the PLAYTHROUGH, not the map.** Spawned creatures are runtime-only:
+  never serialized, cleared on leaving PLAY and on any map apply. The map holds only the rule. (This is
+  the same split the pickups make with collected state, and the one Q4 calls for.)
+- **Inspector: type / rate / cap**, exactly as "Editor layout" asked ("a spawn zone's type/rate/cap",
+  and "complex ones (spawn zones) show more"). Rate and cap are spinboxes, not buttons: they are
+  continuous quantities with a range, not a small fixed roster.
+- **Erase takes a zone LAST.** It sits under every object, structure and terrain in it, so it only goes
+  once the cell has nothing else to give up -- otherwise erasing a creature standing in a zone would
+  delete the zone out from under it. Select routes the same way: a click means the creature, then the
+  door, then the wall, and only then the zone.
+- **Overlay** (`world/creature_zone.gd`): a faint wash plus a dashed border in the creature's rarity
+  colour, and a label naming what it spawns and how many -- the rule is invisible otherwise, and
+  authoring one is entirely about the rule. EDIT-only chrome: in PLAY you should see the creatures it
+  made, not the box that made them. Deliberately NOT in the floor-highlight mask, unlike the creatures
+  that stand on the floor: that bit is for things which OCCLUDE the floor, and a translucent wash in
+  the mask pass would corrupt the key the highlight is drawn from.
+- **Save v14** (`creature_zones`); pre-v14 maps load with no zones. A resize shifts a zone and CLIPS it
+  to the new map (a zone half-off the edge keeps the half that survives); a copy takes a zone only if
+  it is FULLY inside the footprint, since a zone clipped in half would paste a different rule from the
+  one copied; a rotate/flip remaps its two opposite corners, so a wide zone becomes a tall one.
+- A zone covering a cell later removed from the map needs no special handling: the spawner asks
+  `cell_present` before placing, so a hole inside a zone is simply never spawned into.
+
+- Covered by `dev/test_creatures` (79 checks) plus `GQ_CREATURES=` and `GQ_ZONES=` capture hooks;
+  both the creature bodies and the zone overlay verified by render.
+- **Still open here:** nothing in this section. What the creatures then DO -- roaming, fighting,
+  capture, domestication -- is Phase C.
 
 ## Door authored state (editor, decided 2026-08-16)
 A placed door defaults to **closed** (the common enclosure case), and its **authored state is

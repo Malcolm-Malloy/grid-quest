@@ -44,8 +44,24 @@ const DEFS := {
 # spawn timer/cap and is deliberately left for later, per that section's own build-order note.
 const SPAWN_POINT := "spawn"   # a spot that spawns this creature at play start, then it roams (AI: Phase C)
 const INSTANCE := "instance"   # this exact creature, exactly here: scripted / boss / unique / quest
-const KINDS := [SPAWN_POINT, INSTANCE]
+const KINDS := [SPAWN_POINT, INSTANCE]  # the two CELL kinds: what a single placed record can be
 const KIND_NAMES := {SPAWN_POINT: "Spawn Point", INSTANCE: "Fixed Instance"}
+
+# The third kind, added 2026-09-05: a REGION rather than a cell, for populating wild areas. It is not
+# in KINDS because a zone is not something a creature record can be -- a zone is its own record with a
+# rect and spawn rules, and it is authored by dragging rather than by clicking a cell. It shares the
+# Creature tool, so it joins the kinds the BRUSH can be armed with.
+const ZONE := "zone"
+const BRUSH_KINDS := [SPAWN_POINT, INSTANCE, ZONE]
+const BRUSH_KIND_NAMES := {SPAWN_POINT: "Spawn Point", INSTANCE: "Fixed Instance", ZONE: "Zone"}
+
+# Zone spawn rules (ROADMAP: "flagged to periodically spawn a chosen type within it ... the zone
+# stores a region + spawn rules (rate, cap)"). Defaults chosen to read clearly the moment you press
+# Play: a few seconds apart, and a handful at a time rather than a swarm.
+const ZONE_RATE := 4.0   # seconds between spawn attempts
+const ZONE_CAP := 3      # live creatures this zone will maintain
+const ZONE_RATE_RANGE := Vector2(0.5, 60.0)
+const ZONE_CAP_RANGE := Vector2i(1, 20)
 
 func ids() -> Array:
 	return DEFS.keys()
@@ -75,10 +91,15 @@ func rarity_name(creature: String) -> String:
 	return Items.RARITY_NAMES[clampi(rarity_of(creature), 0, Items.RARITY_NAMES.size() - 1)]
 
 func kind_name(kind: String) -> String:
-	return String(KIND_NAMES.get(kind, kind))
+	return String(BRUSH_KIND_NAMES.get(kind, kind))
 
+# is this a kind a single placed CELL record can be? (a zone is not: it is its own record)
 func is_kind(kind: String) -> bool:
 	return KINDS.has(kind)
+
+# is this a kind the Creature TOOL can be armed with? (the two cell kinds plus zone)
+func is_brush_kind(kind: String) -> bool:
+	return BRUSH_KINDS.has(kind)
 
 # Whether this creature blocks the player by default. ROADMAP "Passability": type defaults with a
 # per-object override, and "monster = blocks while alive". Every creature blocks today; the field

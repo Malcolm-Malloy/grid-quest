@@ -115,7 +115,7 @@ func _ready() -> void:
 	_check("...at its cell", insp._cell == a)
 
 	# --- save / load round trip (v13) ---
-	_check("the save format is v13", MapIO.VERSION == 13)
+	_check("the save format is v14", MapIO.VERSION == 14)
 	var data: Dictionary = MapIO.serialize()
 	_check("creatures serialize", data["creatures"].size() == 2)
 	var map_name := "zz_creature_test"
@@ -159,6 +159,98 @@ func _ready() -> void:
 	# --- erase takes the creature before the ground beneath it ---
 	fm._erase_single(c)
 	_check("erase removes the creature", not cr.has_creature(c))
+
+	# ================= SPAWN ZONES (the third placement kind) =================
+	fm.set_mode(fm.Mode.CREATURE)
+	fm.arm_creature("frost_frog")
+	fm.arm_creature_kind(Bestiary.ZONE)
+	_check("Zone is a brush kind but NOT a cell-record kind",
+		Bestiary.is_brush_kind(Bestiary.ZONE) and not Bestiary.is_kind(Bestiary.ZONE))
+	_check("the tool can be armed with it", fm.armed_creature_kind() == Bestiary.ZONE)
+
+	# a zone is DRAGGED out, not clicked: press, move, release
+	fm._zone_active = true
+	fm._zone_start = Vector2i(30, 24)
+	fm._update_zone_drag(Vector2i(33, 26))
+	_check("dragging shows a live preview rectangle", cr._preview_zone != null and cr._preview_zone.visible)
+	fm._zone_active = false
+	fm._commit_zone(Vector2i(33, 26))
+	_check("releasing commits a zone", cr.zones.size() == 1)
+	_check("...the preview goes with it", not cr._preview_zone.visible)
+	var z: Dictionary = cr.zones[0]
+	_check("...spanning the dragged rectangle", z["rect"] == Rect2i(30, 24, 4, 3))
+	_check("...of the armed creature", z["creature"] == "frost_frog")
+	_check("...with the default rate and cap", z["rate"] == Bestiary.ZONE_RATE and z["cap"] == Bestiary.ZONE_CAP)
+	_check("a cell inside it reports the zone", cr.has_zone(Vector2i(31, 25)))
+	_check("a cell outside it does not", not cr.has_zone(Vector2i(40, 25)))
+	_check("a zero-size zone is refused", cr.add_zone(Rect2i(5, 5, 0, 3), "frost_frog").is_empty())
+
+	# the inspector's type / rate / cap (ROADMAP "Editor layout": a spawn zone shows more)
+	fm.set_mode(fm.Mode.SELECT)
+	fm._select_at(Vector2(31 * 32 + 16, 25 * 32 + 16))
+	_check("clicking inside a zone inspects the ZONE", insp._kind == "zone")
+	cr.set_zone_type(Vector2i(31, 25), "fire_horse")
+	_check("its type is editable", cr.zone_at(Vector2i(31, 25))["creature"] == "fire_horse")
+	cr.set_zone_cap(Vector2i(31, 25), 5)
+	cr.set_zone_rate(Vector2i(31, 25), 1.0)
+	_check("cap and rate are editable", cr.zone_at(Vector2i(31, 25))["cap"] == 5)
+	cr.set_zone_cap(Vector2i(31, 25), 9999)
+	_check("cap is clamped to its range", cr.zone_at(Vector2i(31, 25))["cap"] == Bestiary.ZONE_CAP_RANGE.y)
+	cr.set_zone_cap(Vector2i(31, 25), 2)
+
+	# a creature standing IN a zone still inspects as the creature: the zone is under it
+	fm.set_mode(fm.Mode.CREATURE)
+	fm.arm_creature_kind(Bestiary.SPAWN_POINT)
+	fm.arm_creature("frost_frog")
+	fm._place_creature_at(Vector2(31 * 32 + 16, 25 * 32 + 16))
+	fm.set_mode(fm.Mode.SELECT)
+	fm._select_at(Vector2(31 * 32 + 16, 25 * 32 + 16))
+	_check("a creature inside a zone still inspects as the creature", insp._kind == "creature")
+
+	# --- SPAWNING: the zone tops itself up toward its cap while playing ---
+	_check("nothing has spawned while editing", cr.spawned_count() == 0)
+	var authored_before: int = cr.creatures.size()
+	EditorMode.set_mode(EditorMode.Mode.PLAY)
+	cr.set_zone_rate(Vector2i(31, 25), 0.5)
+	# drive the spawner directly rather than waiting real seconds
+	for _i in 40:
+		cr._process(0.6)
+	_check("playing fills the zone up to its cap", cr.spawned_count() == 2)
+	_check("...and no further", cr.spawned_count() <= cr.zone_at(Vector2i(31, 25))["cap"])
+	var spawn_cell: Vector2i = cr._spawned[0]["cell"]
+	_check("...inside the zone's rectangle", (cr.zone_at(Vector2i(31, 25))["rect"] as Rect2i).has_point(spawn_cell))
+	_check("a spawned creature blocks the player too", cr.blocks_movement(spawn_cell))
+	# what a zone produced is the PLAYTHROUGH's, not the map's
+	_check("spawned creatures are NOT in the map's records", cr.creatures.size() == authored_before)
+	_check("...nor in what it serializes", MapIO.serialize()["creatures"].size() == authored_before)
+	EditorMode.set_mode(EditorMode.Mode.EDIT)
+	await get_tree().process_frame
+	_check("leaving play clears what the zone produced", cr.spawned_count() == 0)
+
+	# --- zones survive save / load, resize and erase ---
+	MapIO.save_map(map_name)
+	MapIO.new_map()
+	_check("a new map has no zones", cr.zones.is_empty())
+	MapIO.load_map(map_name)
+	_check("zones come back on load", cr.zones.size() == 1)
+	_check("...with their rect", cr.zone_at(Vector2i(31, 25))["rect"] == Rect2i(30, 24, 4, 3))
+	_check("...and their edited rate and cap", cr.zone_at(Vector2i(31, 25))["cap"] == 2)
+	var pre14: Dictionary = MapIO.serialize()
+	pre14.erase("creature_zones")
+	pre14["version"] = 13
+	MapIO.apply_serialized(pre14, true)
+	_check("a pre-v14 map loads with no zones rather than crashing", cr.zones.is_empty())
+	MapIO.load_map(map_name)
+	MapEdit.grow("left")
+	_check("a zone shifts with a resize", cr.zone_at(Vector2i(32, 25))["rect"] == Rect2i(31, 24, 4, 3))
+	MapEdit.shrink("left")
+	# erase: the zone is the LAST thing a cell can give up, so the creature standing in it goes first
+	var inzone := Vector2i(31, 25)
+	fm._erase_single(inzone)
+	_check("erase takes the creature standing in the zone first", not cr.has_creature(inzone))
+	_check("...leaving the zone", cr.has_zone(inzone))
+	fm._erase_single(inzone)
+	_check("erasing again takes the zone", not cr.has_zone(inzone))
 
 	MapIO.delete_map(map_name)
 	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])

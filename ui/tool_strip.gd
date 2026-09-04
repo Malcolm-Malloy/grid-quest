@@ -202,11 +202,10 @@ func _ready() -> void:
 		var creature_box := _add_section(vb, "Creature", false)
 		var kind_row := HBoxContainer.new()
 		creature_box.add_child(kind_row)
-		for k in Bestiary.KINDS:
+		for k in Bestiary.BRUSH_KINDS:
 			var kb := Button.new()
 			kb.text = Bestiary.kind_name(k)
-			kb.tooltip_text = ("Spawns this creature at play start, then it roams" if k == Bestiary.SPAWN_POINT
-				else "This exact creature, exactly here (boss / scripted / quest)")
+			kb.tooltip_text = _kind_tip(k)
 			kb.pressed.connect(_on_creature_kind_pressed.bind(k))
 			kind_row.add_child(kb)
 			_kind_buttons[k] = kb
@@ -662,6 +661,12 @@ func _on_creature_kind_pressed(kind: String) -> void:
 		return
 	fm.arm_creature_kind(kind)
 	_sync_creature_buttons(fm.armed_creature(), kind)
+
+func _kind_tip(kind: String) -> String:
+	match kind:
+		Bestiary.INSTANCE: return "This exact creature, exactly here (boss / scripted / quest)"
+		Bestiary.ZONE: return "DRAG a region that keeps spawning this creature while you play"
+		_: return "Spawns this creature at play start, then it roams"
 
 func _sync_creature_buttons(active: String, kind: String) -> void:
 	for cid in _creature_buttons:

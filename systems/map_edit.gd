@@ -259,6 +259,21 @@ func _apply_clip(d: Dictionary, clip: Dictionary, origin: Vector2i, fresh_ids :=
 				# placement, so the original's Unique key does not open the copy)
 				rec["id"] = Items.new_id()
 			d[key].append(rec)
+	# zones land whole, at the paste origin, with a fresh id (a pasted zone is a new rule, the same
+	# way a pasted door is a new door). One that would land partly off the map is clipped to it.
+	for z in clip.get("creature_zones", []):
+		var za: Array = z["rect"]
+		var zr := Rect2i(origin.x + int(za[0]), origin.y + int(za[1]), int(za[2]), int(za[3]))
+		var zclip := zr.intersection(Rect2i(0, 0, int(d["grid"]["width"]), int(d["grid"]["height"])))
+		if zclip.size.x <= 0 or zclip.size.y <= 0:
+			continue
+		var zrec: Dictionary = z.duplicate(true)
+		zrec["rect"] = [zclip.position.x, zclip.position.y, zclip.size.x, zclip.size.y]
+		if fresh_ids:
+			zrec["id"] = Items.new_id()
+		if not d.has("creature_zones"):
+			d["creature_zones"] = []
+		d["creature_zones"].append(zrec)
 	for key in ["quads", "floor_tints", "floor_patterns", "floor_no_bank"]:
 		for a in clip.get(key, []):
 			var q := Vector2i(origin.x * 2 + int(a[0]), origin.y * 2 + int(a[1]))
@@ -536,6 +551,21 @@ func _shift(d: Dictionary, dx: int, dy: int, nw: int, nh: int) -> Dictionary:
 			crs.append({"cell": [cx, cy], "creature": r["creature"], "kind": r["kind"],
 				"id": r.get("id", ""), "blocks": bool(r.get("blocks", true))})
 	out["creatures"] = crs
+
+	# spawn zones are RECTS, not cells, so they shift as a whole and are then CLIPPED to the new map:
+	# a zone half-off the edge should keep the half that survives, not vanish and not hang in the void.
+	# One that ends up entirely outside goes with the band that carried it.
+	var zs: Array = []
+	for z in d.get("creature_zones", []):
+		var a: Array = z["rect"]
+		var zr := Rect2i(int(a[0]) + dx, int(a[1]) + dy, int(a[2]), int(a[3]))
+		var clipped := zr.intersection(Rect2i(0, 0, nw, nh))
+		if clipped.size.x <= 0 or clipped.size.y <= 0:
+			continue
+		zs.append({"rect": [clipped.position.x, clipped.position.y, clipped.size.x, clipped.size.y],
+			"creature": z["creature"], "rate": z.get("rate", 4.0), "cap": z.get("cap", 3),
+			"id": z.get("id", "")})
+	out["creature_zones"] = zs
 
 	return out
 

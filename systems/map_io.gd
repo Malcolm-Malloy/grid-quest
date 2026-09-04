@@ -8,7 +8,7 @@ extends Node
 # Maps live in user://maps/<name>.json (persistent, writable, cross-platform). Writes are
 # atomic (temp file, then rename) so a crash mid-save can't corrupt an existing map.
 
-const VERSION := 13 # v13: placed creatures (spawn points + fixed instances); v12: door ids + locks (and pickup instance data); v11: placed item pickups; v10: sparse absent_cells (jagged/non-square maps); v9: per-quarter liquid river-bank OFF flags; v8: bridges (crossable decks over water); v7: per-quarter floor patterns; v6: per-cell wall materials; v5: per-quarter floor tints; v4: per-door authored open+swing; v3: per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
+const VERSION := 14 # v14: creature spawn zones (region + rate + cap); v13: placed creatures (spawn points + fixed instances); v12: door ids + locks (and pickup instance data); v11: placed item pickups; v10: sparse absent_cells (jagged/non-square maps); v9: per-quarter liquid river-bank OFF flags; v8: bridges (crossable decks over water); v7: per-quarter floor patterns; v6: per-cell wall materials; v5: per-quarter floor tints; v4: per-door authored open+swing; v3: per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
 const DIR := "user://maps"
 const LAST_FILE := "user://last_map.txt" # remembers the map to reload on next launch
 
@@ -128,6 +128,15 @@ func serialize() -> Dictionary:
 		for r in cr.creatures:
 			creatures.append({"cell": [r["cell"].x, r["cell"].y], "creature": r["creature"],
 				"kind": r["kind"], "id": r["id"], "blocks": bool(r.get("blocks", true))})
+	# spawn zones as {rect: [x, y, w, h], creature, rate, cap, id}: a REGION rule, not an occupant, so
+	# it is stored by rect rather than by cell. What a zone has SPAWNED is never here -- that belongs to
+	# the playthrough, so the map holds only the rule.
+	var creature_zones: Array = []
+	if cr:
+		for z in cr.zones:
+			var zr: Rect2i = z["rect"]
+			creature_zones.append({"rect": [zr.position.x, zr.position.y, zr.size.x, zr.size.y],
+				"creature": z["creature"], "rate": float(z["rate"]), "cap": int(z["cap"]), "id": z["id"]})
 	# cell-existence holes as [cx, cy]; sparse (only absent cells). Empty = a solid rectangle (v9-and-
 	# earlier maps have no key, so they load as the full rect). See GridBackground.absent_cells.
 	var absent_cells: Array = []
@@ -151,6 +160,7 @@ func serialize() -> Dictionary:
 		"floor_no_bank": floor_no_bank,
 		"pickups": pickups,
 		"creatures": creatures,
+		"creature_zones": creature_zones,
 	}
 
 # apply a serialize()-shaped dict onto the live level without touching disk. Used by
@@ -271,7 +281,13 @@ func _apply(data: Dictionary, keep_player := false) -> void:
 			crs.append({"cell": Vector2i(int(r["cell"][0]), int(r["cell"][1])),
 				"creature": String(r["creature"]), "kind": String(r.get("kind", Bestiary.SPAWN_POINT)),
 				"id": String(r.get("id", "")), "blocks": bool(r.get("blocks", true))})
-		cr2.apply_map(crs)
+		var zs: Array = []
+		for z in data.get("creature_zones", []):
+			var a: Array = z["rect"]
+			zs.append({"rect": Rect2i(int(a[0]), int(a[1]), int(a[2]), int(a[3])),
+				"creature": String(z["creature"]), "rate": float(z.get("rate", Bestiary.ZONE_RATE)),
+				"cap": int(z.get("cap", Bestiary.ZONE_CAP)), "id": String(z.get("id", ""))})
+		cr2.apply_map(crs, zs)
 
 	# 5. spawn. The MARKER always follows the map (a resize/undo must move the authored spawn with
 	# everything else), while snapping the PLAYER onto it is skipped for undo/redo so history never
@@ -400,5 +416,5 @@ func _blank_map() -> Dictionary:
 		"absent_cells": [],
 		"spawn": {"x": w * CELL / 2.0, "y": h * CELL / 2.0},
 		"walls": [], "doors": [], "quads": [], "wall_colors": [], "wall_materials": [], "floor_tints": [],
-		"floor_patterns": [], "floor_no_bank": [], "pickups": [], "creatures": [],
+		"floor_patterns": [], "floor_no_bank": [], "pickups": [], "creatures": [], "creature_zones": [],
 	}
