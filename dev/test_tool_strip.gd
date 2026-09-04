@@ -23,15 +23,49 @@ func _ready() -> void:
 	var ts = get_tree().get_first_node_in_group("tool_strip")
 	_check("tool strip exists (grouped)", ts != null)
 
-	# One strip button per STRIP_MODES entry; only ERASE (3) is omitted (it lives in the right-click menu +
-	# Delete key). Tie the count to the constant so adding a mode (e.g. Bridge) does not break this. Wall/
-	# Door stay on the strip AS WELL as the menu because their drag-to-draw-a-line gesture needs a mode.
-	_check("one strip button per STRIP_MODES entry", ts._mode_buttons.size() == ts.STRIP_MODES.size())
-	_check("Erase has no strip button", not ts._mode_buttons.has(3))
-	_check("Wall/Door/Select/Box/Bridge have strip buttons",
-		ts._mode_buttons.has(4) and ts._mode_buttons.has(5) and ts._mode_buttons.has(6)
-		and ts._mode_buttons.has(7) and ts._mode_buttons.has(8))
-	_check("every strip mode has a keyboard shortcut in MODES", ts.MODES.size() >= ts.STRIP_MODES.size())
+	# FOUR tools, not one button per mode (merged 2026-09-05): Select / Paint / Place / Move. The modes
+	# still exist underneath -- a tool switches between them -- but the sub-choice moved into the panel
+	# (Paint's grain switch, Place's kind row), and Erase / Eyedropper keep no button by design.
+	_check("the strip shows exactly four tools", ts._tool_buttons.size() == 4)
+	_check("Select / Paint / Place / Move are the four",
+		ts._tool_buttons.has(ts.T_SELECT) and ts._tool_buttons.has(ts.T_PAINT)
+		and ts._tool_buttons.has(ts.T_PLACE) and ts._tool_buttons.has(ts.T_MOVE))
+	_check("Paint carries the grain switch (the old Fine Details tool)", ts._fine_check != null)
+	_check("Place carries the whole placeable roster", ts._place_buttons.size() == ts.PLACE_KINDS.size())
+
+	# each tool resolves to a real FloorManager mode, and the sub-choices steer it
+	var fmts = main.get_node("World/FloorManager")
+	ts._apply_tool(ts.T_PAINT)
+	_check("Paint means Cell mode by default", fmts.mode() == ts.M_CELL)
+	ts._fine_check.button_pressed = true
+	ts._apply_tool(ts.T_PAINT)
+	_check("Paint with Fine on means Fine mode", fmts.mode() == ts.M_FINE)
+	ts._fine_check.set_pressed_no_signal(false)
+	ts._on_place_kind(1) # Door
+	_check("picking a Place kind selects the Place tool", ts._current_tool() == ts.T_PLACE)
+	_check("...and switches to that kind's mode", fmts.mode() == ts.M_DOOR)
+	ts._apply_tool(ts.T_SELECT)
+	_check("Select means Wand mode (click grows, drag boxes)", fmts.mode() == ts.M_WAND)
+
+	# EVERY pre-merge shortcut still works, which is the point of the merge: fewer buttons, same muscle
+	# memory. Each entry names the tool it now picks and the sub-choice it sets.
+	for sc in ts.SHORTCUTS:
+		var ev := InputEventKey.new()
+		ev.keycode = sc[0]
+		ev.pressed = true
+		ts._unhandled_key_input(ev)
+	_check("all 13 legacy shortcuts are still mapped", ts.SHORTCUTS.size() == 13)
+	var ev2 := InputEventKey.new()
+	ev2.keycode = KEY_F
+	ev2.pressed = true
+	ts._unhandled_key_input(ev2)
+	_check("F still means fine-grain paint", fmts.mode() == ts.M_FINE and ts._current_tool() == ts.T_PAINT)
+	ev2.keycode = KEY_G
+	ts._unhandled_key_input(ev2)
+	_check("G still means place a bridge", fmts.mode() == ts.M_BRIDGE and ts._current_tool() == ts.T_PLACE)
+	ev2.keycode = KEY_W
+	ts._unhandled_key_input(ev2)
+	_check("W still means select", fmts.mode() == ts.M_WAND and ts._current_tool() == ts.T_SELECT)
 
 	# the body is wrapped in a ScrollContainer so a growing roster scrolls instead of overflowing the
 	# window; horizontal scroll is off so the strip width still hugs the widest button.
@@ -49,7 +83,7 @@ func _ready() -> void:
 	_check("Advanced starts collapsed (content hidden)", not adv["content"].visible)
 
 	# the mode buttons live under Tools, not loose in the panel
-	_check("mode buttons are children of the Tools content", ts._mode_buttons[0].get_parent() == tools["content"])
+	_check("tool buttons are children of the Tools content", ts._tool_buttons[ts.T_SELECT].get_parent() == tools["content"])
 
 	# the Map Size edge controls live under the (collapsed) Advanced section: it has the Map Size label
 	# plus the hover toggle and 4 edge rows

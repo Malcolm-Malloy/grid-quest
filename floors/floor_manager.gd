@@ -274,6 +274,11 @@ var _walls_dirty := false    # a wall drag added cells this frame; rebuild ONCE 
 							 # per motion event (a full map rebuild per cell stutters, see "Investigate lag")
 # Box-select (Mode.BOX): drag a rectangle to select every quarter inside it, regardless of material or
 # room. Combines with the current selection per the drag-start modifier (Shift add / Alt subtract).
+var _box_maybe := false       # SELECT: a press landed, but it is not yet a drag. Beyond DRAG_SLOP it
+							  # becomes a box drag; released before that, it is a wand click. One tool,
+							  # two gestures (the merged Select tool, 2026-09-05).
+const DRAG_SLOP := 6.0        # px of movement that turns a press into a box drag
+var _box_press := Vector2.ZERO # where the press landed, to measure the slop
 var _box_active := false      # true while a box drag is in progress
 var _box_start := Vector2i.ZERO # the cell the drag began on
 var _box_op := "replace"      # "replace" / "add" / "subtract", captured from the modifier at press
@@ -575,13 +580,32 @@ func _unhandled_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 				return
 		if _mode == Mode.WAND:
-			# the wand selects (click to grow); it never paints directly. Shift adds / Alt subtracts,
-			# per "Editor UX revisions" -> additive/subtractive selection.
+			# ONE Select tool, two gestures (2026-09-05: Magic Wand and Box Select merged): a CLICK grows
+			# a selection (patch -> room, run -> building), a DRAG boxes one. The press just arms both and
+			# waits to see which happened. Shift adds / Alt subtracts either way ("Editor UX revisions" ->
+			# additive/subtractive selection). Selecting never paints.
 			if event.pressed:
 				var local := get_local_mouse_position()
-				if _in_bounds(Vector2i(floori(local.x / CELL), floori(local.y / CELL))):
-					_wand_click(local, _sel_op(event))
+				var pc := _clamp_cell(Vector2i(floori(local.x / CELL), floori(local.y / CELL)))
+				if _in_bounds(pc):
+					_box_maybe = true
+					_box_press = local
+					_box_start = pc
+					_box_op = _sel_op(event)
+					_box_base = _sel_quads.duplicate() if (_sel_kind == "floor" and _box_op != "replace") else {}
 					get_viewport().set_input_as_handled()
+			else:
+				if _box_active:
+					_box_active = false # the drag already committed its rectangle into _sel_quads
+				elif _box_maybe:
+					# released without dragging: a wand click, and it also loads whatever was clicked into
+					# the properties inspector (the old separate Select tool, now folded in)
+					var lc := get_local_mouse_position()
+					if _in_bounds(Vector2i(floori(lc.x / CELL), floori(lc.y / CELL))):
+						_wand_click(lc, _box_op)
+						_select_at(lc)
+				_box_maybe = false
+				get_viewport().set_input_as_handled()
 			return
 		if _mode == Mode.BOX:
 			# drag a rectangle: press starts it, motion (below) grows it, release finalizes. The modifier
@@ -685,6 +709,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_painting = false
 			EditHistory.commit("paint")
 	elif event is InputEventMouseMotion:
+		if _box_maybe and not _box_active and get_local_mouse_position().distance_to(_box_press) > DRAG_SLOP:
+			_box_active = true # far enough to mean "drag a box", not "click that thing"
 		if _painting:
 			_paint(get_local_mouse_position())
 		elif _box_active:
@@ -752,43 +778,65 @@ func _apply_menu_context(cell: Vector2i) -> void:
 	var is_door: bool = obs != null and not obs.door_at(cell).is_empty()
 	var is_wall: bool = obs != null and obs.is_blocked(cell) # a real wall (doors are not blocked)
 	_menu.clear()
-	# structure section: a DOOR gets Door options; a WALL gets Wall Colour + Material (ROADMAP "Editor
-	# UX revisions" -> Wall/Door contextual menu: walls show Wall + Terrain, doors show Door + Terrain).
+	# ONE submenu per target, not one per axis (merged 2026-09-05). The menu had grown to seven
+	# top-level entries by listing every axis separately (Floor Textures / Floor Colours / Pattern /
+	# Wall Colour / Wall Material / Build Wall / Build Door) while the persistent left panel offered the
+	# same choices -- the duplication ROADMAP "Optimise the right menu" warned about, and the
+	# reconciliation the Build Wall configurator note asked for. Now:
+	#   - STYLE of the clicked thing collapses into one submenu per target ("Floor", "Wall", "Door"),
+	#     grouped inside by separator headings, so it is still one level deep, never two.
+	#   - BUILDING moved out entirely: the Place tool drops walls/doors/bridges/items/spawns and can
+	#     DRAG a wall line, which the menu items never could.
+	# What is left is what a context menu is for: act on the thing under the cursor.
 	if is_door:
 		_rebuild_door_submenu(cell)
 		_menu.add_submenu_item("Door", "door_sub")
 	elif is_wall:
-		_menu.add_submenu_item("Wall Colour", "wall_sub")
-		_menu.add_submenu_item("Wall Material", "wall_mat_sub")
-	# terrain section: the ground under a wall/door is editable, so the Floor submenus now show on EVERY
-	# cell (the "terrain option" the notes ask for on walls and doors), not only on bare floor cells.
-	_menu.add_submenu_item("Floor Textures", "floor_sub")
-	_menu.add_submenu_item("Floor Colours", "floor_color_sub")
-	_maybe_add_pattern()
-	_menu.add_separator()
-	# action section: Build Wall/Door on an empty cell (ROADMAP "Editor UX revisions" -> Wall/Door into
-	# the menu), and Erase everywhere (acts on the selection if one exists, else the clicked target).
-	if not (is_door or is_wall):
-		_menu.add_submenu_item("Build Wall", "build_wall_sub") # configurator: colour + material, then Start
-		_menu.add_item("Build Door", BUILD_DOOR_ID)
-	_menu.add_item("Erase", ERASE_ID)
+		_rebuild_wall_submenu()
+		_menu.add_submenu_item("Wall", "wall_sub")
+	# the ground under a wall/door is editable too, so Floor shows on EVERY cell (the "terrain option"
+	# the notes ask for on walls and doors), not only on bare floor cells.
+	_rebuild_floor_submenu()
+	_menu.add_submenu_item("Floor", "floor_sub")
+	_menu.add_item("Erase", ERASE_ID) # acts on the selection if there is one, else the clicked target
 	_menu.add_separator()
 	_menu.add_check_item("Grid", GRID_ID)
 	_menu.set_item_checked(_menu.get_item_index(GRID_ID), _grid_on)
 
-# add the material-aware Pattern submenu for the clicked quarter's material, when that material has more
-# than one variant (grass/none has none). Rebuilt each right-click. Shared by every cell's terrain section.
-func _maybe_add_pattern() -> void:
+# The Floor submenu: texture, colour and pattern for the clicked ground, in one list with separator
+# headings. Rebuilt per right-click because the PATTERN entries are material-aware (they depend on what
+# the clicked quarter is made of, which is exactly why patterns stayed in the contextual menu rather
+# than moving to the brush panel).
+func _rebuild_floor_submenu() -> void:
+	var sub: PopupMenu = _menu.get_node("floor_sub")
+	sub.clear()
+	sub.add_separator("Texture")
+	for i in MENU.size():
+		sub.add_item(MENU[i][0], i)
+	sub.add_separator("Colour")
+	for i in FLOOR_COLORS.size():
+		sub.add_item(FLOOR_COLORS[i][0], FLOOR_COLOR_BASE_ID + i)
+	sub.add_item("Custom...", FLOOR_PICKER_ID)
 	var pq := Vector2i(floori(_pending.x / HALF), floori(_pending.y / HALF))
 	var mat: String = _quad_mat.get(pq, "")
 	var variants: int = textures[mat].size() if textures.has(mat) else 0
 	if variants > 1:
-		var psub: PopupMenu = _menu.get_node("pattern_sub")
-		psub.clear()
+		sub.add_separator("Pattern")
 		var names: Array = PATTERN_NAMES.get(mat, [])
 		for i in variants:
-			psub.add_item(names[i] if i < names.size() else "Pattern %d" % (i + 1), PATTERN_BASE_ID + i)
-		_menu.add_submenu_item("Pattern", "pattern_sub")
+			sub.add_item(names[i] if i < names.size() else "Pattern %d" % (i + 1), PATTERN_BASE_ID + i)
+
+# The Wall submenu: colour and material for the clicked wall, in one list with separator headings
+# (they were two top-level entries offering the two axes of the same brush).
+func _rebuild_wall_submenu() -> void:
+	var sub: PopupMenu = _menu.get_node("wall_sub")
+	sub.clear()
+	sub.add_separator("Colour")
+	for i in WALL_COLORS.size():
+		sub.add_item(WALL_COLORS[i][0], WALL_BASE_ID + i)
+	sub.add_separator("Material")
+	for i in WALL_MATERIALS.size():
+		sub.add_item(WALL_MATERIALS[i][0], WALL_MAT_BASE_ID + i)
 
 # rebuild the Door submenu from the door on `cell` (state-reflecting check items, like the inspector)
 func _rebuild_door_submenu(cell: Vector2i) -> void:
@@ -973,6 +1021,7 @@ func set_mode(mode: int) -> void:
 		return
 	_mode = mode as Mode
 	_box_active = false # never carry a box drag across a mode switch
+	_box_maybe = false
 	_cancel_pending()   # nor an armed paste / half-finished move drag
 	if _mode != Mode.WAND:
 		_tool_kind = "floor"

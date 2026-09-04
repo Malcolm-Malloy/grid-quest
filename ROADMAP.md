@@ -2896,6 +2896,42 @@ menu grows (modes, colour, pattern, material, walls, doors, items, creatures). W
   positions so muscle memory forms.
 - Revisit against real UI references at build time; logged as a design task, not yet decided.
 
+**As-built (2026-09-05): MERGED AND MINIMISED**, on the user's note that "not all the menu options are
+necessary". Two consolidations, both following this section's own "separate the axes" principle.
+- **The left strip: TWELVE tool buttons -> FOUR.** Select / Paint / Place / Move. The modes underneath
+  did not go away -- a tool switches between them -- but a tool is now the thing you pick, and WHAT it
+  acts with is a property in the panel:
+  - **Select** = Magic Wand + Box Select + Select, genuinely one tool now: a **click** grows a selection
+    (patch -> room, run -> building), a **drag past 6px** boxes one, and the click also loads what you
+    hit into the properties inspector. One press arms both gestures and waits to see which happened.
+  - **Paint** = Cell Selector + Fine Details, with the grain as a **Fine (quarter)** switch -- which is
+    what it always was: a property of the brush, not a separate tool.
+  - **Place** = Wall + Door + Bridge + Item + Set Spawn, with a **kind row** picking what drops. Adding
+    a placeable later is one entry in `PLACE_KINDS`, not another strip button.
+  - **Move** unchanged. **Erase and Eyedropper keep no button** (Erase: menu + Delete + E; Eyedropper:
+    Alt+click while painting, + I) -- the same call the roadmap already made for Erase.
+  - **Each tool's sub-choice is only on screen while that tool is active**, so the strip is four buttons
+    plus at most one row.
+  - **EVERY pre-merge shortcut still works** and sets the right sub-choice (W/B/S -> Select, C -> Paint
+    cell, F -> Paint fine, L/D/G/T/P -> Place that kind, V -> Move, E, I). Muscle memory survives the
+    consolidation, which is the main risk a merge like this carries. Covered by `dev/test_tool_strip`.
+- **The right-click menu: up to SEVEN top-level entries -> THREE.** It had grown to list every axis
+  separately (Floor Textures / Floor Colours / Pattern / Wall Colour / Wall Material / Build Wall /
+  Build Door) while the persistent left panel offered the same choices -- exactly the duplication this
+  section warned about, and the reconciliation the Build Wall configurator note asked for.
+  - **Style collapses to one submenu per target**: **Floor** (Texture / Colour / Pattern, grouped by
+    separator headings) and **Wall** (Colour / Material), plus the existing **Door**. Still one level
+    deep, never two. Nothing became unreachable: patterns stay in the menu on purpose, since they are
+    material-aware from the clicked cell, which a brush panel cannot be.
+  - **Building left the menu entirely.** The Place tool drops walls and doors and can DRAG a wall line,
+    which the menu items never could.
+  - What remains is what a context menu is for: **act on the thing under the cursor** (its style, Erase,
+    Grid). Covered by `dev/test_context_menu`, which now asserts the SHORT top level as a rule.
+- **Leftover to sweep:** the Build Wall configurator submenu (`build_wall_sub` + `_on_build_wall_id`) is
+  still constructed in `_ready` but no longer reachable from any menu, since the Place tool superseded
+  it. Left in place rather than ripped out mid-merge; delete it (and `dev/test_wall_brush_sync`'s hook
+  into it) next time that file is open.
+
 ### Editor UX revisions: actions into the right-click menu (logged 2026-08-17, not built)
 A batch of editor-UX notes that mostly **move actions off the left tool strip and into the contextual
 right-click menu**, and fix selection/deselection gaps. Several REVISE earlier decisions; newest intent
