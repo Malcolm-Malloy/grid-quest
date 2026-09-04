@@ -154,7 +154,8 @@ authoring, which was inert because the player's proximity logic overwrites door 
    **wall/door authoring** (roster + door authored state). *Progress: ALL DONE -- **Move + copy/paste/
    duplicate DONE 2026-08-30** (see "Copy, paste, and duplicate" -> As built) and the **status bar DONE
    2026-09-05** (see "Editor layout" -> the status-bar as-built), which closed this group.*
-5. **Persistence + library:** **autosave+warn**, **New Map** flow, **map thumbnails**, **folders/
+5. **Persistence + library:** **autosave+warn** *(DONE: the warn half 2026-09-05, the recovery-file
+   half 2026-09-05)*, **New Map** flow *(DONE, noted 2026-09-05)*, **map thumbnails**, **folders/
    categories**, and **export/import** for sharing.
 6. **Multi-tile object footprints** and **coloured floors / patterns / material variants** slot in as
    the object and material rosters grow.
@@ -339,6 +340,10 @@ questions to answer, roughly in dependency order:
   - **Autosave:** `MapIO._process` writes a NAMED, dirty map to disk every `AUTOSAVE_SEC` (30s) and
     emits `autosaved`; an unnamed/new map is never silently autosaved (the warning protects it).
     `autosave_enabled` gates it (tests drive `_process` manually).
+    - **SUPERSEDED 2026-09-05.** This wrote straight over the real `user://maps/<name>.json`, which is
+      exactly what the 2026-08-16 decision said not to do ("a separate recovery file ... without
+      silently overwriting the user's saved map"). It has been replaced by the recovery slot; see
+      "Unsaved-work protection" -> the 2026-09-05 as-built.
   - **Menu (`ui/save_load_menu.gd`):** New button; "Current: <name> *" unsaved marker (live via
     `dirty_changed`); a `ConfirmationDialog` "discard unsaved changes?" before New and Load; a
     transient status flash ("Saved"/"Autosaved"/"New map").
@@ -2306,8 +2311,38 @@ exit the only ways out were Cmd+Q or dropping out of fullscreen first.
 - **A never-saved map has no filename to write to**, so "Save and Quit" hands over the Maps menu's Save
   As field rather than inventing a name behind the user's back.
 - Covered by `dev/test_exit_button` (16 checks).
-- Still open in this section: the **recovery file** half (a separate autosave slot + newer-than check on
-  launch). The dirty warning now guards New / Load / Quit; the recovery slot guards a crash.
+**As-built (2026-09-05): the RECOVERY FILE half is done, completing this section.** The dirty warning
+guards New / Load / Quit; the recovery slot now guards a crash.
+- **It also CORRECTS the 2026-08-17 autosave**, which wrote straight over the real map file every 30s.
+  That is the one thing this section had ruled out: it meant a saved map could not be gone back to,
+  because the edits you wanted to abandon had already replaced it. Autosave now writes
+  `user://recovery.json` and never touches `user://maps/`. *Visible behaviour change: a named map no
+  longer silently saves itself while you work. Explicit Save is the only thing that writes your map.*
+- **The three concepts stay distinct**, as this section asked: explicit Save writes the real file,
+  autosave writes the separate slot, the dirty warning guards navigation.
+- **Cadence as decided:** a **3s idle debounce** (`RECOVERY_IDLE_SEC`) so work is captured almost as
+  soon as you pause, plus a **120s fallback** (`RECOVERY_MAX_SEC`) so an unbroken editing run is not
+  one long unwritten stretch. A write only happens when the slot is actually behind (`_recovery_stale`,
+  set by `mark_dirty`), so a still editor costs nothing and never rewrites the same state.
+- **An UNNAMED map is covered now**, which the old autosave had to skip. That is the case where a crash
+  costs the most: there is no saved file to fall back on at all, so the slot is the only copy.
+- **The slot records which map it belongs to and when** (`{map, at, version, data}`), written through
+  the same atomic temp-then-rename the real save uses -- a crash mid-write must not leave a
+  half-written slot that then fails to parse exactly when it is needed.
+- **Newer-than check on launch, as decided.** For a NAMED map the slot is offered only when it is newer
+  than the file on disk (if you saved after the last autosave, it holds nothing you do not have); a
+  never-saved map, or one whose file has since been deleted, is always offered. The snapshot is read
+  BEFORE the launch auto-load, since loading a map clears the slot.
+- **Offered, never restored silently** (`recovery_available` -> a dialog in `ui/save_load_menu.gd`):
+  the user may well prefer the version they deliberately saved, and only they know which. Restore
+  brings the map back **dirty**, because recovered work is by definition work that was never saved.
+  Discard deletes the slot, so saying no once is not re-asked on every launch.
+- **The slot is dropped whenever its contents stop being what is worth recovering:** an explicit save
+  (the work is in the real file), a load, or a New (the live map has been replaced).
+- The menu's flash says **"Recovery saved"**, not "Saved": a recovery write does not save your map, and
+  saying so would be a lie the user would act on.
+- Covered by `dev/test_persistence` (40 checks), including that the real map file is left untouched by
+  an autosave tick, the debounce only fires on a pause, and the launch offer names the right map.
 
 ## Box-select (rectangular area selection, decided 2026-08-16) BUILT 2026-08-17
 A second selection tool alongside the Magic Wand: **drag a rectangle to select every cell inside it,

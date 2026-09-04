@@ -12,6 +12,7 @@ var _current_lbl: Label
 var _save_btn: Button
 var _status_lbl: Label            # transient note ("Autosaved", "Saved")
 var _confirm: ConfirmationDialog  # unsaved-changes warning before New / Load
+var _recover_dialog: ConfirmationDialog # launch-time offer to restore a recovery slot
 var _pending: Callable            # the action to run once the user confirms discarding edits
 
 func _ready() -> void:
@@ -22,7 +23,10 @@ func _ready() -> void:
 	_build_ui()
 	# live-update the current-map label's unsaved marker, and flash a note when autosave fires
 	MapIO.dirty_changed.connect(func(_d): if visible: _refresh_current_label())
-	MapIO.autosaved.connect(func(_n): _flash("Autosaved"))
+	# NOT "Saved": a recovery write does not save your map, and saying so would be a lie the user
+	# would act on. The map stays marked unsaved, which is the truth.
+	MapIO.recovery_written.connect(func(_n): _flash("Recovery saved"))
+	MapIO.recovery_available.connect(_on_recovery_available)
 
 func _build_ui() -> void:
 	var bg := ColorRect.new()
@@ -117,6 +121,29 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 # open the menu from elsewhere (the Exit button's "Save and Quit" on a never-saved map, which has no
 # filename to write to and so hands the user the Save As field instead of inventing one)
+# A recovery slot survived from a previous session and is newer than the map it belongs to, so the
+# last session ended without saving -- a crash, or a kill. Offer it rather than restoring silently:
+# the user may well prefer the version they deliberately saved, and only they know which.
+func _on_recovery_available(map_name: String, at: int) -> void:
+	if _recover_dialog == null:
+		_recover_dialog = ConfirmationDialog.new()
+		_recover_dialog.title = "Recover unsaved work"
+		_recover_dialog.ok_button_text = "Restore"
+		_recover_dialog.add_cancel_button("Discard")
+		_recover_dialog.confirmed.connect(func():
+			MapIO.restore_recovery()
+			_refresh_current_label()
+			_flash("Recovered"))
+		# Cancel here means "I do not want it", so the slot goes: leaving it would re-offer the same
+		# work on every launch after the user has already said no.
+		_recover_dialog.canceled.connect(func(): MapIO.discard_recovery())
+		add_child(_recover_dialog)
+	var when := Time.get_datetime_string_from_unix_time(at, true).replace("T", " ")
+	var which := ("\"%s\"" % map_name) if map_name != "" else "an unsaved new map"
+	_recover_dialog.dialog_text = ("Grid Quest closed with unsaved changes to %s.\n\nAutosaved %s."
+		% [which, when])
+	_recover_dialog.popup_centered()
+
 func open() -> void:
 	_open()
 

@@ -16,33 +16,58 @@ const LAST_FILE := "user://last_map.txt" # remembers the map to reload on next l
 # its GQ_LOAD tests stay deterministic.
 var auto_load := true
 
-# --- current map + unsaved-changes (dirty) state, for the New / Save / autosave flow ---
+# --- current map + unsaved-changes (dirty) state, for the New / Save / recovery flow ---
 const CELL := 32                 # cell size in px, for a blank map's centred spawn
-const AUTOSAVE_SEC := 30.0       # autosave a NAMED map this often while it has unsaved edits
+
+# AUTOSAVE WRITES A RECOVERY SLOT, NOT YOUR MAP (ROADMAP "Unsaved-work protection", decided
+# 2026-08-16). The two concepts are kept apart on purpose:
+#   explicit Save (the Maps menu) writes the real user://maps/<name>.json,
+#   autosave writes user://recovery.json, a SEPARATE slot,
+#   the dirty warning guards navigation (New / Load / Quit).
+# So a crash is recoverable without the editor ever silently overwriting the map you saved. An
+# earlier build (2026-08-17) autosaved straight over the real file every 30s, which meant a saved
+# map could not be gone back to -- it had already been replaced by the edits you wanted to abandon.
+const RECOVERY_FILE := "user://recovery.json"
+const RECOVERY_IDLE_SEC := 3.0   # write this long after you STOP editing (the debounce)
+const RECOVERY_MAX_SEC := 120.0  # ...and at least this often through a long unbroken editing run
 signal dirty_changed(is_dirty: bool) # so the menu can show/clear the unsaved marker live
-signal autosaved(map_name: String)   # so the menu can flash an "autosaved" note
+signal recovery_written(map_name: String) # so the menu can flash a note
+# raised once at launch when a recovery slot is newer than the map it belongs to, so the UI can offer
+# to restore it. Carries the snapshot, since auto-loading the last map clears the file itself.
+signal recovery_available(map_name: String, at: int)
 var dirty := false               # true when the live map has edits not yet written to disk
 var autosave_enabled := true
 var _current := ""               # current map NAME in memory ("" = unsaved / new); the menu's "current"
-var _autosave_accum := 0.0
+var _idle := 0.0                 # since the last edit
+var _since_write := 0.0          # since the last recovery write
+var _recovery_stale := false     # there are edits the recovery slot does not have yet
+var _pending_recovery := {}      # a launch-time recovery snapshot waiting to be offered
 
 func _ready() -> void:
+	# Read the recovery slot BEFORE anything touches it: the auto-load below clears it (loading a map
+	# supersedes whatever was being recovered), so the snapshot has to be taken first.
+	_pending_recovery = _read_recovery()
 	await get_tree().process_frame # let the main scene's world finish building first
 	if auto_load:
 		var last := get_last()
 		if last != "" and FileAccess.file_exists(_path(last)):
 			load_map(last)
+	if not _pending_recovery.is_empty() and _recovery_is_newer(_pending_recovery):
+		recovery_available.emit(String(_pending_recovery.get("map", "")), int(_pending_recovery.get("at", 0)))
+	else:
+		_pending_recovery = {} # nothing worth offering; a stale slot is not a prompt
 
-# autosave loop: while a NAMED map has unsaved edits, write it to disk every AUTOSAVE_SEC. A new
-# (unnamed) map is never autosaved silently; the menu's unsaved-warning guards against losing it.
+# The recovery loop, on the decided cadence: a short IDLE debounce so work is captured almost as soon
+# as you pause, plus a periodic fallback so an unbroken hour of editing is not one unwritten blob.
+# Unlike the old autosave this covers an UNNAMED map too -- that is the case where a crash costs the
+# most, since there is no saved file to fall back on at all.
 func _process(delta: float) -> void:
-	if not autosave_enabled or _current == "" or not dirty:
-		_autosave_accum = 0.0
+	if not autosave_enabled or not dirty or not _recovery_stale:
 		return
-	_autosave_accum += delta
-	if _autosave_accum >= AUTOSAVE_SEC:
-		if save_map(_current): # save_map clears dirty and resets the accumulator
-			autosaved.emit(_current)
+	_idle += delta
+	_since_write += delta
+	if _idle >= RECOVERY_IDLE_SEC or _since_write >= RECOVERY_MAX_SEC:
+		write_recovery()
 
 # --- node lookup (works whether the scene root is main.tscn or the capture harness) ---
 
@@ -302,6 +327,85 @@ func _apply(data: Dictionary, keep_player := false) -> void:
 		player.target_position = p
 		player.is_moving = false
 
+# --- the recovery slot (ROADMAP "Unsaved-work protection" -> autosave to a recovery file) ---
+
+# Write the live map to the recovery slot. Same atomic temp-then-rename the real save uses, so a
+# crash mid-write cannot leave a half-written slot that then fails to parse when it is needed most.
+# The slot records WHICH map it belongs to (or "" for a never-saved one) and WHEN, which is what the
+# newer-than check on launch compares against.
+func write_recovery() -> bool:
+	var payload := {"map": _current, "at": int(Time.get_unix_time_from_system()),
+		"version": VERSION, "data": serialize()}
+	var tmp := RECOVERY_FILE + ".tmp"
+	var f := FileAccess.open(tmp, FileAccess.WRITE)
+	if f == null:
+		push_error("MapIO: cannot open %s for writing" % tmp)
+		return false
+	f.store_string(JSON.stringify(payload))
+	f.close()
+	if FileAccess.file_exists(RECOVERY_FILE):
+		DirAccess.remove_absolute(RECOVERY_FILE)
+	DirAccess.rename_absolute(tmp, RECOVERY_FILE)
+	_idle = 0.0
+	_since_write = 0.0
+	_recovery_stale = false
+	recovery_written.emit(_current)
+	return true
+
+func _read_recovery() -> Dictionary:
+	if not FileAccess.file_exists(RECOVERY_FILE):
+		return {}
+	var raw = JSON.parse_string(FileAccess.get_file_as_string(RECOVERY_FILE))
+	if typeof(raw) != TYPE_DICTIONARY or not (raw as Dictionary).has("data"):
+		return {} # an unreadable slot is not worth offering; it will be overwritten on the next edit
+	return raw
+
+# Is this slot worth offering? For a NAMED map, only when it is newer than the file on disk -- if you
+# saved after the last autosave there is nothing in it you do not already have. A never-saved map has
+# no file to compare against, so any slot for it is worth offering: that work exists nowhere else.
+func _recovery_is_newer(rec: Dictionary) -> bool:
+	var map_name := String(rec.get("map", ""))
+	if map_name == "":
+		return true
+	var path := _path(map_name)
+	if not FileAccess.file_exists(path):
+		return true # the map it belongs to is gone; the slot is all that is left of it
+	return int(rec.get("at", 0)) > int(FileAccess.get_modified_time(path))
+
+# is there a launch-time recovery waiting to be offered?
+func has_recovery() -> bool:
+	return not _pending_recovery.is_empty()
+
+func recovery_info() -> Dictionary:
+	return _pending_recovery.duplicate(true)
+
+# Apply the recovered map. It comes back DIRTY on purpose: recovered work is by definition work that
+# was never saved, so the editor must keep saying so until the user actually writes it somewhere.
+func restore_recovery() -> bool:
+	if _pending_recovery.is_empty():
+		return false
+	var rec := _pending_recovery
+	_pending_recovery = {}
+	_apply(rec["data"])
+	_current = String(rec.get("map", ""))
+	EditHistory.reset()
+	mark_dirty()
+	clear_recovery()
+	return true
+
+func discard_recovery() -> void:
+	_pending_recovery = {}
+	clear_recovery()
+
+# drop the slot: called whenever its contents stop being the thing worth recovering -- an explicit
+# save (the work is in the real file now), a load or a New (the live map has been replaced)
+func clear_recovery() -> void:
+	if FileAccess.file_exists(RECOVERY_FILE):
+		DirAccess.remove_absolute(RECOVERY_FILE)
+	_recovery_stale = false
+	_idle = 0.0
+	_since_write = 0.0
+
 # --- disk I/O ---
 
 func _ensure_dir() -> void:
@@ -327,6 +431,7 @@ func save_map(map_name: String) -> bool:
 	_set_last(map_name)
 	_current = map_name
 	_clear_dirty()
+	clear_recovery() # the work is in the real file now; the slot has nothing left to protect
 	return true
 
 func load_map(map_name: String) -> bool:
@@ -346,6 +451,7 @@ func load_map(map_name: String) -> bool:
 	# a loaded map is a fresh baseline: undo history from the previous map must not carry over
 	EditHistory.reset()
 	_clear_dirty()
+	clear_recovery() # the live map has been replaced; the slot described the old one
 	return true
 
 # the map reloaded on next launch (last one saved or loaded)
@@ -389,12 +495,17 @@ func current() -> String:
 # mark the live map as having unsaved edits. Called from EditHistory on every committed edit / undo /
 # redo, the single choke point through which all authoring changes pass.
 func mark_dirty() -> void:
+	# every edit restarts the debounce and means the slot is behind again
+	_idle = 0.0
+	_recovery_stale = true
 	if not dirty:
 		dirty = true
 		dirty_changed.emit(true)
 
 func _clear_dirty() -> void:
-	_autosave_accum = 0.0
+	_idle = 0.0
+	_since_write = 0.0
+	_recovery_stale = false
 	if dirty:
 		dirty = false
 		dirty_changed.emit(false)
@@ -406,6 +517,7 @@ func new_map() -> void:
 	_current = ""
 	EditHistory.reset()
 	_clear_dirty()
+	clear_recovery() # the live map is gone; the slot described it, so it is not worth recovering
 
 func _blank_map() -> Dictionary:
 	var w := 48
