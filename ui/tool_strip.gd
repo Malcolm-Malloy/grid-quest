@@ -13,7 +13,7 @@ const EDGES := ["top", "bottom", "left", "right"]
 # order MUST match that enum since set_mode receives the raw index. The strip owns mode selection now
 # (it moved off the right-click popup); each has a single-key shortcut. F is Fine Details, so camera
 # recenter dropped F and keeps Home (see camera_follow.gd).
-enum { M_WAND, M_CELL, M_FINE, M_ERASE, M_WALL, M_DOOR, M_SELECT, M_BOX, M_BRIDGE, M_MOVE }
+enum { M_WAND, M_CELL, M_FINE, M_ERASE, M_WALL, M_DOOR, M_SELECT, M_BOX, M_BRIDGE, M_MOVE, M_EYEDROP, M_SPAWN }
 const MODES := [
 	["Magic Wand (W)", M_WAND, KEY_W],
 	["Box Select (B)", M_BOX, KEY_B],
@@ -27,12 +27,15 @@ const MODES := [
 	# V for Move, the Photoshop/Illustrator move-tool key (the roadmap pencilled in M, but M is the
 	# map menu and the roadmap leaves the final letters "tunable at build"). Ctrl+V still pastes.
 	["Move (V)", M_MOVE, KEY_V],
+	["Eyedropper (I)", M_EYEDROP, KEY_I],
+	["Set Spawn (P)", M_SPAWN, KEY_P],
 ]
 # which modes get a visible button on the strip. ERASE moved fully into the right-click menu + Delete
 # key (note: "Erase ... in the right click menu instead"), so it has no strip button (E still works).
 # Wall/Door stay on the strip AS WELL as the menu (note: "wall and door ... in the right menu as well"),
 # because their DRAG gesture (drag to draw a wall LINE) has no menu equivalent and needs a reachable mode.
-const STRIP_MODES := [M_WAND, M_BOX, M_CELL, M_FINE, M_WALL, M_DOOR, M_BRIDGE, M_SELECT, M_MOVE]
+const STRIP_MODES := [M_WAND, M_BOX, M_CELL, M_FINE, M_WALL, M_DOOR, M_BRIDGE, M_SELECT, M_MOVE,
+	M_EYEDROP, M_SPAWN]
 var _mode_buttons := {} # mode int -> Button, so a keyboard shortcut can light the right radio
 var _sections := {}     # section title -> {"header": Button, "content": VBoxContainer}, for the
 						# accordion (and so a test can check collapse/expand)

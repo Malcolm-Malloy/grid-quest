@@ -460,6 +460,23 @@ func _ready() -> void:
 				" origin=", origin, " drop=", drop, " ghost_origin=", fmc._pending_origin())
 			await get_tree().process_frame
 
+	# GQ_SPAWN="x,y" moves the authored player spawn to cell (x,y) through the real Set Spawn tool, so
+	# the marker's art can be eyeballed where you want it. The marker only draws in EDIT (it is editor
+	# chrome), so do not pair this with GQ_PLAY. Frames the whole map unless GQ_SPAWN_NOFIT=1.
+	var spawnenv := OS.get_environment("GQ_SPAWN")
+	if spawnenv != "":
+		var sp2 := spawnenv.split(",")
+		var fmsp := main.get_node_or_null("World/FloorManager")
+		if fmsp and sp2.size() == 2:
+			var scell := Vector2i(int(sp2[0]), int(sp2[1]))
+			fmsp.set_mode(11) # Mode.SPAWN
+			print("GQ_SPAWN set=", fmsp._set_spawn_at(Vector2(scell.x * 32 + 16, scell.y * 32 + 16)),
+				" cell=", scell)
+			var camsp := main.get_node_or_null("Camera2D")
+			if OS.get_environment("GQ_SPAWN_NOFIT") != "1" and camsp and camsp.has_method("fit_map"):
+				camsp.fit_map()
+			await get_tree().process_frame
+
 	# GQ_SAVE="name" writes the current level to user://maps/name.json (after the setup above)
 	var save_name := OS.get_environment("GQ_SAVE")
 	if save_name != "":

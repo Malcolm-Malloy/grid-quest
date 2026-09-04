@@ -128,7 +128,9 @@ authoring, which was inert because the player's proximity logic overwrites door 
 3. **Core authoring tools:** **Cell Selector / Fine Details** paint with the **terrain drop-preview
    UX**, the **coloured highlight palette** (orange ground / red erase / purple walls / green add /
    blue doors / yellow shadow), the **Erase** tool (topmost-first, per the **cell-occupancy** and
-   **passability** models), the **Eyedropper**, and **directional placement** (auto + R).
+   **passability** models), the **Eyedropper**, and **directional placement** (auto + R). *Progress: all
+   DONE except the last two palette colours (blue doors / yellow shadow, each waiting on an unbuilt
+   feature) -- **Eyedropper DONE 2026-09-04**, alongside the **player spawn marker**.*
 4. **Selection + power tools:** **Magic Wand** (click-to-grow, marching-ants) and **Box-select**,
    with **add/subtract** modifiers and **selection-fill**; then **Move** (keeps id), **copy/paste**
    (cross-map clipboard, rotate+flip), the **properties inspector**, the **status bar**, and
@@ -1874,6 +1876,30 @@ so matching existing terrain needs no palette hunting.
   disambiguates. Document this clearly so the mental model stays simple.
 - Picks material/colour only, not walls/objects (a wall eyedropper could come later).
 
+**As-built (2026-09-04): DONE.** `FloorManager.Mode.EYEDROP`, an **Eyedropper (I)** button on the tool
+strip, plus the **Alt+click** shortcut in Cell Selector / Fine Details. Covered by `dev/test_eyedropper`
+(19 checks).
+- **What a pick loads.** The FLOOR quarter under the cursor gives **material + tint**, the two axes of
+  the combined floor brush, and arms it so the next click lays exactly what was sampled. Bare grass
+  ("") is a real answer: it arms the grass eraser, which is how you match plain ground. Picking reads
+  the quarter, not the cell, because that is the grain `_quad_mat` / `_quad_tint` actually store.
+- **A pick never edits the map.** It writes the brush fields directly rather than going through
+  `arm_floor_material` / `arm_wall_material`, which deliberately RE-FILL an active selection (the
+  two-way panel binding). So picking with a room selected loads the brush and leaves the room alone,
+  and commits no undo entry.
+- **Walls too (beyond the 2026-08-16 spec).** That spec deferred walls ("a wall eyedropper could come
+  later") because wall *materials* did not exist yet. They do now, the wall brush has the same two axes
+  as the floor, and picking nothing on a wall would just read as broken -- so a wall under the cursor
+  loads the **wall** brush (material + colour). Easy to drop back to floors-only if that turns out to
+  be unwanted.
+- **The Alt modifier does not clash** with Alt = subtract-from-selection: subtract only applies while a
+  SELECTION tool (Wand/Box) is active, the eyedropper shortcut only while a PAINT brush is (Cell/Fine).
+  The mode sets are disjoint, so the active tool disambiguates, exactly as the note above predicted.
+- **Hover:** an ORANGE (ground-edit palette) cursor on the QUARTER that will be sampled.
+- Not picked: the floor **pattern** index. Painting has no pattern axis today (patterns are their own
+  tool, `_tool_kind == "pattern"`), so a picked pattern would be dropped on the next paint. If the
+  brush ever gains a pattern axis, pick it here too.
+
 ## Map sharing: export / import (decided 2026-08-16)
 Friends will build maps too, so maps share as **self-contained files**:
 - **Export** a map to a shareable file (the existing `user://maps/<name>.json`, self-contained) to
@@ -1961,6 +1987,29 @@ saved position:
   camera (you are not moving the player to author).
 - Build note: `MapIO` already serializes a spawn; this gives it an explicit editor affordance and a
   visible marker rather than implicitly using the player's position.
+
+**As-built (2026-09-04): DONE, and it fixes a real bug.** Covered by `dev/test_spawn_marker` (22 checks).
+- **`world/spawn_marker.gd`**, a `SpawnMarker` node in main.tscn's World. **Its position IS the spawn**
+  `MapIO` serializes: `serialize()` reads the marker (falling back to the player for a scene without
+  one) and `_apply` moves the marker on every apply, so a resize, an undo and a load all carry the
+  authored spawn with the rest of the map. The save format is unchanged (`spawn` is still {x, y}), so
+  old maps load with the marker landing on whatever they stored -- no version bump, no migration.
+- **The bug this fixes:** the spawn used to be `player.position` at save time, so walking the character
+  around in PLAY and saving silently moved the map's start point. Now the two are separate, which is
+  the split `CharacterIO` already described in its header ("Maps store an authored spawn (MapIO); this
+  stores where the player actually stands").
+- **Set Spawn (P)** on the tool strip: one click moves the marker, one undo entry. It **refuses walls**
+  (the player would start stuck) and cells off the map or on an absent-cell hole, and a repeat click on
+  the same cell commits nothing rather than an empty history step. It does **not** move the character --
+  that is the whole point; a map LOAD is what puts the player on the marker.
+- **The marker** is a white-on-dark pennant with a ground ring marking the cell, drawn in World space
+  so it sits in the game's perspective. Deliberately none of the editor's role colours (orange ground /
+  green add / red erase / purple walls), so it never reads as a hover or a selection. **Visible in EDIT,
+  hidden in PLAY**, like the rest of the editor chrome.
+- Not built: dragging the existing marker as a separate gesture. In Set Spawn mode a click IS the move,
+  which is the same result in fewer parts; revisit if it feels wrong in use.
+- **Capture harness:** `GQ_SPAWN="x,y"` moves the spawn through the real tool path (EDIT only, since
+  the marker is editor chrome).
 
 ## Move tool (drag-move, keeps identity, decided 2026-08-16)
 Reposition an already-placed thing without delete-and-replace. **Magic-Wand-select** it (or a
@@ -2849,6 +2898,8 @@ while editing, so letter keys are free):
   - *As built 2026-08-30:* Ctrl+C / Ctrl+V / **Ctrl+D (duplicate)**; while a clip is armed **R** rotates,
     **H** flips horizontally, **Shift+H** flips vertically, **Esc**/right-click cancels. **Move took V**
     (Photoshop's move key) rather than M, which is the map menu.
+  - *As built 2026-09-04:* **I = Eyedropper** (as pencilled in) and **P = Set Spawn** (the "key each for
+    Wall and Set Spawn, assign at build" that was left open; Wall took L earlier).
 - **Modifiers (already decided):** Shift = add to selection, Alt = subtract (or eyedropper while a
   paint brush is active), Space+drag / MMB = pan, wheel = zoom.
 - Final letter assignments tunable at build; the scheme is mnemonic-first. Consider making them

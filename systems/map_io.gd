@@ -58,6 +58,9 @@ func serialize() -> Dictionary:
 	var fm = w.get_node("FloorManager")
 	var gb = w.get_node("GridBackground")
 	var player = w.get_node("Player")
+	# the AUTHORED spawn is the SpawnMarker's position, not wherever the character happens to stand
+	# (ROADMAP "Player spawn marker"); older scenes without the marker fall back to the player.
+	var marker = w.get_node_or_null("SpawnMarker")
 
 	var walls: Array = []
 	for c in obs.blocked_cells:
@@ -107,7 +110,8 @@ func serialize() -> Dictionary:
 		"version": VERSION,
 		"grid": {"width": gb.grid_width, "height": gb.grid_height},
 		"absent_cells": absent_cells,
-		"spawn": {"x": player.position.x, "y": player.position.y},
+		"spawn": {"x": marker.position.x if marker else player.position.x,
+			"y": marker.position.y if marker else player.position.y},
 		"walls": walls,
 		"doors": doors,
 		"bridges": bridges,
@@ -210,10 +214,15 @@ func _apply(data: Dictionary, keep_player := false) -> void:
 		wmats.append([int(a[0]), int(a[1]), String(a[2])])
 	obs.apply_wall_materials(wmats)
 
-	# 5. player spawn (skipped for undo/redo so history leaves the player where it stands)
+	# 5. spawn. The MARKER always follows the map (a resize/undo must move the authored spawn with
+	# everything else), while snapping the PLAYER onto it is skipped for undo/redo so history never
+	# teleports the character mid-edit. A map load (keep_player false) starts the player on the marker.
+	var spawn: Dictionary = data.get("spawn", {"x": player.position.x, "y": player.position.y})
+	var p := Vector2(spawn["x"], spawn["y"])
+	var marker = w.get_node_or_null("SpawnMarker")
+	if marker:
+		marker.set_spawn(p)
 	if not keep_player:
-		var spawn: Dictionary = data.get("spawn", {"x": player.position.x, "y": player.position.y})
-		var p := Vector2(spawn["x"], spawn["y"])
 		player.position = p
 		player.target_position = p
 		player.is_moving = false

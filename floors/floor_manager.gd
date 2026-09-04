@@ -59,7 +59,7 @@ const GRID_COLOR := Color(0.38, 0.64, 0.95, 0.4)
 # Cell/Fine/Erase paint directly on click/drag; Wand builds a selection the menu then fills. See
 # ROADMAP "Authoring surface" (mode rename), "Applying edits to a selection" and "Wall editing".
 # NOTE: BRIDGE is appended LAST so existing Mode indices stay stable (tool_strip.M_* mirrors this).
-enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR, SELECT, BOX, BRIDGE, MOVE }
+enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR, SELECT, BOX, BRIDGE, MOVE, EYEDROP, SPAWN }
 
 # each material maps to an ARRAY of pattern variants (index 0 = default, matches the pre-pattern
 # single texture). The active pattern per quarter is stored in _quad_pattern (parallel to _quad_mat /
@@ -602,6 +602,18 @@ func _unhandled_input(event: InputEvent) -> void:
 				_drop_pending()
 				get_viewport().set_input_as_handled()
 			return
+		if _mode == Mode.SPAWN:
+			# one click = the map's authored start point moves here = one undo entry
+			if event.pressed:
+				_set_spawn_at(get_local_mouse_position())
+				get_viewport().set_input_as_handled()
+			return
+		if _mode == Mode.EYEDROP:
+			# picking never edits the map, it only loads the brush
+			if event.pressed:
+				_eyedrop_at(get_local_mouse_position())
+				get_viewport().set_input_as_handled()
+			return
 		if _mode == Mode.SELECT:
 			# selecting an object never edits the map; it loads the inspector. No drag.
 			if event.pressed:
@@ -635,6 +647,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		# Cell / Fine / Erase: left-click and left-drag paint
 		if event.pressed:
+			# Alt+click is the eyedropper while a PAINT brush is active (ROADMAP "Eyedropper"). No clash
+			# with Alt = subtract-from-selection: that only applies while a SELECTION tool (Wand/Box) is
+			# active, and the two sets of modes are disjoint, so the active tool disambiguates.
+			if event.alt_pressed and (_mode == Mode.CELL or _mode == Mode.FINE):
+				_eyedrop_at(get_local_mouse_position())
+				get_viewport().set_input_as_handled()
+				return
 			# Erase removes the topmost structure (wall/door) first, as a single click; only once
 			# no structure remains does a further click erase the terrain beneath it (cell-occupancy
 			# model, ROADMAP "Erase mode"). Structure removal consumes the click (no paint drag).
@@ -1333,6 +1352,61 @@ func _click_in_selection(local: Vector2) -> bool:
 		return _sel_cells.has(Vector2i(floori(local.x / CELL), floori(local.y / CELL)))
 	return false
 
+# --- Eyedropper (ROADMAP "Eyedropper"): load the brush from what is already on the map ---
+
+# pick what is under `local` into the active brush, so matching existing terrain needs no palette
+# hunting. A picked value NEVER edits the map: it writes the brush fields directly rather than going
+# through arm_floor_material / arm_wall_material, which deliberately re-fill an active selection.
+# Returns whether anything was picked.
+func _eyedrop_at(local: Vector2) -> bool:
+	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	if not _in_bounds(cell):
+		return false
+	var obs = get_node_or_null("../Obstacles")
+	# A WALL under the cursor loads the WALL brush (material + colour). The 2026-08-16 spec deferred
+	# this ("a wall eyedropper could come later") because wall materials did not exist yet; they do
+	# now, they are a brush with the same two axes as the floor, and picking nothing on a wall would
+	# just read as broken.
+	if obs != null and obs.is_blocked(cell):
+		_tool_kind = "wall_mat"
+		_wall_mat = obs.get_wall_material(cell)
+		_wall_color = obs.get_wall_color(cell)
+		brush_changed.emit()
+		call_deferred("_update_hover")
+		return true
+	# otherwise the FLOOR quarter under the cursor: material + tint, the two axes of the floor brush.
+	# Bare grass ("") is a real answer -- it arms the grass eraser, which is how you match plain ground.
+	var q := Vector2i(floori(local.x / HALF), floori(local.y / HALF))
+	_tool_kind = "floor"
+	_brush = _quad_mat.get(q, "")
+	_floor_color = _quad_tint.get(q, Color.WHITE)
+	_armed = true # picked = loaded and ready to lay, so the next click in Cell/Fine paints it
+	brush_changed.emit()
+	call_deferred("_update_hover")
+	return true
+
+# --- Set Spawn (ROADMAP "Player spawn marker"): move the map's authored start point ---
+
+# put the spawn marker on the clicked cell. One click = one undo entry. Walls are refused: the player
+# would start stuck inside one. The character is NOT moved -- that is the whole point of the marker
+# (authoring the start point without walking the character there); a map LOAD is what puts the player
+# on it.
+func _set_spawn_at(local: Vector2) -> bool:
+	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	if not _stampable(cell):
+		return false # off the map, or on an absent-cell hole
+	var obs = get_node_or_null("../Obstacles")
+	if obs != null and obs.is_blocked(cell):
+		return false # never spawn inside a wall
+	var marker = get_node_or_null("../SpawnMarker")
+	if marker == null:
+		return false
+	if marker.spawn_cell() == cell:
+		return false # already there: no empty undo entry
+	marker.set_cell(cell)
+	EditHistory.commit("set spawn")
+	return true
+
 # --- copy / paste / duplicate / move (ROADMAP "Copy, paste, and duplicate" + "Move tool") ---
 #
 # All four gestures ride ONE pending-clip state: an armed clip (`_pending_clip`) plus how it will be
@@ -1565,9 +1639,22 @@ func _update_hover() -> void:
 	if _mode == Mode.BRIDGE:
 		_update_bridge_hover(cell)
 		return
-	# Wall / Door placement and Select: a green cell cursor marks the target cell
-	if _mode == Mode.WALL or _mode == Mode.DOOR or _mode == Mode.SELECT:
+	# Wall / Door / Set Spawn placement and Select: a green cell cursor marks the target cell
+	if _mode == Mode.WALL or _mode == Mode.DOOR or _mode == Mode.SELECT or _mode == Mode.SPAWN:
 		_update_structure_placement_hover(cell)
+		return
+	# Eyedropper: an ORANGE (ground-edit palette) cursor over the cell that will be SAMPLED. Fine-grain
+	# is deliberate: it shows the quarter, because that is the grain the floor store actually holds.
+	if _mode == Mode.EYEDROP:
+		_clear_room_hover()
+		_preview.hide_preview()
+		_restore_faded()
+		if not _in_bounds(cell):
+			_cursor.hide_cursor()
+			return
+		_cursor.set_role(PaintCursor.Role.GROUND)
+		var eq := Vector2i(floori(local.x / HALF), floori(local.y / HALF))
+		_cursor.show_rect(Rect2(eq.x * HALF, eq.y * HALF, HALF, HALF))
 		return
 	# after a wall colour or material is picked, outline the single wall under the cursor
 	if _tool_kind == "wall" or _tool_kind == "wall_mat":
