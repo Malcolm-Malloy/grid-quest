@@ -60,6 +60,12 @@ func clear() -> void:
 func _obs():
 	return get_tree().get_first_node_in_group("obstacles")
 
+# the Unique keys already placed for the inspected door, so the button can say so
+func _keys_bound_here() -> Array:
+	var obs = _obs()
+	var pk = obs.get_parent().get_node_or_null("Pickups") if obs else null
+	return pk.keys_for_door(obs.door_id_at(_cell)) if pk else []
+
 func _refresh_visibility() -> void:
 	# shown only in EDIT and only with a live selection
 	_panel.visible = EditorMode.is_edit() and _kind != ""
@@ -115,6 +121,69 @@ func _build_door() -> void:
 		obs.set_door_swing(_cell, on)
 		EditHistory.commit("door swing"))
 	_box.add_child(swing_btn)
+
+	# --- Lock (ROADMAP "Locked doors and keys"). Two types, and the authoring differs because the
+	# types differ: a COLOURED lock only needs a colour (any key of that colour opens it, and is spent),
+	# while a UNIQUE lock is bound to THIS door, so it also needs a name and an actual key placed
+	# somewhere in the level -- hence the "Place its key" button, which arms the Item tool with a key
+	# already bound to this door instead of making you hunt for a pick-the-door mode.
+	var lock_kind := String(d.get("lock", ""))
+	_title("Lock: %s" % ("None" if lock_kind == "" else lock_kind.capitalize()))
+	var lock_row := HBoxContainer.new()
+	for opt in [["None", ""], ["Coloured", "colour"], ["Unique", "unique"]]:
+		var lb := Button.new()
+		lb.text = opt[0]
+		lb.flat = lock_kind != opt[1]
+		lb.pressed.connect(func():
+			obs.set_door_lock(_cell, opt[1], String(d.get("lock_color", "red")), String(d.get("lock_name", "")))
+			MapIO.apply_serialized(MapIO.serialize(), true)
+			EditHistory.commit("door lock")
+			inspect_door(_cell))
+		lock_row.add_child(lb)
+	_box.add_child(lock_row)
+
+	if lock_kind == "colour":
+		# the lock colour: a key of the SAME colour opens it, matched by colour only
+		var col_row := HBoxContainer.new()
+		var current := String(d.get("lock_color", "red"))
+		for cname in Items.lock_color_names():
+			var cb := Button.new()
+			cb.custom_minimum_size = Vector2(28, 22)
+			cb.tooltip_text = "%s lock (opened by a %s Key)" % [String(cname).capitalize(), String(cname).capitalize()]
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = Items.lock_color(cname)
+			if cname == current:
+				sb.border_width_bottom = 3
+				sb.border_width_top = 3
+				sb.border_width_left = 3
+				sb.border_width_right = 3
+				sb.border_color = Color.WHITE
+			cb.add_theme_stylebox_override("normal", sb)
+			cb.pressed.connect(func():
+				obs.set_door_lock(_cell, "colour", cname, "")
+				MapIO.apply_serialized(MapIO.serialize(), true)
+				EditHistory.commit("lock colour")
+				inspect_door(_cell))
+			col_row.add_child(cb)
+		_box.add_child(col_row)
+
+	if lock_kind == "unique":
+		# the key's player-facing name ("Malcolm's Door Key")
+		var name_edit := LineEdit.new()
+		name_edit.placeholder_text = "Key name"
+		name_edit.text = String(d.get("lock_name", ""))
+		name_edit.text_submitted.connect(func(t):
+			obs.set_door_lock(_cell, "unique", "red", t)
+			EditHistory.commit("key name"))
+		_box.add_child(name_edit)
+		var place := Button.new()
+		var bound: int = _keys_bound_here().size()
+		place.text = "Place its key" if bound == 0 else "Place another key (%d placed)" % bound
+		place.pressed.connect(func():
+			var fm = get_node_or_null("../World/FloorManager")
+			if fm != null:
+				fm.arm_bound_key(obs.door_id_at(_cell), name_edit.text))
+		_box.add_child(place)
 
 	# convert this door back into a solid wall, in place (structural: rebuild through MapIO). Re-inspects
 	# as a wall so the panel stays on the same cell, now showing the wall's colour/material controls.

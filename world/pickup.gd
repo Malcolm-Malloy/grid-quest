@@ -26,6 +26,7 @@ const BOB_HZ := 1.2
 var cell := Vector2i.ZERO
 var item := "coin"
 var id := ""
+var data := {} # per-instance extra: a Unique key's {door_id, name}
 
 var _t := 0.0
 

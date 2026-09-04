@@ -44,10 +44,11 @@ func has_pickup(cell: Vector2i) -> bool:
 
 # place `item` on `cell`, minting a durable id. One item per cell (the cell-occupancy model), so a
 # cell that already holds one is refused. Returns the new record, or {} if refused.
-func add_pickup(cell: Vector2i, item: String) -> Dictionary:
+func add_pickup(cell: Vector2i, item: String, data := {}) -> Dictionary:
 	if not Items.has(item) or has_pickup(cell):
 		return {}
-	var rec := {"cell": cell, "item": item, "id": Items.new_id()}
+	# `data` is per-instance extra: a Unique key carries {door_id, name}, binding it to one door
+	var rec := {"cell": cell, "item": item, "id": Items.new_id(), "data": data.duplicate(true)}
 	pickups.append(rec)
 	return rec
 
@@ -83,6 +84,7 @@ func build_world() -> void:
 		node.set_script(pickup_script)
 		node.item = String(rec["item"])
 		node.id = String(rec["id"])
+		node.data = (rec.get("data", {}) as Dictionary).duplicate(true)
 		node.place(rec["cell"])
 		add_child(node)
 
@@ -113,12 +115,23 @@ func _collect(rec: Dictionary) -> String:
 	if Items.is_stackable(item):
 		player.add_to_stack(item, 1)
 	else:
-		player.add_unique(item, String(rec["id"]))
+		player.add_unique(item, String(rec["id"]), rec.get("data", {}))
 	CharacterIO.mark_collected(MapIO.current_map(), String(rec["id"]))
 	for n in get_tree().get_nodes_in_group("pickups"):
 		if n.id == rec["id"]:
 			n.queue_free()
 	return item
+
+# every placed pickup bound to `door_id` (its Unique keys). Drives the editor's warning before a
+# bound door is deleted, since deleting the door takes its key with it.
+func keys_for_door(door_id: String) -> Array:
+	var out: Array = []
+	if door_id == "":
+		return out
+	for p in pickups:
+		if String(p.get("data", {}).get("door_id", "")) == door_id:
+			out.append(p)
+	return out
 
 # --- click to take a unique item (PLAY only) ---
 

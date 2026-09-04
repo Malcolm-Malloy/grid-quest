@@ -90,8 +90,10 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
 10. **Item and pickup system. BUILT 2026-09-05.** Definitions + instances, both inventory entry
     kinds, split interaction (stackables auto-collect on step, uniques are clicked), collected state in
     character data, and an editor Item tool. Save v11. See "Items and pickups" -> As built.
-11. **Locked doors and keys. NOW UNBLOCKED** (its three prerequisites -- the door menu (4), inventory
-    (9) and pickups (10) -- are all built). Terminal dependency of the 2026-08-13 chain.
+11. **Locked doors and keys. BUILT 2026-09-05.** Both lock types (coloured single-use, unique bound
+    key), durable door ids, inspector authoring with a "place its key" flow, and the bound-door delete
+    warning. Save v12. **This completes the 2026-08-13 dependency chain.** See "Locked doors and keys"
+    -> As built.
 
 **Phase C: game pillar (creature-collector RPG).** Not gated on Phase A or B but authored against
 them: creatures, capture, absorb, domesticate, resource-gated building (same system as the editor),
@@ -779,6 +781,46 @@ Open scope this pulls in:
 - **Art:** Unique locks need open-door art per door type and orientation
   ([[grid-quest-modify-all-asset-states]], [[grid-quest-asset-perspective-model]]). Coloured
   locks only need the closed-door state.
+
+**As-built (2026-09-05): BUILT.** The terminal item of the 2026-08-13 chain (door menu + inventory +
+pickups were its three prerequisites, all now in). Covered by `dev/test_locked_doors` (40 checks).
+- **Doors carry a durable id.** A Unique key binds to it, so `id` joined the door record (save
+  **v12**), minted by Obstacles when a gate spawns -- which quietly migrates the seeded roster and
+  every pre-v12 map without touching disk.
+  - **Paste vs move, now a real distinction.** `MapEdit._apply_clip` grew a `fresh_ids` flag: a
+    **paste mints new ids** for doors and pickups (so the original's key does not open the copy),
+    while a **move keeps them** (ROADMAP "Move tool": a moved locked door keeps its door_id, so its
+    Unique key still resolves). Resize carries ids and locks through too.
+- **Two lock types, and each rule falls out of the type:**
+  - **Coloured (single use).** `Items.LOCK_COLORS` (red/blue/green/orange) is the shared table the
+    lock art, the key art and the door menu all read. Matching is by colour NAME, not a float colour
+    compare, so `key_red` opens any red lock -- exactly "matched by colour only". Opening consumes one
+    key and the lock is gone for good, which is why it never needs open-door art.
+  - **Unique.** A metal key bound to one door id, carrying a player-facing name. Never consumed, and
+    the lock **stays on the door open or closed**. Re-checked against the inventory every time, so
+    **losing the key shuts the door again** -- and that is why nothing is persisted for this type.
+- **Where the opened state lives:** the same map-data/character-data split as collected pickups. The
+  MAP keeps the authored lock (the editor and a fresh character still see it); "I already spent a red
+  key on this door" is `CharacterIO.unlocked` (v3), keyed map name -> door id.
+- **Locked doors block.** The player's move check treats a locked door like a wall, and **walking into
+  it IS the attempt to unlock** (one matching coloured key spent, or the bound unique key checked).
+  Kept out of `is_blocked` so that stays "is a wall" for the editor, like the impassable-floor check.
+  A still-locked door also never swings open on approach.
+- **Authoring** is in the inspector: Lock None / Coloured / Unique, a colour row for the coloured kind,
+  and for unique a key-name field plus a **"Place its key"** button that arms the Item tool with a key
+  ALREADY BOUND to that door. That is the answer to the spec's "place = pick a cell + item type; a
+  Unique key also binds to a door (pick the door)": the door is already the thing you are editing, so
+  no separate pick-the-door mode is needed.
+- **Deleting a bound door warns first**, as required, listing the key by its player-facing name;
+  confirming removes the door AND its now-useless key as ONE undo entry. The same warning covers a
+  selection erase that contains such a door.
+- **Art caveat:** the lock is drawn procedurally (a padlock: shackle, body, keyhole) over the door
+  panel, dark-outlined so it reads on any door colour. On an OPEN unique door its position is
+  approximate -- welding it to each swung-open sprite is the per-orientation art job this section
+  already called out. Coloured locks are exact, since they only ever draw closed.
+- **Capture harness:** `GQ_LOCK="x,y,kind[,colour];..."` authors a lock for eyeballing.
+- **Not built:** a lock colour option in the RIGHT-CLICK door submenu (the inspector is the authoring
+  surface for now); keys shown in an inventory UI (there is no inventory screen yet).
 
 ## Coloured floors
 - Per-texture colour tinting of the floor textures (for example, recolour the tiles orange).

@@ -8,7 +8,7 @@ extends Node
 # Maps live in user://maps/<name>.json (persistent, writable, cross-platform). Writes are
 # atomic (temp file, then rename) so a crash mid-save can't corrupt an existing map.
 
-const VERSION := 11 # v11: placed item pickups; v10: sparse absent_cells (jagged/non-square maps); v9: per-quarter liquid river-bank OFF flags; v8: bridges (crossable decks over water); v7: per-quarter floor patterns; v6: per-cell wall materials; v5: per-quarter floor tints; v4: per-door authored open+swing; v3: per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
+const VERSION := 12 # v12: door ids + locks (and pickup instance data); v11: placed item pickups; v10: sparse absent_cells (jagged/non-square maps); v9: per-quarter liquid river-bank OFF flags; v8: bridges (crossable decks over water); v7: per-quarter floor patterns; v6: per-cell wall materials; v5: per-quarter floor tints; v4: per-door authored open+swing; v3: per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
 const DIR := "user://maps"
 const LAST_FILE := "user://last_map.txt" # remembers the map to reload on next launch
 
@@ -67,8 +67,15 @@ func serialize() -> Dictionary:
 		walls.append([c.x, c.y])
 	var doors: Array = []
 	for d in obs.gate_cells:
-		doors.append({"cell": [d["cell"].x, d["cell"].y], "orientation": d["orientation"],
-			"open": d.get("open", false), "swing": d.get("swing", false)})
+		# v12: a door carries a durable id (a Unique key binds to it) and its authored lock
+		var rec := {"cell": [d["cell"].x, d["cell"].y], "orientation": d["orientation"],
+			"open": d.get("open", false), "swing": d.get("swing", false), "id": d.get("id", "")}
+		if String(d.get("lock", "")) != "":
+			rec["lock"] = d["lock"]
+			rec["lock_color"] = d.get("lock_color", "red")
+			if String(d.get("lock_name", "")) != "":
+				rec["lock_name"] = d["lock_name"]
+		doors.append(rec)
 	# bridges (crossable decks over water) as cell + orientation; a placed-object layer like doors
 	var bridges: Array = []
 	for b in obs.bridge_cells:
@@ -107,7 +114,10 @@ func serialize() -> Dictionary:
 	var pk = w.get_node_or_null("Pickups")
 	if pk:
 		for r in pk.pickups:
-			pickups.append({"cell": [r["cell"].x, r["cell"].y], "item": r["item"], "id": r["id"]})
+			var prec := {"cell": [r["cell"].x, r["cell"].y], "item": r["item"], "id": r["id"]}
+			if not r.get("data", {}).is_empty():
+				prec["data"] = r["data"] # a unique key's binding: {door_id, name}
+			pickups.append(prec)
 	# cell-existence holes as [cx, cy]; sparse (only absent cells). Empty = a solid rectangle (v9-and-
 	# earlier maps have no key, so they load as the full rect). See GridBackground.absent_cells.
 	var absent_cells: Array = []
@@ -167,8 +177,15 @@ func _apply(data: Dictionary, keep_player := false) -> void:
 		bridges.append({"cell": Vector2i(int(b["cell"][0]), int(b["cell"][1])), "orientation": String(b["orientation"])})
 	var doors: Array = []
 	for d in data.get("doors", []):
-		doors.append({"cell": Vector2i(int(d["cell"][0]), int(d["cell"][1])), "orientation": d["orientation"],
-			"open": bool(d.get("open", false)), "swing": bool(d.get("swing", false))})
+		# a pre-v12 door has no id: Obstacles mints one when it spawns the gate, so old maps just work
+		var rec := {"cell": Vector2i(int(d["cell"][0]), int(d["cell"][1])), "orientation": d["orientation"],
+			"open": bool(d.get("open", false)), "swing": bool(d.get("swing", false)),
+			"id": String(d.get("id", ""))}
+		if String(d.get("lock", "")) != "":
+			rec["lock"] = String(d["lock"])
+			rec["lock_color"] = String(d.get("lock_color", "red"))
+			rec["lock_name"] = String(d.get("lock_name", ""))
+		doors.append(rec)
 	obs.apply_map(walls, doors, bridges)
 
 	# 3. lighting (depends on walls/doors)
@@ -230,7 +247,8 @@ func _apply(data: Dictionary, keep_player := false) -> void:
 		var picks: Array = []
 		for r in data.get("pickups", []):
 			picks.append({"cell": Vector2i(int(r["cell"][0]), int(r["cell"][1])),
-				"item": String(r["item"]), "id": String(r.get("id", ""))})
+				"item": String(r["item"]), "id": String(r.get("id", "")),
+				"data": (r.get("data", {}) as Dictionary).duplicate(true)})
 		pk2.apply_map(picks)
 
 	# 5. spawn. The MARKER always follows the map (a resize/undo must move the authored spawn with

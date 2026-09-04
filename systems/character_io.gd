@@ -11,7 +11,7 @@ extends Node
 # Lives in user://character.json (persistent, writable). Writes are atomic (temp file, then rename),
 # the same pattern MapIO uses, so a crash mid-save can't corrupt an existing save.
 
-const VERSION := 2 # v2: inventory is {stacks, uniques} + per-map collected pickup ids; v1: a flat array
+const VERSION := 3 # v3: opened coloured locks; v2: inventory is {stacks, uniques} + per-map collected pickup ids; v1: a flat array
 const PATH := "user://character.json"
 
 # On startup we do NOT auto-restore the character: the game defaults to EDIT mode (editor-first, see
@@ -38,7 +38,8 @@ func serialize() -> Dictionary:
 	var player := _player()
 	if player == null:
 		return {"version": VERSION, "position": {"x": 0.0, "y": 0.0}, "facing": "down",
-			"inventory": {"stacks": {}, "uniques": []}, "collected": collected.duplicate(true)}
+			"inventory": {"stacks": {}, "uniques": []}, "collected": collected.duplicate(true),
+			"unlocked": unlocked.duplicate(true)}
 	# inventory is stored as-is; it must stay JSON-safe (the item system keeps it so). duplicate()
 	# so a later mutation of the live structure can't retroactively change a dict we already handed out.
 	var inv = player.inventory.duplicate(true) if "inventory" in player else {"stacks": {}, "uniques": []}
@@ -50,6 +51,7 @@ func serialize() -> Dictionary:
 		# which pickups THIS character has already taken, per map (ROADMAP "Items and pickups" -> where
 		# collected state lives: the MAP always keeps its pickups, a saved game remembers what was taken)
 		"collected": collected.duplicate(true),
+		"unlocked": unlocked.duplicate(true), # coloured locks this character has already opened
 	}
 
 # apply a serialize()-shaped dict onto the live character. Snaps the player to the saved position
@@ -77,6 +79,8 @@ func apply(data: Dictionary) -> void:
 			player.inventory = {"stacks": {}, "uniques": []}
 	var col = data.get("collected", {})
 	collected = (col as Dictionary).duplicate(true) if col is Dictionary else {}
+	var unl = data.get("unlocked", {})
+	unlocked = (unl as Dictionary).duplicate(true) if unl is Dictionary else {}
 	if player.has_method("update_sprite"):
 		player.update_sprite() # redraw with the restored facing (also refreshes the shadow shape)
 
@@ -87,6 +91,26 @@ func apply(data: Dictionary) -> void:
 # taken so it does not respawn on load". So the flag lives here, keyed by map name then pickup id.
 # An unsaved map ("") still tracks in memory, so collecting works before a map is ever named.
 var collected := {} # map name -> {pickup id: true}
+
+# Coloured locks opened by THIS character. Same map-data/character-data split as `collected`: the map
+# keeps the authored lock (the editor and a fresh game still see it), while "I already spent a red key
+# on this door" is character state. Unique locks store nothing -- they are re-checked against the
+# inventory every time, so losing the key shuts the door again (ROADMAP "Locked doors and keys").
+var unlocked := {} # map name -> {door id: true}
+
+func is_unlocked(map_name: String, door_id: String) -> bool:
+	return unlocked.get(map_name, {}).has(door_id)
+
+func mark_unlocked(map_name: String, door_id: String) -> void:
+	if not unlocked.has(map_name):
+		unlocked[map_name] = {}
+	unlocked[map_name][door_id] = true
+
+func clear_unlocked(map_name := "") -> void:
+	if map_name == "":
+		unlocked.clear()
+	else:
+		unlocked.erase(map_name)
 
 func is_collected(map_name: String, pickup_id: String) -> bool:
 	return collected.get(map_name, {}).has(pickup_id)

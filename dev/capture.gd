@@ -496,6 +496,20 @@ func _ready() -> void:
 				camit.fit_map()
 			await get_tree().process_frame
 
+	# GQ_LOCK="x,y,kind[,colour];..." authors a door's lock so the lock art can be eyeballed:
+	# kind is "colour" (with a LOCK_COLORS name) or "unique" (metal, and it stays on an OPEN door).
+	# e.g. GQ_LOCK="8,11,colour,red;10,5,unique". Pair with GQ_DOORSTATE to see an open unique lock.
+	var lockenv := OS.get_environment("GQ_LOCK")
+	if lockenv != "":
+		var obsl := main.get_node_or_null("World/Obstacles")
+		if obsl:
+			for op in lockenv.split(";", false):
+				var f := op.split(",")
+				if f.size() >= 3:
+					obsl.set_door_lock(Vector2i(int(f[0]), int(f[1])), f[2],
+						f[3] if f.size() > 3 else "red", "Malcolm's Door Key")
+			await get_tree().process_frame
+
 	# GQ_SAVE="name" writes the current level to user://maps/name.json (after the setup above)
 	var save_name := OS.get_environment("GQ_SAVE")
 	if save_name != "":

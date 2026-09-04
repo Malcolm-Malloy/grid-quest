@@ -96,10 +96,22 @@ func build_world() -> void:
 		)
 		get_parent().add_child.call_deferred(bridge)
 	for gate_data in gate_cells:
+		# every door carries a DURABLE id (Architecture review Q3): a Unique key binds to it, so it has
+		# to survive save/load, resize and a MOVE. Doors that predate ids (the seeded roster, pre-v12
+		# maps) get one minted here, once, so nothing has to migrate on disk.
+		if String(gate_data.get("id", "")) == "":
+			gate_data["id"] = Items.new_id()
 		var gate := Node2D.new()
 		gate.set_script(gate_script)
 		gate.cell = gate_data["cell"]
 		gate.orientation = gate_data["orientation"]
+		gate.door_id = String(gate_data["id"])
+		# the LOCK (ROADMAP "Locked doors and keys"): "" none, "colour" (a coloured key opens any lock
+		# of that colour and is consumed, the lock then gone for good), or "unique" (a named metal key
+		# bound to THIS door id; the key is kept and the metal lock stays on the door, open or closed).
+		gate.lock = String(gate_data.get("lock", ""))
+		gate.lock_color = String(gate_data.get("lock_color", "red"))
+		gate.unlocked = gate.lock == "colour" and CharacterIO.is_unlocked(MapIO.current_map(), gate.door_id)
 		# authored default state (MapIO-persisted); applied here so the gate spawns showing what was
 		# authored. In PLAY the player's proximity logic takes over; EDIT resets to these.
 		gate.authored_open = gate_data.get("open", false)
@@ -455,6 +467,79 @@ func set_door_swing(cell: Vector2i, value: bool) -> void:
 	if g:
 		g.authored_swing = value
 		g.reset_to_authored()
+
+# --- locks (ROADMAP "Locked doors and keys") ---
+
+# is this cell a door that is LOCKED right now, for `player`? A coloured lock stops being locked once
+# this character has opened it (the lock is consumed and gone). A unique lock is checked against the
+# inventory every time: lose the key and the door is shut again, which is why nothing is persisted for it.
+func is_locked(cell: Vector2i, player = null) -> bool:
+	var d := door_at(cell)
+	var lock := String(d.get("lock", ""))
+	if lock == "":
+		return false
+	var id := String(d.get("id", ""))
+	if lock == "colour":
+		return not CharacterIO.is_unlocked(MapIO.current_map(), id)
+	# unique: locked unless the bound key is in hand
+	if player == null:
+		player = get_tree().get_first_node_in_group("player")
+	return player == null or not _has_unique_key_for(player, id)
+
+func _has_unique_key_for(player, door_id: String) -> bool:
+	for u in player.inventory.get("uniques", []):
+		if String(u.get("item", "")) == "key" and String(u.get("data", {}).get("door_id", "")) == door_id:
+			return true
+	return false
+
+# try to open a locked door with what the player carries. A COLOURED lock consumes one matching key
+# and is then gone for good (recorded per character, since the MAP keeps its authored lock). A UNIQUE
+# lock consumes nothing and leaves its metal lock in place; it just checks the key is there.
+# Returns true if the door is now passable.
+func try_unlock(cell: Vector2i, player) -> bool:
+	var d := door_at(cell)
+	var lock := String(d.get("lock", ""))
+	if lock == "":
+		return true
+	var id := String(d.get("id", ""))
+	if lock == "colour":
+		if CharacterIO.is_unlocked(MapIO.current_map(), id):
+			return true
+		var key := "key_" + String(d.get("lock_color", "red"))
+		if not player.take_from_stack(key, 1):
+			return false
+		CharacterIO.mark_unlocked(MapIO.current_map(), id)
+		var g = gate_node_at(cell)
+		if g:
+			g.unlocked = true # the lock is removed from the door, so it needs no open-state art
+			g.queue_redraw()
+		return true
+	return _has_unique_key_for(player, id)
+
+# author a door's lock: kind "" (none) / "colour" / "unique". `color` is a LOCK_COLORS name, used by
+# the coloured kind; `key_name` is the player-facing name a unique key shows.
+func set_door_lock(cell: Vector2i, kind: String, color := "red", key_name := "") -> void:
+	var d := door_at(cell)
+	if d.is_empty():
+		return
+	if kind == "":
+		d.erase("lock")
+		d.erase("lock_color")
+		d.erase("lock_name")
+	else:
+		d["lock"] = kind
+		d["lock_color"] = color
+		if key_name != "":
+			d["lock_name"] = key_name
+	var g = gate_node_at(cell)
+	if g:
+		g.lock = kind
+		g.lock_color = color
+		g.unlocked = false
+		g.queue_redraw()
+
+func door_id_at(cell: Vector2i) -> String:
+	return String(door_at(cell).get("id", ""))
 
 # flip the door's orientation between "horizontal" and "vertical". Structural, so only the dict is
 # mutated here; the caller rebuilds via MapIO to respawn the gate with the right textures/layers.

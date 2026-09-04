@@ -300,6 +300,8 @@ var _move_src := {}              # MOVE: the source footprint cells, cleared whe
 var _move_origin := Vector2i.ZERO # MOVE: the source footprint's top-left cell
 var _move_grab := Vector2i.ZERO  # MOVE: the cell the drag started on, so the ghost follows the grab point
 var _item := "coin"          # ITEM mode: which item definition a click places (set from the panel)
+var _item_data := {}         # binding carried by the next placement: a Unique key's {door_id, name}
+var _key_warn: ConfirmationDialog # "deleting this door deletes its key" warning, built on first use
 var _ghost_origin_pin := INVALID_CELL # dev hook (dev/capture.gd): pin the ghost's origin instead of
 									  # reading the OS cursor, which a capture run cannot place reliably
 var _mouse_inside := true    # false while the OS cursor is off the game window; hides all highlights
@@ -1437,7 +1439,8 @@ func _place_item_at(local: Vector2) -> bool:
 	var pk = get_node_or_null("../Pickups")
 	if pk == null or pk.has_pickup(cell):
 		return false
-	pk.add_pickup(cell, _item)
+	pk.add_pickup(cell, _item, _item_data)
+	_item_data = {} # a binding is spent by the placement it was armed for; the next key is unbound
 	_reapply_map() # rebuild through MapIO so the instance exists exactly as a load would build it
 	EditHistory.commit("place item")
 	return true
@@ -1450,8 +1453,22 @@ func arm_item(item: String) -> void:
 	if not Items.has(item):
 		return
 	_item = item
+	_item_data = {}
 	brush_changed.emit()
 	call_deferred("_update_hover")
+
+# arm the UNIQUE key belonging to `door_id`, so the next Item click drops THAT door's key. This is the
+# "place its key" flow: you author a door's unique lock, then put its key somewhere in the level --
+# no separate pick-the-door mode, because the door is already the thing you are editing.
+func arm_bound_key(door_id: String, key_name: String) -> void:
+	_item = "key"
+	_item_data = {"door_id": door_id, "name": key_name}
+	set_mode(Mode.ITEM)
+	brush_changed.emit()
+	call_deferred("_update_hover")
+
+func armed_item_binding() -> Dictionary:
+	return _item_data
 
 # --- copy / paste / duplicate / move (ROADMAP "Copy, paste, and duplicate" + "Move tool") ---
 #
@@ -2211,16 +2228,83 @@ func _erase_selection() -> void:
 		_rebuild()
 		EditHistory.commit("erase")
 	elif _sel_kind == "wall":
-		var obs = get_node_or_null("../Obstacles")
-		var any := false
-		if obs != null:
-			for c in _sel_cells:
-				if obs.remove_structure(c) != "":
-					any = true
-		if any:
-			_restore_faded()
-			MapIO.apply_serialized(MapIO.serialize(), true)
-			EditHistory.commit("erase")
+		# one warning for the whole selection if any door in it has a Unique key bound to it
+		if _warn_bound_keys(_sel_cells.keys(), _erase_wall_selection):
+			return
+		_erase_wall_selection()
+	_clear_selection()
+	_reset_highlight()
+	call_deferred("_update_hover")
+
+# The keys bound to any door in `cells`. Deleting such a door deletes its Unique key too (the key
+# would open nothing), which ROADMAP "Locked doors and keys" requires a popup warning for.
+func _bound_keys_in(cells: Array) -> Array:
+	var obs = get_node_or_null("../Obstacles")
+	var pk = get_node_or_null("../Pickups")
+	if obs == null or pk == null:
+		return []
+	var out: Array = []
+	for c in cells:
+		var id: String = obs.door_id_at(c)
+		if id != "":
+			out.append_array(pk.keys_for_door(id))
+	return out
+
+# ask before an erase that would take a bound key with it. Returns true when it asked (the caller
+# stops; `on_yes` runs if the user confirms), false when there was nothing to warn about.
+func _warn_bound_keys(cells: Array, on_yes: Callable) -> bool:
+	var keys := _bound_keys_in(cells)
+	if keys.is_empty():
+		return false
+	var names: Array = []
+	for k in keys:
+		var n := String(k.get("data", {}).get("name", ""))
+		names.append(n if n != "" else Items.display_name(String(k["item"])))
+	if _key_warn == null:
+		_key_warn = ConfirmationDialog.new()
+		_key_warn.title = "Delete door?"
+		add_child(_key_warn)
+	for c in _key_warn.confirmed.get_connections():
+		_key_warn.confirmed.disconnect(c["callable"])
+	_key_warn.dialog_text = "This door's key will be deleted with it:\n  %s\n\nDelete both?" % "\n  ".join(names)
+	_key_warn.confirmed.connect(on_yes, CONNECT_ONE_SHOT)
+	_key_warn.popup_centered()
+	return true
+
+# remove a door (or wall) plus any Unique keys bound to it, as ONE undo entry
+func _delete_structure_with_keys(cell: Vector2i) -> void:
+	var obs = get_node_or_null("../Obstacles")
+	var pk = get_node_or_null("../Pickups")
+	if obs == null:
+		return
+	var id: String = obs.door_id_at(cell)
+	obs.remove_structure(cell)
+	if pk != null and id != "":
+		for k in pk.keys_for_door(id):
+			pk.remove_pickup(k["cell"])
+	_restore_faded()
+	MapIO.apply_serialized(MapIO.serialize(), true)
+	EditHistory.commit("erase")
+	_reset_highlight()
+	call_deferred("_update_hover")
+
+# remove every wall/door in the selection, plus any Unique keys bound to those doors, as one entry
+func _erase_wall_selection() -> void:
+	var obs = get_node_or_null("../Obstacles")
+	var pk = get_node_or_null("../Pickups")
+	var any := false
+	if obs != null:
+		for c in _sel_cells:
+			var id: String = obs.door_id_at(c)
+			if obs.remove_structure(c) != "":
+				any = true
+				if pk != null and id != "":
+					for k in pk.keys_for_door(id):
+						pk.remove_pickup(k["cell"])
+	if any:
+		_restore_faded()
+		MapIO.apply_serialized(MapIO.serialize(), true)
+		EditHistory.commit("erase")
 	_clear_selection()
 	_reset_highlight()
 	call_deferred("_update_hover")
@@ -2229,12 +2313,10 @@ func _erase_selection() -> void:
 func _erase_single(cell: Vector2i) -> void:
 	var obs = get_node_or_null("../Obstacles")
 	if obs != null and obs.has_structure(cell):
-		obs.remove_structure(cell)
-		_restore_faded()
-		MapIO.apply_serialized(MapIO.serialize(), true)
-		EditHistory.commit("erase")
-		_reset_highlight()
-		call_deferred("_update_hover")
+		# a door with a Unique key bound to it warns before taking the key with it
+		if _warn_bound_keys([cell], _delete_structure_with_keys.bind(cell)):
+			return
+		_delete_structure_with_keys(cell)
 		return
 	# a placed item sits on top of the ground: erase it before the terrain beneath it
 	var pk = get_node_or_null("../Pickups")

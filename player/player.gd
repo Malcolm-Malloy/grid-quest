@@ -179,7 +179,12 @@ func _physics_process(delta: float) -> void:
 				# separate checks so is_blocked stays "is a wall" for the editor; floors block here.
 				# A bridge re-enables crossing on the water cell it covers (passable-over-impassable).
 				var floor_blocks: bool = floor_manager.is_cell_impassable(cell) and not obstacles.is_bridge(cell)
-				if not obstacles.is_blocked(cell) and not floor_blocks:
+				# a LOCKED door blocks like a wall until the right key opens it. Walking into it IS the
+				# attempt: a coloured lock spends one matching key and is gone for good, a unique lock
+				# just checks the bound key is in hand (ROADMAP "Locked doors and keys"). Kept out of
+				# is_blocked so that stays "is a wall" for the editor, like the impassable-floor check.
+				var locked: bool = obstacles.is_locked(cell, self) and not obstacles.try_unlock(cell, self)
+				if not obstacles.is_blocked(cell) and not floor_blocks and not locked:
 					target_position = new_target
 					is_moving = true
 					frame_index = 1 - frame_index
@@ -194,6 +199,11 @@ func update_gate_state() -> void:
 		return # wait until fully settled on a cell before re-checking, not mid-slide
 	var occupied_cell := Vector2i(floori(position.x / CELL_SIZE), floori(position.y / CELL_SIZE))
 	for gate in get_tree().get_nodes_in_group("gates"):
+		# a still-locked door never swings open on approach: it reads as shut until a key opens it
+		if obstacles.is_locked(gate.cell, self):
+			if gate.is_open:
+				gate.set_open(false)
+			continue
 		var on_gate_cell: bool = occupied_cell == gate.cell
 		# open only when standing on an adjacent block AND facing the gate, so it
 		# doesn't re-open (and flip its swing) once you've walked through and are
@@ -280,9 +290,10 @@ func take_from_stack(item: String, count := 1) -> bool:
 func stack_count(item: String) -> int:
 	return int(inventory["stacks"].get(item, 0))
 
-# add a UNIQUE item instance, carrying the pickup's durable id so it stays that exact object
-func add_unique(item: String, id: String) -> void:
-	inventory["uniques"].append({"item": item, "id": id})
+# add a UNIQUE item instance, carrying the pickup's durable id so it stays that exact object, plus
+# any binding it holds (a Unique key's {door_id, name}, which is what a locked door checks for)
+func add_unique(item: String, id: String, data := {}) -> void:
+	inventory["uniques"].append({"item": item, "id": id, "data": data.duplicate(true)})
 
 func has_unique(id: String) -> bool:
 	for u in inventory["uniques"]:

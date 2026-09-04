@@ -194,7 +194,7 @@ func stamp_clip(clip: Dictionary, origin: Vector2i, label := "paste") -> Diction
 	if clip.is_empty():
 		return {}
 	var d := MapIO.serialize()
-	var stamped := _apply_clip(d, clip, origin)
+	var stamped := _apply_clip(d, clip, origin, true) # a PASTE is a new instance: mint fresh ids
 	if stamped.is_empty():
 		return {}
 	MapIO.apply_serialized(d, true) # keep_player: a paste must never teleport the character
@@ -212,7 +212,9 @@ func move_clip(src_cells: Dictionary, clip: Dictionary, origin: Vector2i, label 
 	var d := MapIO.serialize()
 	for c in src_cells:
 		_strip_cell(d, c)
-	var stamped := _apply_clip(d, clip, origin)
+	# a MOVE KEEPS every durable id -- that is the whole contract (ROADMAP "Move tool": moving a locked
+	# door keeps its door_id, so its Unique key still resolves)
+	var stamped := _apply_clip(d, clip, origin, false)
 	if stamped.is_empty():
 		return {} # nothing landed: leave the map untouched rather than deleting the source
 	MapIO.apply_serialized(d, true)
@@ -221,7 +223,7 @@ func move_clip(src_cells: Dictionary, clip: Dictionary, origin: Vector2i, label 
 
 # write `clip` into the dict `d` at `origin` (no apply, no undo). Every target cell is STRIPPED first,
 # so a paste overwrites within its footprint instead of half-merging with what was there.
-func _apply_clip(d: Dictionary, clip: Dictionary, origin: Vector2i) -> Dictionary:
+func _apply_clip(d: Dictionary, clip: Dictionary, origin: Vector2i, fresh_ids := false) -> Dictionary:
 	var w := int(d["grid"]["width"])
 	var h := int(d["grid"]["height"])
 	var absent := _absent_set(d)
@@ -251,8 +253,10 @@ func _apply_clip(d: Dictionary, clip: Dictionary, origin: Vector2i) -> Dictionar
 				continue
 			var rec: Dictionary = r.duplicate(true)
 			rec["cell"] = [cell.x, cell.y]
-			if key == "pickups":
-				rec["id"] = Items.new_id() # a COPY is a new instance (ROADMAP: a pasted item gets a fresh id)
+			if fresh_ids and (key == "pickups" or key == "doors"):
+				# a COPY is a new instance (ROADMAP: a pasted locked door gets a fresh id, like any new
+				# placement, so the original's Unique key does not open the copy)
+				rec["id"] = Items.new_id()
 			d[key].append(rec)
 	for key in ["quads", "floor_tints", "floor_patterns", "floor_no_bank"]:
 		for a in clip.get(key, []):
@@ -429,9 +433,17 @@ func _shift(d: Dictionary, dx: int, dy: int, nw: int, nh: int) -> Dictionary:
 		var x := int(dr["cell"][0]) + dx
 		var y := int(dr["cell"][1]) + dy
 		if _in_cells(x, y, nw, nh):
-			# carry the authored open/swing through the resize too (they were being dropped before)
-			doors.append({"cell": [x, y], "orientation": dr["orientation"],
-				"open": dr.get("open", false), "swing": dr.get("swing", false)})
+			# carry the authored open/swing through the resize too (they were being dropped before),
+			# and the v12 id + lock with them: a Unique key resolves by door id, so losing it on a
+			# resize would orphan the key.
+			var nd := {"cell": [x, y], "orientation": dr["orientation"],
+				"open": dr.get("open", false), "swing": dr.get("swing", false),
+				"id": dr.get("id", "")}
+			if String(dr.get("lock", "")) != "":
+				nd["lock"] = dr["lock"]
+				nd["lock_color"] = dr.get("lock_color", "red")
+				nd["lock_name"] = dr.get("lock_name", "")
+			doors.append(nd)
 	out["doors"] = doors
 
 	# floors are on the 16px quarter grid, so a cell shift is a two-quarter shift
@@ -509,7 +521,8 @@ func _shift(d: Dictionary, dx: int, dy: int, nw: int, nh: int) -> Dictionary:
 		var x := int(r["cell"][0]) + dx
 		var y := int(r["cell"][1]) + dy
 		if _in_cells(x, y, nw, nh):
-			picks.append({"cell": [x, y], "item": r["item"], "id": r.get("id", "")})
+			picks.append({"cell": [x, y], "item": r["item"], "id": r.get("id", ""),
+				"data": r.get("data", {})})
 	out["pickups"] = picks
 
 	return out

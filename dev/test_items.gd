@@ -57,7 +57,7 @@ func _ready() -> void:
 	var coin_id: String = pk.pickup_at(coin_cell)["id"]
 	var data := MapIO.serialize()
 	_check("serialize writes the pickups", data["pickups"].size() == 2)
-	_check("the save format moved to v11", int(data["version"]) == 11)
+	_check("the save format holds pickups (v11+)", int(data["version"]) >= 11)
 	MapIO.save_map("__items_test")
 	MapIO.load_map("__items_test")
 	await get_tree().process_frame
@@ -101,7 +101,7 @@ func _ready() -> void:
 	player.inventory = {"stacks": {}, "uniques": []}
 	CharacterIO.load_character()
 	_check("the saved inventory came back", player.stack_count("coin") == 1 and player.uniques_of("key").size() == 1)
-	_check("CharacterIO moved to v2", int(CharacterIO.serialize()["version"]) == 2)
+	_check("CharacterIO stores the v2+ inventory shape", int(CharacterIO.serialize()["version"]) >= 2)
 	CharacterIO.delete_character()
 
 	# --- 8. items ride along with the map: resize and copy/paste ---
