@@ -3002,6 +3002,17 @@ wins. Logged as design tasks, not yet built.
   edge grow/shrink controls (hover-add toggle + the four edge +/- rows) now live inside a collapsed
   **Advanced** accordion section on the left strip, so they are tucked away by default. Recenter stays
   visible below. See the accordion note next.
+- **Accordion is EXCLUSIVE: one section open at a time. DONE 2026-09-05.** On the user's note. Opening
+  a section now folds every other one (`_collapse_others`, re-entry guarded since setting
+  `button_pressed` re-fires `toggled`), so the strip stays one screen of controls instead of growing as
+  sections pile up open. Collapsing the open one leaves them all shut, which is fine -- the header rows
+  are still the whole menu. Only **Tools** starts open (Brush was the other expanded-by-default section);
+  selecting a floor or a wall still auto-opens Brush or Wall, and no longer has to fold its sibling by
+  hand, since opening does that now. Verified by `dev/test_tool_strip` (it asserts exactly one open at
+  startup and after a switch).
+  - *Consequence to watch:* the tool buttons live in Tools, so opening Brush/Item/Wall/Advanced folds
+    them away. Every tool keeps its keyboard shortcut, so switching tools does not need the section
+    open; if that proves annoying, pin Tools outside the accordion rather than relaxing the rule.
 - **Accordion menus for the left menu. DONE 2026-08-17.** The left tool strip (`ui/tool_strip.gd`) is now
   laid out as collapsible **accordion** sections via a new `_add_section(parent, title, expanded)` helper
   (header button with a ▾/▸ arrow that folds a content VBox; sections recorded in `_sections` for tests).

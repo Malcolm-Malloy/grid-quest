@@ -166,7 +166,9 @@ func _ready() -> void:
 	# panel"). Live-synced to FloorManager via its brush_changed signal.
 	var fm := get_node_or_null("../World/FloorManager")
 	if fm != null:
-		var brush := _add_section(vb, "Brush", true)
+		# collapsed at startup: with an exclusive accordion only one section can be open, and Tools is
+		# the one you always need. Selecting a floor opens this automatically (see _on_selection_changed).
+		var brush := _add_section(vb, "Brush", false)
 		# 4-column material grid: keeps the Brush section short as the roster grows (8 materials = 2 rows,
 		# not 4), so the panel needs little scrolling. Buttons hug their text, so 4 short labels stay narrow.
 		_brush_preview = _fill_brush_section(brush, fm.MENU, 4, _on_brush_material, fm.FLOOR_COLORS, _on_brush_color, _mat_buttons, _col_swatches)
@@ -247,11 +249,29 @@ func _add_section(parent: Node, title: String, expanded: bool) -> VBoxContainer:
 	header.toggled.connect(func(on: bool):
 		content.visible = on
 		header.text = _section_label(title, on)
+		if on:
+			_collapse_others(title) # ONE section open at a time (see _collapse_others)
 		call_deferred("_relayout")) # expanding/collapsing changes the body height
 	parent.add_child(header)
 	parent.add_child(content)
 	_sections[title] = {"header": header, "content": content}
 	return content
+
+# The accordion is EXCLUSIVE: opening a section folds every other one, so the strip stays one screen
+# of controls instead of growing as sections pile up open. Collapsing the open one leaves them all
+# shut, which is fine -- the header row is still the whole menu.
+# Guarded against re-entry: setting button_pressed fires `toggled`, which would otherwise bounce
+# straight back in here from each section we close.
+var _collapsing := false
+
+func _collapse_others(keep: String) -> void:
+	if _collapsing:
+		return
+	_collapsing = true
+	for title in _sections:
+		if title != keep:
+			_sections[title]["header"].button_pressed = false
+	_collapsing = false
 
 func _section_label(title: String, expanded: bool) -> String:
 	return ("▾ " if expanded else "▸ ") + title
@@ -271,19 +291,17 @@ func _set_section(title: String, expanded: bool) -> void:
 	if _sections.has(title):
 		_sections[title]["header"].button_pressed = expanded
 
-# surface the section matching the current selection: a wall selection opens Wall (and folds the floor
-# Brush), a floor selection opens Brush (and folds Wall), so the reflected material + colour are visible
-# and the panel never overflows with both open. No selection leaves the sections as the user set them.
+# surface the section matching the current selection: a wall selection opens Wall, a floor selection
+# opens Brush, so the reflected material + colour are visible. Folding the sibling is no longer done by
+# hand -- the exclusive accordion closes whatever else was open. No selection leaves the sections alone.
 func _on_selection_changed() -> void:
 	var fm := get_node_or_null("../World/FloorManager")
 	if fm == null:
 		return
 	if fm.has_wall_selection():
 		_set_section("Wall", true)
-		_set_section("Brush", false)
 	elif fm.has_floor_selection():
 		_set_section("Brush", true)
-		_set_section("Wall", false)
 
 # --- Brush panel: swatches + live highlight of the active material/colour ---
 

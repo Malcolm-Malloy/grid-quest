@@ -82,6 +82,29 @@ func _ready() -> void:
 	_check("Tools starts expanded (content visible)", tools["content"].visible)
 	_check("Advanced starts collapsed (content hidden)", not adv["content"].visible)
 
+	# the accordion is EXCLUSIVE (2026-09-05): opening one section folds the rest, so the strip stays
+	# one screen of controls. Exactly one section is open at any time (or none, if you fold that one).
+	var open_now := 0
+	for t in ts._sections:
+		if ts._sections[t]["content"].visible:
+			open_now += 1
+	_check("exactly one section is open at startup", open_now == 1)
+	ts._set_section("Brush", true)
+	_check("opening Brush opened it", ts._sections["Brush"]["content"].visible)
+	_check("...and folded Tools", not tools["content"].visible)
+	var still_open := 0
+	for t in ts._sections:
+		if ts._sections[t]["content"].visible:
+			still_open += 1
+	_check("still exactly one open after switching", still_open == 1)
+	ts._set_section("Brush", false)
+	var none_open := 0
+	for t in ts._sections:
+		if ts._sections[t]["content"].visible:
+			none_open += 1
+	_check("folding the open one leaves them all shut", none_open == 0)
+	ts._set_section("Tools", true) # restore for the checks below
+
 	# the mode buttons live under Tools, not loose in the panel
 	_check("tool buttons are children of the Tools content", ts._tool_buttons[ts.T_SELECT].get_parent() == tools["content"])
 
