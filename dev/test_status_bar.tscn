@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://c1qs7nvxk2bar"]
+
+[ext_resource type="Script" path="res://dev/test_status_bar.gd" id="1"]
+
+[node name="TestStatusBar" type="Node"]
+script = ExtResource("1")

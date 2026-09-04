@@ -150,8 +150,9 @@ authoring, which was inert because the player's proximity logic overwrites door 
 4. **Selection + power tools:** **Magic Wand** (click-to-grow, marching-ants) and **Box-select**,
    with **add/subtract** modifiers and **selection-fill**; then **Move** (keeps id), **copy/paste**
    (cross-map clipboard, rotate+flip), the **properties inspector**, the **status bar**, and
-   **wall/door authoring** (roster + door authored state). *Progress: all DONE except the status bar --
-   **Move + copy/paste/duplicate DONE 2026-08-30** (see "Copy, paste, and duplicate" -> As built).*
+   **wall/door authoring** (roster + door authored state). *Progress: ALL DONE -- **Move + copy/paste/
+   duplicate DONE 2026-08-30** (see "Copy, paste, and duplicate" -> As built) and the **status bar DONE
+   2026-09-05** (see "Editor layout" -> the status-bar as-built), which closed this group.*
 5. **Persistence + library:** **autosave+warn**, **New Map** flow, **map thumbnails**, **folders/
    categories**, and **export/import** for sharing.
 6. **Multi-tile object footprints** and **coloured floors / patterns / material variants** slot in as
@@ -3100,12 +3101,47 @@ menu" work:
       (the WALL_COLORS palette, current colour disabled). Holds the selected CELL not a node, so a
       rebuild can't strand it. One undo entry per edit.
     - **Deferred:** locked state (needs keys/inventory, Phase B), object/spawn-zone property types
-      (need those objects), the status bar, and folding the inspector's wall-colour into the same
-      right-click contextual menu path.
+      (need those objects) and folding the inspector's wall-colour into the same right-click contextual
+      menu path. (The status bar, also deferred here, was BUILT 2026-09-05 -- see its as-built below.)
 - **Centre: the map canvas.**
-- **A thin status bar (decided 2026-08-16, bottom or top).** Shows live editing info: hovered cell
-  x,y, active tool, current selection size, map dimensions (WxH), and zoom %. Cheap and genuinely
-  helps precise placement and resizing on the 48x32 grid. Updates on hover/selection/zoom change.
+- **A thin status bar (decided 2026-08-16, bottom or top). BUILT 2026-09-05.** Shows live editing info:
+  hovered cell x,y, active tool, current selection size, map dimensions (WxH), and zoom %. Cheap and
+  genuinely helps precise placement and resizing on the 48x32 grid. Updates on hover/selection/zoom
+  change.
+  - **As-built (2026-09-05): `ui/status_bar.gd`**, a bottom-anchored CanvasLayer in main.tscn. This was
+    the LAST open item of Phase A group 4 ("Selection + power tools"), so that group is now complete.
+  - **Two halves, anchored to opposite edges.** Left: `Cell 12, 7 · Paint (Fine) · Sel 24 cells`.
+    Right: `48 × 32 · 200%`. Anchoring them apart means neither field DANCES as the other's text
+    changes -- only the gap between them moves.
+  - **It names the TOOL, not the mode.** The strip merged twelve modes into four tools (2026-09-05), so
+    the bar maps `FloorManager.Mode` back through that vocabulary (`WAND`/`BOX`/`SELECT` all read
+    "Select", `CELL` -> "Paint", `FINE` -> "Paint (Fine)", `WALL` -> "Place: Wall", ...). Otherwise the
+    readout and the strip would disagree about what you are holding. Erase and Eyedropper have no strip
+    button but are still modes you can be in (E / I), so they name themselves.
+  - **New FloorManager accessors.** `hovered_cell()` -- the cell under the pointer, or `INVALID_CELL` in
+    PLAY / off-window / over the UI / past the map edge (a hole in a jagged map counts as past it). Its
+    gating deliberately mirrors `_process`'s, so the readout goes blank exactly when the hover highlights
+    stand down. It is NOT `_hover_cell`, which is a dedupe tracker the highlight paths blank out while
+    the cursor is still over a cell. And `selection_summary()` -- the selection size in the unit it was
+    made in: a floor selection reports cells only when its quarters tile whole cells and **quads**
+    otherwise, so half a cell never reads as a whole one; a wall selection counts walls.
+  - **Polls, with one exception.** The hovered cell changes with mouse motion AND with camera pan, so
+    there is no single signal to hang it on; a per-frame read of a few values is cheaper than the
+    plumbing, and the labels are only re-set when the composed text changes. The selection field is the
+    exception: counting a floor selection's cells walks every selected quarter, so it is cached off the
+    existing `selection_changed` signal rather than recomputed each frame.
+  - **Dimensions tell the truth about jagged maps.** WxH is the bounding box, which is the whole story
+    only while the map is a full rectangle; once the cell-existence model has carved holes in it, the
+    real cell count is appended (`48 × 32 (1533 cells)`) -- in that case and only that case.
+  - **It brings its own background.** The default PanelContainer panel is nearly transparent, and a
+    render showed the text washing out over pale floors. A readout must be readable over ANY map, so the
+    bar paints a near-opaque dark ground with a hairline top edge.
+  - **The tool strip stays clear of it.** Both are EDIT-only chrome and the strip can grow to fill the
+    window height, so `tool_strip._relayout` now subtracts the bar's height. It ASKS the bar
+    (`status_bar.height()`, the panel's combined minimum) rather than trusting a constant, because the
+    height comes from the theme: the declared `HEIGHT` is only a floor and a pre-instantiation fallback.
+    The panel grows UP if the theme makes it taller, so it stays flush with the bottom edge.
+  - Covered by `dev/test_status_bar` (31 checks); verified visually against a render.
 - **Right-click menu becomes purely contextual (contents decided 2026-08-16):** a short menu of
   actions for the specific thing hovered, no mode-switching. By target:
   - **Door:** Edit Door (type / colour / state closed-open-locked), Delete.

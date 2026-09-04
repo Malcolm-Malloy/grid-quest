@@ -9,6 +9,9 @@ extends CanvasLayer
 
 const EDGES := ["top", "bottom", "left", "right"]
 
+# only for its HEIGHT: the strip stops short of the status bar rather than overlapping it
+const StatusBarScript := preload("res://ui/status_bar.gd")
+
 # authoring modes, mirrored from FloorManager.Mode (the M_* order MUST match that enum, since
 # set_mode receives the raw index).
 enum { M_WAND, M_CELL, M_FINE, M_ERASE, M_WALL, M_DOOR, M_SELECT, M_BOX, M_BRIDGE, M_MOVE, M_EYEDROP,
@@ -282,7 +285,12 @@ func _section_label(title: String, expanded: bool) -> String:
 func _relayout() -> void:
 	if _scroll == null or _content == null:
 		return
-	var avail: float = maxf(get_viewport().get_visible_rect().size.y - 16.0, 80.0)
+	# reserve the status bar's strip along the bottom, so a strip tall enough to fill the window stops
+	# above it instead of running underneath the readout (both are EDIT-only, so they always coexist).
+	# Asked of the bar itself, since its height comes from the theme, not from a number either of us picks.
+	var sb = get_tree().get_first_node_in_group("status_bar")
+	var bar: float = sb.height() if sb != null else float(StatusBarScript.HEIGHT)
+	var avail: float = maxf(get_viewport().get_visible_rect().size.y - 16.0 - bar, 80.0)
 	var want: float = _content.get_combined_minimum_size().y
 	_scroll.custom_minimum_size.y = minf(want, avail)
 

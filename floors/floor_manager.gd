@@ -1059,6 +1059,38 @@ func set_mode(mode: int) -> void:
 func mode() -> int:
 	return _mode
 
+# --- status bar API (ui/status_bar.gd): read-only descriptions of the current editing state ---
+
+# The map cell under the pointer, or INVALID_CELL when there is no cell to report: in PLAY, with the
+# cursor off the game window or over the editor UI, or past the edge of the map (a hole in a jagged
+# map counts as past it -- an absent cell is void, not part of the map). The gating deliberately
+# mirrors _process's, so the readout goes blank exactly when the hover highlights stand down.
+# NOT the same thing as _hover_cell, which is a dedupe tracker the highlight paths blank out while
+# the cursor is still very much over a cell.
+func hovered_cell() -> Vector2i:
+	if EditorMode.is_play() or not _mouse_inside or _pointer_over_ui():
+		return INVALID_CELL
+	var local := get_local_mouse_position()
+	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var gb = get_node_or_null("../GridBackground")
+	if gb != null and not gb.cell_present(cell.x, cell.y):
+		return INVALID_CELL
+	return cell
+
+# How big the committed selection is, in the unit it was actually made in ("" when nothing is
+# selected). A floor selection is QUARTER-grained, so it reports cells only when its quarters tile
+# whole cells and quads otherwise: half a cell must never read as a whole one.
+func selection_summary() -> String:
+	if has_floor_selection():
+		var cells: int = selection_lit_cells().size()
+		if _sel_quads.size() == cells * 4:
+			return "%d cell%s" % [cells, "" if cells == 1 else "s"]
+		return "%d quad%s" % [_sel_quads.size(), "" if _sel_quads.size() == 1 else "s"]
+	if has_wall_selection():
+		var n: int = _sel_cells.size()
+		return "%d wall%s" % [n, "" if n == 1 else "s"]
+	return ""
+
 # --- persistent Brush panel API (tool_strip.gd): read + set the armed floor brush without the menu ---
 
 func is_armed() -> bool:
