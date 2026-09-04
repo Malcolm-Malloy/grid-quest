@@ -13,7 +13,8 @@ const EDGES := ["top", "bottom", "left", "right"]
 # order MUST match that enum since set_mode receives the raw index. The strip owns mode selection now
 # (it moved off the right-click popup); each has a single-key shortcut. F is Fine Details, so camera
 # recenter dropped F and keeps Home (see camera_follow.gd).
-enum { M_WAND, M_CELL, M_FINE, M_ERASE, M_WALL, M_DOOR, M_SELECT, M_BOX, M_BRIDGE, M_MOVE, M_EYEDROP, M_SPAWN }
+enum { M_WAND, M_CELL, M_FINE, M_ERASE, M_WALL, M_DOOR, M_SELECT, M_BOX, M_BRIDGE, M_MOVE, M_EYEDROP,
+	M_SPAWN, M_ITEM }
 const MODES := [
 	["Magic Wand (W)", M_WAND, KEY_W],
 	["Box Select (B)", M_BOX, KEY_B],
@@ -29,13 +30,14 @@ const MODES := [
 	["Move (V)", M_MOVE, KEY_V],
 	["Eyedropper (I)", M_EYEDROP, KEY_I],
 	["Set Spawn (P)", M_SPAWN, KEY_P],
+	["Item (T)", M_ITEM, KEY_T],
 ]
 # which modes get a visible button on the strip. ERASE moved fully into the right-click menu + Delete
 # key (note: "Erase ... in the right click menu instead"), so it has no strip button (E still works).
 # Wall/Door stay on the strip AS WELL as the menu (note: "wall and door ... in the right menu as well"),
 # because their DRAG gesture (drag to draw a wall LINE) has no menu equivalent and needs a reachable mode.
 const STRIP_MODES := [M_WAND, M_BOX, M_CELL, M_FINE, M_WALL, M_DOOR, M_BRIDGE, M_SELECT, M_MOVE,
-	M_EYEDROP, M_SPAWN]
+	M_EYEDROP, M_SPAWN, M_ITEM]
 var _mode_buttons := {} # mode int -> Button, so a keyboard shortcut can light the right radio
 var _sections := {}     # section title -> {"header": Button, "content": VBoxContainer}, for the
 						# accordion (and so a test can check collapse/expand)
@@ -52,6 +54,7 @@ var _bank_check: CheckButton      # River Bank switch (on = liquids grow a brown
 var _wall_mat_buttons := {}       # wall material value -> Button (radio)
 var _wall_col_swatches := []      # [{color, button}] clickable wall-colour boxes
 var _wall_preview: TextureRect    # wall brush swatch: the armed wall cap texture tinted by the colour
+var _item_buttons := {}           # item id -> Button (radio-ish); the armed one is highlighted
 
 func _ready() -> void:
 	# the tool strip is editor-only chrome: show it in EDIT, hide it in PLAY (see EditorMode)
@@ -126,6 +129,23 @@ func _ready() -> void:
 		# 4-column material grid: keeps the Brush section short as the roster grows (8 materials = 2 rows,
 		# not 4), so the panel needs little scrolling. Buttons hug their text, so 4 short labels stay narrow.
 		_brush_preview = _fill_brush_section(brush, fm.MENU, 4, _on_brush_material, fm.FLOOR_COLORS, _on_brush_color, _mat_buttons, _col_swatches)
+		# --- Item accordion section (collapsed): which item the Item (T) tool places. Each button is
+		# labelled with the definition's name and carries its RARITY colour, so the ramp is visible where
+		# you choose, not only on the ground (ROADMAP "Item rarity and rarity highlight").
+		var items_box := _add_section(vb, "Item", false)
+		var item_grid := GridContainer.new()
+		item_grid.columns = 3
+		items_box.add_child(item_grid)
+		for iid in Items.ids():
+			var ib := Button.new()
+			ib.text = Items.display_name(iid)
+			ib.tooltip_text = "%s (%s)" % [Items.display_name(iid), Items.rarity_name(iid)]
+			ib.add_theme_color_override("font_color", Items.rarity_color(iid))
+			ib.pressed.connect(_on_item_pressed.bind(iid))
+			item_grid.add_child(ib)
+			_item_buttons[iid] = ib
+		_sync_item_buttons(fm.armed_item())
+
 		# River Bank switch: set BEFORE laying a liquid (Water/Lava) to give that body a brown bank or not.
 		_bank_check = CheckButton.new()
 		_bank_check.text = "River Bank"
@@ -444,6 +464,23 @@ func _load_level(map_name: String) -> void:
 	if map_name != "" and map_name != "(unsaved)":
 		MapIO.load_map(map_name)
 	_refresh_levels()
+
+# picking an item in the panel arms it AND drops into the Item tool, matching how picking a wall
+# material drops into Wall mode ("I want to place this").
+func _on_item_pressed(item: String) -> void:
+	var fm := get_node_or_null("../World/FloorManager")
+	if fm == null:
+		return
+	fm.arm_item(item)
+	_sync_item_buttons(item)
+	_select_mode(M_ITEM)
+
+# show which item is armed: the active button keeps its rarity font colour and gains a flat highlight
+func _sync_item_buttons(active: String) -> void:
+	for iid in _item_buttons:
+		var b: Button = _item_buttons[iid]
+		b.flat = iid != active
+		b.disabled = false
 
 # light the matching radio and switch the mode, for the keyboard shortcuts below
 func _select_mode(mode: int) -> void:

@@ -1,0 +1,146 @@
+extends Node2D
+
+# Pickups: the placed item INSTANCES on the current map, and the rules for collecting them.
+# The definitions live in the Items autoload; this is the world half, built like Obstacles (a model
+# array plus spawned nodes rebuilt from it, so MapIO's one rebuild path recreates everything).
+#
+# A pickup record is {cell, item, id}: a definition placed at a cell with a DURABLE id (Architecture
+# review Q3), minted at placement and carried through save/load, resize and move -- so a Unique key
+# stays the same key. A PASTE deliberately mints fresh ids (a copied key is a different key).
+#
+# COLLECTION IS SPLIT BY ITEM TYPE (ROADMAP "Items and pickups", refined 2026-08-16):
+#  - STACKABLE items auto-collect when the player STEPS on the cell. No input at all, so looting the
+#    common case stays fast.
+#  - UNIQUE items (keys) are never grabbed by walking: the player CLICKS them. That is this file's
+#    _unhandled_input, active in PLAY only, and it requires the player to be standing on or next to
+#    the item -- clicking a key from across the map would not be "reaching for it".
+#    (This resolves the spec's open question -- mouse click on the sprite vs a general interact button
+#    while standing on the cell -- toward the mouse click the note itself described, since there is no
+#    general interact button yet. When one lands, it should become a second way in, not a replacement.)
+#
+# WHERE COLLECTED STATE LIVES (the ROADMAP save call, Q4): the MAP always keeps its pickups, so the
+# key is there when you open the map in the editor; whether THIS character already took it is
+# character data, held by CharacterIO. So build_world() skips instances CharacterIO reports collected.
+
+const CELL := 32
+
+var pickups: Array[Dictionary] = [] # [{cell: Vector2i, item: String, id: String}]
+var pickup_script: Script
+
+func _ready() -> void:
+	pickup_script = load("res://world/pickup.gd")
+	build_world()
+
+# --- model ---
+
+func pickup_at(cell: Vector2i) -> Dictionary:
+	for p in pickups:
+		if p["cell"] == cell:
+			return p
+	return {}
+
+func has_pickup(cell: Vector2i) -> bool:
+	return not pickup_at(cell).is_empty()
+
+# place `item` on `cell`, minting a durable id. One item per cell (the cell-occupancy model), so a
+# cell that already holds one is refused. Returns the new record, or {} if refused.
+func add_pickup(cell: Vector2i, item: String) -> Dictionary:
+	if not Items.has(item) or has_pickup(cell):
+		return {}
+	var rec := {"cell": cell, "item": item, "id": Items.new_id()}
+	pickups.append(rec)
+	return rec
+
+func remove_pickup(cell: Vector2i) -> bool:
+	for i in pickups.size():
+		if pickups[i]["cell"] == cell:
+			pickups.remove_at(i)
+			return true
+	return false
+
+# replace the whole model and rebuild the nodes (MapIO load / resize / undo path)
+func apply_map(list: Array) -> void:
+	pickups.clear()
+	for p in list:
+		pickups.append(p)
+	clear_world()
+	build_world()
+
+# --- nodes ---
+
+func clear_world() -> void:
+	for n in get_tree().get_nodes_in_group("pickups"):
+		n.queue_free()
+
+func build_world() -> void:
+	if pickup_script == null:
+		return
+	var map := MapIO.current_map()
+	for rec in pickups:
+		if CharacterIO.is_collected(map, String(rec["id"])):
+			continue # this character already took it; the MAP still holds it (editor + a fresh game)
+		var node := Node2D.new()
+		node.set_script(pickup_script)
+		node.item = String(rec["item"])
+		node.id = String(rec["id"])
+		node.place(rec["cell"])
+		add_child(node)
+
+# --- collection ---
+
+# the player stepped onto `cell`: take a STACKABLE item automatically. Returns the item id taken,
+# or "" (nothing there, or a unique item, which waits to be clicked).
+func try_auto_collect(cell: Vector2i) -> String:
+	var rec := pickup_at(cell)
+	if rec.is_empty() or not Items.is_stackable(String(rec["item"])):
+		return ""
+	return _collect(rec)
+
+# deliberate take of a UNIQUE item (the click path). Returns the item id taken, or "".
+func take_at(cell: Vector2i) -> String:
+	var rec := pickup_at(cell)
+	if rec.is_empty() or Items.is_stackable(String(rec["item"])):
+		return ""
+	return _collect(rec)
+
+# move a pickup into the character's inventory: the record stays in the MAP (so the editor and a new
+# game still have it), the instance is marked collected for THIS character, and its node goes.
+func _collect(rec: Dictionary) -> String:
+	var player := get_tree().get_first_node_in_group("player")
+	if player == null:
+		return ""
+	var item := String(rec["item"])
+	if Items.is_stackable(item):
+		player.add_to_stack(item, 1)
+	else:
+		player.add_unique(item, String(rec["id"]))
+	CharacterIO.mark_collected(MapIO.current_map(), String(rec["id"]))
+	for n in get_tree().get_nodes_in_group("pickups"):
+		if n.id == rec["id"]:
+			n.queue_free()
+	return item
+
+# --- click to take a unique item (PLAY only) ---
+
+func _unhandled_input(event: InputEvent) -> void:
+	if EditorMode.is_edit():
+		return # in EDIT the mouse belongs to the editor tools
+	if not (event is InputEventMouseButton) or event.button_index != MOUSE_BUTTON_LEFT or not event.pressed:
+		return
+	var local := get_local_mouse_position()
+	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var rec := pickup_at(cell)
+	if rec.is_empty() or Items.is_stackable(String(rec["item"])):
+		return
+	if not _within_reach(cell):
+		return # you have to be next to it to pick it up
+	take_at(cell)
+	get_viewport().set_input_as_handled()
+
+# the player must be standing on the item's cell or one step away (including diagonals)
+func _within_reach(cell: Vector2i) -> bool:
+	var player := get_tree().get_first_node_in_group("player")
+	if player == null:
+		return false
+	var pc := Vector2i(floori(player.position.x / CELL), floori(player.position.y / CELL))
+	return absi(pc.x - cell.x) <= 1 and absi(pc.y - cell.y) <= 1

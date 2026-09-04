@@ -87,10 +87,11 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
    2026-08-25** (`CharacterIO`; see the Saving section as-built). Whole-game saves (bundle the character
    file + current map name) still open. Reuses the MapIO atomic-write path. Inventory persists now, so
    keys can.
-10. **Item and pickup system.** Prerequisite for keys (keys are editor-placed pickups); see "Items
-    and pickups".
-11. **Locked doors and keys.** Terminal dependency: needs the door menu (4), inventory (9), and
-    pickups (10).
+10. **Item and pickup system. BUILT 2026-09-05.** Definitions + instances, both inventory entry
+    kinds, split interaction (stackables auto-collect on step, uniques are clicked), collected state in
+    character data, and an editor Item tool. Save v11. See "Items and pickups" -> As built.
+11. **Locked doors and keys. NOW UNBLOCKED** (its three prerequisites -- the door menu (4), inventory
+    (9) and pickups (10) -- are all built). Terminal dependency of the 2026-08-13 chain.
 
 **Phase C: game pillar (creature-collector RPG).** Not gated on Phase A or B but authored against
 them: creatures, capture, absorb, domesticate, resource-gated building (same system as the editor),
@@ -662,6 +663,46 @@ inventory needs to persist. Proposed design:
   `visibility_layer |= FloorHighlightMask.MASK_BIT` and y-sorts like other ground objects
   ([[grid-quest-floor-highlight-mask]], [[grid-quest-asset-perspective-model]]).
 
+**As-built (2026-09-05): BUILT.** The general system, with keys/coins/gems as the first three
+definitions. Covered by `dev/test_items` (38 checks).
+- **`Items` autoload (`systems/items.gd`)** holds the DEFINITIONS (a definition is data: name, kind,
+  rarity, glyph) and the shared rarity scale. **`world/pickups.gd`** holds the INSTANCES and the
+  collection rules, built like Obstacles (a model array plus nodes rebuilt from it, so MapIO's one
+  rebuild path recreates them). **`world/pickup.gd`** is the instance node. Nothing is key-shaped: a
+  new item type is one entry in `Items.DEFS`.
+- **Durable ids (Q3).** Minted at placement as a random hex string rather than a counter, so nothing
+  has to store "the next number" and ids stay unique when a map is pasted into another map. Carried
+  through save/load, resize and move; a **paste mints a fresh id** (a copied key is a different key).
+- **Interaction, split by type, as the 2026-08-16 refinement decided.** Stackables **auto-collect on
+  step** (the player's step-completion asks `Pickups.try_auto_collect`, no input at all). Uniques are
+  **clicked**: `Pickups._unhandled_input` in PLAY only, and the player must be **on or next to** the
+  cell -- clicking a key from across the map is not reaching for it.
+  - *This resolves the spec's open question* (mouse click on the sprite vs a general interact button
+    while standing on the cell) toward the mouse click the note itself described, since there is no
+    general interact button yet. When one lands it should become a second way in, not a replacement.
+  - **Consequence, and a bug fixed on the way:** `FloorManager` now stands down in PLAY (input and
+    hover). The tool strip already hid there, but clicks still reached the paint/select paths, so
+    playing could silently repaint the map with the last armed brush.
+- **Inventory: both entry kinds, as the structural call required.** `player.inventory` is now
+  `{stacks: {item: count}, uniques: [{item, id}]}` with `add_to_stack` / `take_from_stack` /
+  `add_unique` / `uniques_of` / `has_unique`. Capacity unlimited. A unique entry carries the pickup's
+  durable id, which is where a Unique key's `door_id` will hang off (item 11).
+- **Where collected state lives (the Q4 save call), implemented as specced:** the MAP always keeps its
+  pickups (so the key is there when you open the map in the editor, and for a fresh character), while
+  **whether this character took one is character data** -- `CharacterIO.collected`, keyed map name ->
+  pickup id. `Pickups.build_world` skips instances the current character has collected, so a reload
+  does not respawn them. CharacterIO is now **v2** (the v1 flat-array inventory, always empty in
+  practice, migrates to the empty v2 shape).
+- **Editor placement:** an **Item (T)** tool plus an **Item** section in the left panel listing the
+  definitions, each label in its rarity colour. One item per cell, never on a wall/door or the void;
+  one click is one undo entry. **Erase** takes an item before the terrain under it (topmost-first,
+  per the cell-occupancy model). Items ride through **resize** and **copy/paste** like every other
+  layer. Save format is now **v11** (`pickups`); pre-v11 maps load with none.
+- **Not built (deliberately deferred):** binding a Unique key to a door (`door_id`) -- that is item 11
+  and needs the door roster; consumables' use-action; stack counts shown in a UI (there is no
+  inventory screen yet); and item art (the glyphs are procedural, like the walls and water).
+- **Capture harness:** `GQ_ITEMS="x,y,item;..."` places items through the real tool path.
+
 ### Item rarity and rarity highlight (logged 2026-08-16)
 Items carry a **rarity tier**, shown as a coloured **outline around the item with no fill** (an
 outer line only, Diablo-style item colour coding). The line reads the rarity at a glance while the
@@ -704,6 +745,15 @@ Rationale and render rules, all adopted:
 item/creature itself and must not be confused with the editor action-highlight colours (red=erase,
 orange=ground, green=add, and so on) under the Coloured highlight system; they share some hue names
 but serve unrelated purposes.
+
+**As-built (2026-09-05): the ramp + the outline are BUILT** (`Items.RARITY_*`, drawn by
+`world/pickup.gd`). All six tiers exist as one shared enum + palette, ready for creatures to reference
+rather than growing a parallel system. The render rules landed as decided: the ring is **fill-less**,
+drawn **dark first one step wider** so white and orange-gold stay legible over pale coloured floors,
+and **thickness steps up with rarity** (`RARITY_WIDTH`) as the required non-colour cue. Still open:
+the small rarity **pip/gem** as a second cue, and rarity shown in an inventory UI (there is no
+inventory screen yet). Verified by render: coin (white/common), gem (blue/rare) and key (purple/epic)
+read as three distinct tiers by both hue and ring weight.
 
 ## Locked doors and keys (decided 2026-08-13, not built yet)
 A lock renders on the **front layer of a closed door, in every orientation** (exact pixel offsets
@@ -2900,6 +2950,7 @@ while editing, so letter keys are free):
     (Photoshop's move key) rather than M, which is the map menu.
   - *As built 2026-09-04:* **I = Eyedropper** (as pencilled in) and **P = Set Spawn** (the "key each for
     Wall and Set Spawn, assign at build" that was left open; Wall took L earlier).
+  - *As built 2026-09-05:* **T = Item** (place a pickup).
 - **Modifiers (already decided):** Shift = add to selection, Alt = subtract (or eyedropper while a
   paint brush is active), Space+drag / MMB = pan, wheel = zoom.
 - Final letter assignments tunable at build; the scheme is mnemonic-first. Consider making them

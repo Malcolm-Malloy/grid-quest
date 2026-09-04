@@ -59,7 +59,7 @@ const GRID_COLOR := Color(0.38, 0.64, 0.95, 0.4)
 # Cell/Fine/Erase paint directly on click/drag; Wand builds a selection the menu then fills. See
 # ROADMAP "Authoring surface" (mode rename), "Applying edits to a selection" and "Wall editing".
 # NOTE: BRIDGE is appended LAST so existing Mode indices stay stable (tool_strip.M_* mirrors this).
-enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR, SELECT, BOX, BRIDGE, MOVE, EYEDROP, SPAWN }
+enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR, SELECT, BOX, BRIDGE, MOVE, EYEDROP, SPAWN, ITEM }
 
 # each material maps to an ARRAY of pattern variants (index 0 = default, matches the pre-pattern
 # single texture). The active pattern per quarter is stored in _quad_pattern (parallel to _quad_mat /
@@ -299,6 +299,7 @@ var _pending_changed := false    # the pending clip was rotated/flipped (so a ze
 var _move_src := {}              # MOVE: the source footprint cells, cleared when the move lands
 var _move_origin := Vector2i.ZERO # MOVE: the source footprint's top-left cell
 var _move_grab := Vector2i.ZERO  # MOVE: the cell the drag started on, so the ghost follows the grab point
+var _item := "coin"          # ITEM mode: which item definition a click places (set from the panel)
 var _ghost_origin_pin := INVALID_CELL # dev hook (dev/capture.gd): pin the ghost's origin instead of
 									  # reading the OS cursor, which a capture run cannot place reliably
 var _mouse_inside := true    # false while the OS cursor is off the game window; hides all highlights
@@ -488,6 +489,9 @@ func _on_window_mouse_entered() -> void:
 # tracks the current camera, so re-detecting the hovered cell each frame follows the world. The
 # hover updates are deduped by cell/rect, so a still camera and mouse cost nothing.
 func _process(_delta: float) -> void:
+	# no editor highlights while playing (same EDIT-only rule as the input above)
+	if EditorMode.is_play():
+		return
 	# coalesce a wall drag's map rebuilds to at most ONE per frame (each rebuild is a full map re-apply;
 	# doing it per motion event stutters). The walls were already added to the model in _place_wall_at.
 	if _walls_dirty:
@@ -511,6 +515,11 @@ func _pointer_over_ui() -> bool:
 	return get_viewport().gui_get_hovered_control() != null
 
 func _unhandled_input(event: InputEvent) -> void:
+	# the map tools are EDIT-only. The strip already hides in PLAY, but clicks still reached the paint
+	# and select paths, so playing could silently repaint the map; PLAY also needs the mouse now, to
+	# click up unique items (world/pickups.gd).
+	if EditorMode.is_play():
+		return
 	# a mouse PRESS that starts over the editor menu/panels is not a map action (paint, any select, or the
 	# right-click menu): the GUI owns it. Motion/release still pass so a drag begun on the map can finish.
 	if event is InputEventMouseButton and event.pressed and _pointer_over_ui():
@@ -600,6 +609,12 @@ func _unhandled_input(event: InputEvent) -> void:
 					get_viewport().set_input_as_handled()
 			elif _pending_kind == "move":
 				_drop_pending()
+				get_viewport().set_input_as_handled()
+			return
+		if _mode == Mode.ITEM:
+			# one click = one placed item = one undo entry
+			if event.pressed:
+				_place_item_at(get_local_mouse_position())
 				get_viewport().set_input_as_handled()
 			return
 		if _mode == Mode.SPAWN:
@@ -1407,6 +1422,37 @@ func _set_spawn_at(local: Vector2) -> bool:
 	EditHistory.commit("set spawn")
 	return true
 
+# --- Item placement (ROADMAP "Items and pickups" -> editor placement) ---
+
+# drop the armed item definition on the clicked cell. One click = one undo entry. Refuses a cell that
+# already holds an item (one per cell, the cell-occupancy model) or that has a wall/door on it, and
+# the void outside the map. Binding a Unique key to a specific door comes with locked doors (item 11).
+func _place_item_at(local: Vector2) -> bool:
+	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	if not _stampable(cell):
+		return false
+	var obs = get_node_or_null("../Obstacles")
+	if obs != null and obs.has_structure(cell):
+		return false # a wall/door owns that cell
+	var pk = get_node_or_null("../Pickups")
+	if pk == null or pk.has_pickup(cell):
+		return false
+	pk.add_pickup(cell, _item)
+	_reapply_map() # rebuild through MapIO so the instance exists exactly as a load would build it
+	EditHistory.commit("place item")
+	return true
+
+# the armed item definition, for the panel
+func armed_item() -> String:
+	return _item
+
+func arm_item(item: String) -> void:
+	if not Items.has(item):
+		return
+	_item = item
+	brush_changed.emit()
+	call_deferred("_update_hover")
+
 # --- copy / paste / duplicate / move (ROADMAP "Copy, paste, and duplicate" + "Move tool") ---
 #
 # All four gestures ride ONE pending-clip state: an armed clip (`_pending_clip`) plus how it will be
@@ -1640,7 +1686,8 @@ func _update_hover() -> void:
 		_update_bridge_hover(cell)
 		return
 	# Wall / Door / Set Spawn placement and Select: a green cell cursor marks the target cell
-	if _mode == Mode.WALL or _mode == Mode.DOOR or _mode == Mode.SELECT or _mode == Mode.SPAWN:
+	if _mode == Mode.WALL or _mode == Mode.DOOR or _mode == Mode.SELECT or _mode == Mode.SPAWN \
+			or _mode == Mode.ITEM:
 		_update_structure_placement_hover(cell)
 		return
 	# Eyedropper: an ORANGE (ground-edit palette) cursor over the cell that will be SAMPLED. Fine-grain
@@ -2185,6 +2232,15 @@ func _erase_single(cell: Vector2i) -> void:
 		obs.remove_structure(cell)
 		_restore_faded()
 		MapIO.apply_serialized(MapIO.serialize(), true)
+		EditHistory.commit("erase")
+		_reset_highlight()
+		call_deferred("_update_hover")
+		return
+	# a placed item sits on top of the ground: erase it before the terrain beneath it
+	var pk = get_node_or_null("../Pickups")
+	if pk != null and pk.has_pickup(cell):
+		pk.remove_pickup(cell)
+		_reapply_map()
 		EditHistory.commit("erase")
 		_reset_highlight()
 		call_deferred("_update_hover")

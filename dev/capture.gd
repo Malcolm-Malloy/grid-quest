@@ -477,6 +477,25 @@ func _ready() -> void:
 				camsp.fit_map()
 			await get_tree().process_frame
 
+	# GQ_ITEMS="x,y,item;..." places item pickups through the real Item tool, so the rarity outlines
+	# and item glyphs can be eyeballed (e.g. GQ_ITEMS="20,12,coin;21,12,gem;22,12,key"). Frames the
+	# whole map unless GQ_ITEMS_NOFIT=1.
+	var itemsenv := OS.get_environment("GQ_ITEMS")
+	if itemsenv != "":
+		var fmit := main.get_node_or_null("World/FloorManager")
+		if fmit:
+			fmit.set_mode(12) # Mode.ITEM
+			for op in itemsenv.split(";", false):
+				var f := op.split(",")
+				if f.size() == 3:
+					fmit.arm_item(f[2])
+					fmit._place_item_at(Vector2(int(f[0]) * 32 + 16, int(f[1]) * 32 + 16))
+			await get_tree().process_frame
+			var camit := main.get_node_or_null("Camera2D")
+			if OS.get_environment("GQ_ITEMS_NOFIT") != "1" and camit and camit.has_method("fit_map"):
+				camit.fit_map()
+			await get_tree().process_frame
+
 	# GQ_SAVE="name" writes the current level to user://maps/name.json (after the setup above)
 	var save_name := OS.get_environment("GQ_SAVE")
 	if save_name != "":

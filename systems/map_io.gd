@@ -8,7 +8,7 @@ extends Node
 # Maps live in user://maps/<name>.json (persistent, writable, cross-platform). Writes are
 # atomic (temp file, then rename) so a crash mid-save can't corrupt an existing map.
 
-const VERSION := 10 # v10: sparse absent_cells (jagged/non-square maps); v9: per-quarter liquid river-bank OFF flags; v8: bridges (crossable decks over water); v7: per-quarter floor patterns; v6: per-cell wall materials; v5: per-quarter floor tints; v4: per-door authored open+swing; v3: per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
+const VERSION := 11 # v11: placed item pickups; v10: sparse absent_cells (jagged/non-square maps); v9: per-quarter liquid river-bank OFF flags; v8: bridges (crossable decks over water); v7: per-quarter floor patterns; v6: per-cell wall materials; v5: per-quarter floor tints; v4: per-door authored open+swing; v3: per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
 const DIR := "user://maps"
 const LAST_FILE := "user://last_map.txt" # remembers the map to reload on next launch
 
@@ -100,6 +100,14 @@ func serialize() -> Dictionary:
 	var floor_no_bank: Array = []
 	for q in fm._quad_no_bank:
 		floor_no_bank.append([q.x, q.y])
+	# placed item pickups as {cell, item, id}: a definition (Items) placed at a cell with a DURABLE id,
+	# so a Unique key stays the same key across saves. Whether a character already TOOK one is not here:
+	# that is character data (CharacterIO.collected), so the map keeps its items for the editor.
+	var pickups: Array = []
+	var pk = w.get_node_or_null("Pickups")
+	if pk:
+		for r in pk.pickups:
+			pickups.append({"cell": [r["cell"].x, r["cell"].y], "item": r["item"], "id": r["id"]})
 	# cell-existence holes as [cx, cy]; sparse (only absent cells). Empty = a solid rectangle (v9-and-
 	# earlier maps have no key, so they load as the full rect). See GridBackground.absent_cells.
 	var absent_cells: Array = []
@@ -121,6 +129,7 @@ func serialize() -> Dictionary:
 		"floor_tints": floor_tints,
 		"floor_patterns": floor_patterns,
 		"floor_no_bank": floor_no_bank,
+		"pickups": pickups,
 	}
 
 # apply a serialize()-shaped dict onto the live level without touching disk. Used by
@@ -214,6 +223,16 @@ func _apply(data: Dictionary, keep_player := false) -> void:
 		wmats.append([int(a[0]), int(a[1]), String(a[2])])
 	obs.apply_wall_materials(wmats)
 
+	# 4d. item pickups (v11+; after the floors they sit on). A pre-v11 map has no "pickups" key, so
+	# apply_map([]) just clears any instances left from the previously loaded map.
+	var pk2 = w.get_node_or_null("Pickups")
+	if pk2:
+		var picks: Array = []
+		for r in data.get("pickups", []):
+			picks.append({"cell": Vector2i(int(r["cell"][0]), int(r["cell"][1])),
+				"item": String(r["item"]), "id": String(r.get("id", ""))})
+		pk2.apply_map(picks)
+
 	# 5. spawn. The MARKER always follows the map (a resize/undo must move the authored spawn with
 	# everything else), while snapping the PLAYER onto it is skipped for undo/redo so history never
 	# teleports the character mid-edit. A map load (keep_player false) starts the player on the marker.
@@ -232,6 +251,11 @@ func _apply(data: Dictionary, keep_player := false) -> void:
 func _ensure_dir() -> void:
 	if not DirAccess.dir_exists_absolute(DIR):
 		DirAccess.make_dir_recursive_absolute(DIR)
+
+# the name of the map currently in memory ("" = a new/unsaved map). Read by CharacterIO's collected
+# store, which keys what this character has picked up by map.
+func current_map() -> String:
+	return _current
 
 func _path(map_name: String) -> String:
 	return "%s/%s.json" % [DIR, map_name]

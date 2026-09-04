@@ -244,13 +244,15 @@ func _apply_clip(d: Dictionary, clip: Dictionary, origin: Vector2i) -> Dictionar
 			row[0] = cell.x
 			row[1] = cell.y
 			d[key].append(row)
-	for key in ["doors", "bridges"]:
+	for key in ["doors", "bridges", "pickups"]:
 		for r in clip.get(key, []):
 			var cell := origin + Vector2i(int(r["cell"][0]), int(r["cell"][1]))
 			if not target.has(cell):
 				continue
 			var rec: Dictionary = r.duplicate(true)
 			rec["cell"] = [cell.x, cell.y]
+			if key == "pickups":
+				rec["id"] = Items.new_id() # a COPY is a new instance (ROADMAP: a pasted item gets a fresh id)
 			d[key].append(rec)
 	for key in ["quads", "floor_tints", "floor_patterns", "floor_no_bank"]:
 		for a in clip.get(key, []):
@@ -353,6 +355,7 @@ func _strip_cell(d: Dictionary, cell: Vector2i) -> void:
 	d["wall_materials"] = _filter_cells(d.get("wall_materials", []), cell)
 	d["doors"] = _filter_door_cells(d.get("doors", []), cell)
 	d["bridges"] = _filter_door_cells(d.get("bridges", []), cell)
+	d["pickups"] = _filter_door_cells(d.get("pickups", []), cell)
 	d["quads"] = _filter_quarters(d.get("quads", []), cell)
 	d["floor_tints"] = _filter_quarters(d.get("floor_tints", []), cell)
 	d["floor_patterns"] = _filter_quarters(d.get("floor_patterns", []), cell)
@@ -499,6 +502,15 @@ func _shift(d: Dictionary, dx: int, dy: int, nw: int, nh: int) -> Dictionary:
 		if _in_cells(x, y, nw, nh):
 			brs.append({"cell": [x, y], "orientation": b["orientation"]})
 	out["bridges"] = brs
+
+	# placed items ride along with everything else; one on a removed band goes with it
+	var picks: Array = []
+	for r in d.get("pickups", []):
+		var x := int(r["cell"][0]) + dx
+		var y := int(r["cell"][1]) + dy
+		if _in_cells(x, y, nw, nh):
+			picks.append({"cell": [x, y], "item": r["item"], "id": r.get("id", "")})
+	out["pickups"] = picks
 
 	return out
 

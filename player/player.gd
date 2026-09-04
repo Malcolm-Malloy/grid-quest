@@ -24,9 +24,11 @@ const SIDE_FRAMES := [
 var is_moving := false
 var target_position := Vector2.ZERO
 var facing := "down"
-# what the character carries; persisted by CharacterIO. Empty until the item/pickup system lands
-# (ROADMAP Phase B item 10); keys will live here so locked doors (item 11) can check it.
-var inventory: Array = []
+# What the character carries, persisted by CharacterIO. TWO entry kinds, because keys force both
+# (ROADMAP "Items and pickups" -> inventory model): `stacks` holds stackable items as {item id: count}
+# (coins and the like, carry many, later consume one per use), and `uniques` holds one entry per
+# one-of-a-kind item ({item, id}, and a door_id once locked doors land). Capacity is unlimited for now.
+var inventory := {"stacks": {}, "uniques": []}
 var frame_index := 0
 var in_shadow := false
 var shadow_scale := 1.0 # 1 outdoors; shrinks to a third indoors (softer indoor light)
@@ -50,6 +52,7 @@ func _ready() -> void:
 	sprite.visibility_layer |= FloorHighlightMask.MASK_BIT
 	shadow_sprite.visibility_layer |= FloorHighlightMask.MASK_BIT
 	update_sprite()
+	add_to_group("player") # so Pickups (and later NPCs/enemies) can find the character
 	EditorMode.changed.connect(_on_mode_changed)
 
 # entering EDIT halts any in-progress step and returns every door to its AUTHORED default (open/closed
@@ -142,6 +145,11 @@ func _physics_process(delta: float) -> void:
 		if position.is_equal_approx(target_position):
 			position = target_position
 			is_moving = false
+			# the step landed: STACKABLE items on this cell are collected automatically, with no input
+			# at all (ROADMAP "Items and pickups"). Unique items ignore this and wait to be clicked.
+			var pickups := get_node_or_null("../Pickups")
+			if pickups != null:
+				pickups.try_auto_collect(Vector2i(floori(position.x / CELL_SIZE), floori(position.y / CELL_SIZE)))
 	else:
 		var input_dir := Vector2.ZERO
 		if Input.is_action_pressed("ui_right"):
@@ -250,3 +258,48 @@ func update_shadow_state() -> void:
 		# approximation: tints the whole sprite rather than only the covered
 		# portion, true per-pixel masking would need a shader
 		sprite.modulate = IN_SHADOW_TINT if in_shadow else Color.WHITE
+
+# --- inventory (see `inventory` above; CharacterIO persists whatever these write) ---
+
+# add `count` of a STACKABLE item
+func add_to_stack(item: String, count := 1) -> void:
+	inventory["stacks"][item] = stack_count(item) + count
+
+# take `count` of a stackable item (a lock consuming a coloured key, later). Returns whether there
+# was enough to take; the entry is dropped at zero so the inventory never shows empty stacks.
+func take_from_stack(item: String, count := 1) -> bool:
+	if stack_count(item) < count:
+		return false
+	var left: int = stack_count(item) - count
+	if left > 0:
+		inventory["stacks"][item] = left
+	else:
+		inventory["stacks"].erase(item)
+	return true
+
+func stack_count(item: String) -> int:
+	return int(inventory["stacks"].get(item, 0))
+
+# add a UNIQUE item instance, carrying the pickup's durable id so it stays that exact object
+func add_unique(item: String, id: String) -> void:
+	inventory["uniques"].append({"item": item, "id": id})
+
+func has_unique(id: String) -> bool:
+	for u in inventory["uniques"]:
+		if String(u.get("id", "")) == id:
+			return true
+	return false
+
+# every unique entry of a type (all the keys you are carrying, say)
+func uniques_of(item: String) -> Array:
+	var out: Array = []
+	for u in inventory["uniques"]:
+		if String(u.get("item", "")) == item:
+			out.append(u)
+	return out
+
+func inventory_count() -> int:
+	var n: int = inventory["uniques"].size()
+	for k in inventory["stacks"]:
+		n += int(inventory["stacks"][k])
+	return n
