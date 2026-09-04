@@ -246,14 +246,15 @@ func _apply_clip(d: Dictionary, clip: Dictionary, origin: Vector2i, fresh_ids :=
 			row[0] = cell.x
 			row[1] = cell.y
 			d[key].append(row)
-	for key in ["doors", "bridges", "pickups"]:
+	for key in ["doors", "bridges", "pickups", "creatures"]:
 		for r in clip.get(key, []):
 			var cell := origin + Vector2i(int(r["cell"][0]), int(r["cell"][1]))
 			if not target.has(cell):
 				continue
 			var rec: Dictionary = r.duplicate(true)
 			rec["cell"] = [cell.x, cell.y]
-			if fresh_ids and (key == "pickups" or key == "doors"):
+			if fresh_ids and key != "bridges":
+				# doors, pickups and creatures all carry a durable id; a bridge does not
 				# a COPY is a new instance (ROADMAP: a pasted locked door gets a fresh id, like any new
 				# placement, so the original's Unique key does not open the copy)
 				rec["id"] = Items.new_id()
@@ -360,6 +361,7 @@ func _strip_cell(d: Dictionary, cell: Vector2i) -> void:
 	d["doors"] = _filter_door_cells(d.get("doors", []), cell)
 	d["bridges"] = _filter_door_cells(d.get("bridges", []), cell)
 	d["pickups"] = _filter_door_cells(d.get("pickups", []), cell)
+	d["creatures"] = _filter_door_cells(d.get("creatures", []), cell)
 	d["quads"] = _filter_quarters(d.get("quads", []), cell)
 	d["floor_tints"] = _filter_quarters(d.get("floor_tints", []), cell)
 	d["floor_patterns"] = _filter_quarters(d.get("floor_patterns", []), cell)
@@ -524,6 +526,16 @@ func _shift(d: Dictionary, dx: int, dy: int, nw: int, nh: int) -> Dictionary:
 			picks.append({"cell": [x, y], "item": r["item"], "id": r.get("id", ""),
 				"data": r.get("data", {})})
 	out["pickups"] = picks
+
+	# placed creatures ride along the same way; one on a removed band goes with it
+	var crs: Array = []
+	for r in d.get("creatures", []):
+		var cx := int(r["cell"][0]) + dx
+		var cy := int(r["cell"][1]) + dy
+		if _in_cells(cx, cy, nw, nh):
+			crs.append({"cell": [cx, cy], "creature": r["creature"], "kind": r["kind"],
+				"id": r.get("id", ""), "blocks": bool(r.get("blocks", true))})
+	out["creatures"] = crs
 
 	return out
 

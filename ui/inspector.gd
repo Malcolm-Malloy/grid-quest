@@ -51,6 +51,11 @@ func inspect_wall(cell: Vector2i) -> void:
 	_cell = cell
 	_rebuild()
 
+func inspect_creature(cell: Vector2i) -> void:
+	_kind = "creature"
+	_cell = cell
+	_rebuild()
+
 func clear() -> void:
 	_kind = ""
 	_rebuild()
@@ -77,12 +82,100 @@ func _rebuild() -> void:
 		_build_door()
 	elif _kind == "wall":
 		_build_wall()
+	elif _kind == "creature":
+		_build_creature()
 	_refresh_visibility()
 
 func _title(text: String) -> void:
 	var l := Label.new()
 	l.text = text
 	_box.add_child(l)
+
+# the placed-creature layer (world/creatures.gd), a sibling of Obstacles under World
+func _creature_layer():
+	var obs = _obs()
+	return obs.get_parent().get_node_or_null("Creatures") if obs else null
+
+# A placed creature: its TYPE, which KIND of placement it is, and the per-object passability override
+# (ROADMAP "Passability": a type default with a per-object override for level-specific exceptions).
+# Retyping and re-kinding both keep the record's durable id, so this edits the creature that is here
+# rather than replacing it with a new one.
+func _build_creature() -> void:
+	var cr = _creature_layer()
+	var rec: Dictionary = cr.creature_at(_cell) if cr else {}
+	if rec.is_empty():
+		clear()
+		return
+	var creature := String(rec["creature"])
+	_title("%s  (%d, %d)" % [Bestiary.display_name(creature), _cell.x, _cell.y])
+
+	var rar := Label.new()
+	rar.text = Bestiary.rarity_name(creature)
+	rar.add_theme_color_override("font_color", Bestiary.rarity_color(creature))
+	_box.add_child(rar)
+
+	# placement kind
+	_title("Placement")
+	var kind := String(rec["kind"])
+	var kind_row := HBoxContainer.new()
+	for k in Bestiary.KINDS:
+		var kb := Button.new()
+		kb.text = Bestiary.kind_name(k)
+		kb.flat = kind != k
+		kb.pressed.connect(func():
+			if cr.set_kind(_cell, k):
+				_reapply()
+				inspect_creature(_cell))
+		kind_row.add_child(kb)
+	_box.add_child(kind_row)
+
+	# type: swap which creature stands here, keeping the cell, kind and id
+	_title("Creature")
+	var type_grid := GridContainer.new()
+	type_grid.columns = 2
+	for cid in Bestiary.ids():
+		var tb := Button.new()
+		tb.text = Bestiary.display_name(cid)
+		tb.flat = cid != creature
+		tb.add_theme_color_override("font_color", Bestiary.rarity_color(cid))
+		tb.pressed.connect(func():
+			if cr.set_type(_cell, cid):
+				_reapply()
+				inspect_creature(_cell))
+		type_grid.add_child(tb)
+	_box.add_child(type_grid)
+
+	# the per-object passability override. Monsters block by default; this is the exception switch.
+	var blocks := CheckButton.new()
+	blocks.text = "Blocks movement"
+	blocks.tooltip_text = "Monsters block by default. Turn off for a decorative or walk-through creature."
+	blocks.button_pressed = bool(rec.get("blocks", true))
+	blocks.toggled.connect(func(on: bool):
+		if cr.set_blocks(_cell, on):
+			_reapply())
+	_box.add_child(blocks)
+
+	var ability := Label.new()
+	ability.text = Bestiary.ability(creature)
+	ability.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ability.custom_minimum_size.x = 190
+	ability.add_theme_font_size_override("font_size", 11)
+	ability.add_theme_color_override("font_color", Color(0.65, 0.68, 0.74))
+	_box.add_child(ability)
+
+	var del := Button.new()
+	del.text = "Delete"
+	del.pressed.connect(func():
+		if cr.remove_creature(_cell):
+			_reapply()
+			clear())
+	_box.add_child(del)
+
+# rebuild through the one MapIO path (so the nodes match exactly what a load would build) and record
+# a single undo entry, the same contract every other inspector edit keeps
+func _reapply() -> void:
+	MapIO.apply_serialized(MapIO.serialize(), true)
+	EditHistory.commit("creature")
 
 func _build_door() -> void:
 	var obs = _obs()

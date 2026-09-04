@@ -15,7 +15,7 @@ const StatusBarScript := preload("res://ui/status_bar.gd")
 # authoring modes, mirrored from FloorManager.Mode (the M_* order MUST match that enum, since
 # set_mode receives the raw index).
 enum { M_WAND, M_CELL, M_FINE, M_ERASE, M_WALL, M_DOOR, M_SELECT, M_BOX, M_BRIDGE, M_MOVE, M_EYEDROP,
-	M_SPAWN, M_ITEM }
+	M_SPAWN, M_ITEM, M_CREATURE }
 
 # THE STRIP IS FOUR TOOLS (merged 2026-09-05, from twelve). The modes above did not go away -- they are
 # what each tool switches between -- but a tool is now the thing you pick, and WHAT it acts with is a
@@ -42,16 +42,17 @@ const TOOLS := [
 # things in one row, so adding one later is one line here rather than another strip button.
 const PLACE_KINDS := [
 	["Wall", M_WALL, KEY_L], ["Door", M_DOOR, KEY_D], ["Bridge", M_BRIDGE, KEY_G],
-	["Item", M_ITEM, KEY_T], ["Spawn", M_SPAWN, KEY_P],
+	["Item", M_ITEM, KEY_T], ["Creature", M_CREATURE, KEY_A], ["Spawn", M_SPAWN, KEY_P],
 ]
 # EVERY pre-merge shortcut still works and simply selects the merged tool with the right sub-choice, so
 # muscle memory survives the consolidation: W/B/S -> Select, C -> Paint (cell), F -> Paint (fine),
-# L/D/G/T/P -> Place with that kind, V -> Move, E -> Erase, I -> Eyedropper.
+# L/D/G/T/A/P -> Place with that kind, V -> Move, E -> Erase, I -> Eyedropper. A is the creature tool
+# ("animal", the glossary's other word for one): C is already Paint and R is the rotate action.
 const SHORTCUTS := [
 	[KEY_W, T_SELECT, -1], [KEY_B, T_SELECT, -1], [KEY_S, T_SELECT, -1],
 	[KEY_C, T_PAINT, 0], [KEY_F, T_PAINT, 1],
 	[KEY_L, T_PLACE, 0], [KEY_D, T_PLACE, 1], [KEY_G, T_PLACE, 2], [KEY_T, T_PLACE, 3],
-	[KEY_P, T_PLACE, 4],
+	[KEY_A, T_PLACE, 4], [KEY_P, T_PLACE, 5],
 	[KEY_V, T_MOVE, -1], [KEY_E, -1, M_ERASE], [KEY_I, -1, M_EYEDROP],
 ]
 
@@ -76,6 +77,8 @@ var _wall_mat_buttons := {}       # wall material value -> Button (radio)
 var _wall_col_swatches := []      # [{color, button}] clickable wall-colour boxes
 var _wall_preview: TextureRect    # wall brush swatch: the armed wall cap texture tinted by the colour
 var _item_buttons := {}           # item id -> Button (radio-ish); the armed one is highlighted
+var _creature_buttons := {}       # creature id -> Button (radio-ish); the armed one is highlighted
+var _kind_buttons := {}           # Bestiary kind -> Button: spawn point vs fixed instance
 
 func _ready() -> void:
 	# the tool strip is editor-only chrome: show it in EDIT, hide it in PLAY (see EditorMode)
@@ -191,6 +194,36 @@ func _ready() -> void:
 			item_grid.add_child(ib)
 			_item_buttons[iid] = ib
 		_sync_item_buttons(fm.armed_item())
+
+		# --- Creature accordion section (collapsed): which creature the Creature (A) tool places, and
+		# as WHICH KIND. The kind is a sub-choice of the one tool rather than two Place kinds, the same
+		# shape as Paint's grain switch: a spawn point and a fixed instance place the same creature, they
+		# differ in whether it is authored as "one appears here" or "this one IS here".
+		var creature_box := _add_section(vb, "Creature", false)
+		var kind_row := HBoxContainer.new()
+		creature_box.add_child(kind_row)
+		for k in Bestiary.KINDS:
+			var kb := Button.new()
+			kb.text = Bestiary.kind_name(k)
+			kb.tooltip_text = ("Spawns this creature at play start, then it roams" if k == Bestiary.SPAWN_POINT
+				else "This exact creature, exactly here (boss / scripted / quest)")
+			kb.pressed.connect(_on_creature_kind_pressed.bind(k))
+			kind_row.add_child(kb)
+			_kind_buttons[k] = kb
+		var creature_grid := GridContainer.new()
+		creature_grid.columns = 2
+		creature_box.add_child(creature_grid)
+		for cid in Bestiary.ids():
+			var cb := Button.new()
+			cb.text = Bestiary.display_name(cid)
+			# the ability is design intent only until Phase C builds combat, so the tooltip says so
+			cb.tooltip_text = "%s (%s)\n%s" % [Bestiary.display_name(cid), Bestiary.rarity_name(cid),
+				Bestiary.ability(cid)]
+			cb.add_theme_color_override("font_color", Bestiary.rarity_color(cid))
+			cb.pressed.connect(_on_creature_pressed.bind(cid))
+			creature_grid.add_child(cb)
+			_creature_buttons[cid] = cb
+		_sync_creature_buttons(fm.armed_creature(), fm.armed_creature_kind())
 
 		# River Bank switch: set BEFORE laying a liquid (Water/Lava) to give that body a brown bank or not.
 		_bank_check = CheckButton.new()
@@ -610,6 +643,31 @@ func _sync_item_buttons(active: String) -> void:
 		var b: Button = _item_buttons[iid]
 		b.flat = iid != active
 		b.disabled = false
+
+# picking a creature arms it AND drops into the Creature tool, the same "I want to place this" move
+# the item and wall-material buttons make.
+func _on_creature_pressed(creature: String) -> void:
+	var fm := get_node_or_null("../World/FloorManager")
+	if fm == null:
+		return
+	fm.arm_creature(creature)
+	_sync_creature_buttons(creature, fm.armed_creature_kind())
+	_select_mode(M_CREATURE)
+
+# the KIND is a property of the armed brush, not a tool of its own, so picking one does NOT switch
+# tools: you can set "fixed instance" before ever choosing a creature.
+func _on_creature_kind_pressed(kind: String) -> void:
+	var fm := get_node_or_null("../World/FloorManager")
+	if fm == null:
+		return
+	fm.arm_creature_kind(kind)
+	_sync_creature_buttons(fm.armed_creature(), kind)
+
+func _sync_creature_buttons(active: String, kind: String) -> void:
+	for cid in _creature_buttons:
+		_creature_buttons[cid].flat = cid != active
+	for k in _kind_buttons:
+		_kind_buttons[k].flat = k != kind
 
 # every pre-merge letter still works (see SHORTCUTS): it picks the merged tool AND its sub-choice, so
 # F still means "fine grain paint" and D still means "place a door", they just no longer need a button

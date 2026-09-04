@@ -75,7 +75,7 @@ func build_clip(d: Dictionary, cells: Dictionary) -> Dictionary:
 		"origin": [minc.x, minc.y], # where it was copied FROM (a move stamps back relative to this)
 		"cells": [],
 		"walls": [], "wall_colors": [], "wall_materials": [],
-		"doors": [], "bridges": [], "pickups": [],
+		"doors": [], "bridges": [], "pickups": [], "creatures": [],
 		"quads": [], "floor_tints": [], "floor_patterns": [], "floor_no_bank": [],
 	}
 	for c in cells:
@@ -90,8 +90,8 @@ func build_clip(d: Dictionary, cells: Dictionary) -> Dictionary:
 			row[0] = cell.x - minc.x
 			row[1] = cell.y - minc.y
 			out[key].append(row)
-	# {cell: [cx, cy], ...} records (doors, bridges, placed items)
-	for key in ["doors", "bridges", "pickups"]:
+	# {cell: [cx, cy], ...} records (doors, bridges, placed items, placed creatures)
+	for key in ["doors", "bridges", "pickups", "creatures"]:
 		for r in d.get(key, []):
 			var cell := Vector2i(int(r["cell"][0]), int(r["cell"][1]))
 			if not cells.has(cell):
@@ -149,7 +149,7 @@ func flip_v(c: Dictionary) -> Dictionary:
 func _remap(c: Dictionary, nw: int, nh: int, cell_fn: Callable, quad_fn: Callable, kind: String) -> Dictionary:
 	var out := {"w": nw, "h": nh, "origin": c.get("origin", [0, 0]).duplicate(),
 		"cells": [], "walls": [], "wall_colors": [], "wall_materials": [],
-		"doors": [], "bridges": [], "pickups": [], "quads": [], "floor_tints": [], "floor_patterns": [],
+		"doors": [], "bridges": [], "pickups": [], "creatures": [], "quads": [], "floor_tints": [], "floor_patterns": [],
 		"floor_no_bank": []}
 	for a in c.get("cells", []):
 		var p: Vector2i = cell_fn.call(Vector2i(int(a[0]), int(a[1])))
@@ -161,7 +161,7 @@ func _remap(c: Dictionary, nw: int, nh: int, cell_fn: Callable, quad_fn: Callabl
 			row[0] = p.x
 			row[1] = p.y
 			out[key].append(row)
-	for key in ["doors", "bridges", "pickups"]:
+	for key in ["doors", "bridges", "pickups", "creatures"]:
 		for r in c.get(key, []):
 			var rec: Dictionary = r.duplicate(true)
 			var p: Vector2i = cell_fn.call(Vector2i(int(r["cell"][0]), int(r["cell"][1])))

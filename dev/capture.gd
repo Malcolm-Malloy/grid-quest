@@ -496,6 +496,27 @@ func _ready() -> void:
 				camit.fit_map()
 			await get_tree().process_frame
 
+	# GQ_CREATURES="x,y,creature[,kind];..." places creatures through the real Creature tool, so the
+	# procedural bodies, the rarity rings and the spawn-point marker ring can be eyeballed. `kind` is
+	# "spawn" (default) or "instance", e.g. GQ_CREATURES="20,12,frost_frog;22,12,fire_horse,instance".
+	# Frames the whole map unless GQ_CREATURES_NOFIT=1.
+	var crenv := OS.get_environment("GQ_CREATURES")
+	if crenv != "":
+		var fmcr := main.get_node_or_null("World/FloorManager")
+		if fmcr:
+			fmcr.set_mode(13) # Mode.CREATURE
+			for op in crenv.split(";", false):
+				var f := op.split(",")
+				if f.size() >= 3:
+					fmcr.arm_creature(f[2])
+					fmcr.arm_creature_kind(f[3] if f.size() > 3 else Bestiary.SPAWN_POINT)
+					fmcr._place_creature_at(Vector2(int(f[0]) * 32 + 16, int(f[1]) * 32 + 16))
+			await get_tree().process_frame
+			var camcr := main.get_node_or_null("Camera2D")
+			if OS.get_environment("GQ_CREATURES_NOFIT") != "1" and camcr and camcr.has_method("fit_map"):
+				camcr.fit_map()
+			await get_tree().process_frame
+
 	# GQ_LOCK="x,y,kind[,colour];..." authors a door's lock so the lock art can be eyeballed:
 	# kind is "colour" (with a LOCK_COLORS name) or "unique" (metal, and it stays on an OPEN door).
 	# e.g. GQ_LOCK="8,11,colour,red;10,5,unique". Pair with GQ_DOORSTATE to see an open unique lock.

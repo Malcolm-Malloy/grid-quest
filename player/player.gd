@@ -184,7 +184,12 @@ func _physics_process(delta: float) -> void:
 				# just checks the bound key is in hand (ROADMAP "Locked doors and keys"). Kept out of
 				# is_blocked so that stays "is a wall" for the editor, like the impassable-floor check.
 				var locked: bool = obstacles.is_locked(cell, self) and not obstacles.try_unlock(cell, self)
-				if not obstacles.is_blocked(cell) and not floor_blocks and not locked:
+				# a creature standing there stops you (ROADMAP "Passability": monster blocks while
+				# alive, with a per-object override the inspector exposes). Kept out of is_blocked for
+				# the same reason as the two checks above: that stays "is a wall" for the editor.
+				var creatures = get_node_or_null("../Creatures")
+				var creature_blocks: bool = creatures != null and creatures.blocks_movement(cell)
+				if not obstacles.is_blocked(cell) and not floor_blocks and not locked and not creature_blocks:
 					target_position = new_target
 					is_moving = true
 					frame_index = 1 - frame_index

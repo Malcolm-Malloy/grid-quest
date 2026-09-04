@@ -59,7 +59,7 @@ const GRID_COLOR := Color(0.38, 0.64, 0.95, 0.4)
 # Cell/Fine/Erase paint directly on click/drag; Wand builds a selection the menu then fills. See
 # ROADMAP "Authoring surface" (mode rename), "Applying edits to a selection" and "Wall editing".
 # NOTE: BRIDGE is appended LAST so existing Mode indices stay stable (tool_strip.M_* mirrors this).
-enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR, SELECT, BOX, BRIDGE, MOVE, EYEDROP, SPAWN, ITEM }
+enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR, SELECT, BOX, BRIDGE, MOVE, EYEDROP, SPAWN, ITEM, CREATURE }
 
 # each material maps to an ARRAY of pattern variants (index 0 = default, matches the pre-pattern
 # single texture). The active pattern per quarter is stored in _quad_pattern (parallel to _quad_mat /
@@ -306,6 +306,9 @@ var _move_origin := Vector2i.ZERO # MOVE: the source footprint's top-left cell
 var _move_grab := Vector2i.ZERO  # MOVE: the cell the drag started on, so the ghost follows the grab point
 var _item := "coin"          # ITEM mode: which item definition a click places (set from the panel)
 var _item_data := {}         # binding carried by the next placement: a Unique key's {door_id, name}
+var _creature := "frost_frog" # CREATURE mode: which creature a click places (set from the panel)
+var _creature_kind := Bestiary.SPAWN_POINT # ...and as which kind: a spawn point (the default, per
+							 # ROADMAP "the default, reliable-single-roamer tool") or a fixed instance
 var _key_warn: ConfirmationDialog # "deleting this door deletes its key" warning, built on first use
 var _ghost_origin_pin := INVALID_CELL # dev hook (dev/capture.gd): pin the ghost's origin instead of
 									  # reading the OS cursor, which a capture run cannot place reliably
@@ -664,6 +667,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			# one click = one placed item = one undo entry
 			if event.pressed:
 				_place_item_at(get_local_mouse_position())
+				get_viewport().set_input_as_handled()
+			return
+		if _mode == Mode.CREATURE:
+			# one click = one placed creature = one undo entry (same shape as the item tool)
+			if event.pressed:
+				_place_creature_at(get_local_mouse_position())
 				get_viewport().set_input_as_handled()
 			return
 		if _mode == Mode.SPAWN:
@@ -1574,6 +1583,50 @@ func arm_bound_key(door_id: String, key_name: String) -> void:
 func armed_item_binding() -> Dictionary:
 	return _item_data
 
+# --- creature placement (ROADMAP "Creature placement in the editor") ---
+
+# Drop the armed creature on the clicked cell, as the armed KIND. Refused on the void outside the
+# map, on a cell a wall/door owns, and on a cell that already holds an OBJECT -- a pickup or another
+# creature -- because the cell-occupancy model allows one object per cell and a creature is an object.
+func _place_creature_at(local: Vector2) -> bool:
+	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	if not _stampable(cell):
+		return false
+	var obs = get_node_or_null("../Obstacles")
+	if obs != null and obs.has_structure(cell):
+		return false # a wall/door owns that cell
+	var pk = get_node_or_null("../Pickups")
+	if pk != null and pk.has_pickup(cell):
+		return false # the object layer is taken by an item
+	var cr = get_node_or_null("../Creatures")
+	if cr == null or cr.has_creature(cell):
+		return false
+	cr.add_creature(cell, _creature, _creature_kind)
+	_reapply_map() # rebuild through MapIO so the instance exists exactly as a load would build it
+	EditHistory.commit("place creature")
+	return true
+
+# the armed creature + kind, for the panel and the status readout
+func armed_creature() -> String:
+	return _creature
+
+func armed_creature_kind() -> String:
+	return _creature_kind
+
+func arm_creature(creature: String) -> void:
+	if not Bestiary.has(creature):
+		return
+	_creature = creature
+	brush_changed.emit()
+	call_deferred("_update_hover")
+
+func arm_creature_kind(kind: String) -> void:
+	if not Bestiary.is_kind(kind):
+		return
+	_creature_kind = kind
+	brush_changed.emit()
+	call_deferred("_update_hover")
+
 # --- copy / paste / duplicate / move (ROADMAP "Copy, paste, and duplicate" + "Move tool") ---
 #
 # All four gestures ride ONE pending-clip state: an armed clip (`_pending_clip`) plus how it will be
@@ -1808,7 +1861,7 @@ func _update_hover() -> void:
 		return
 	# Wall / Door / Set Spawn placement and Select: a green cell cursor marks the target cell
 	if _mode == Mode.WALL or _mode == Mode.DOOR or _mode == Mode.SELECT or _mode == Mode.SPAWN \
-			or _mode == Mode.ITEM:
+			or _mode == Mode.ITEM or _mode == Mode.CREATURE:
 		_update_structure_placement_hover(cell)
 		return
 	# Eyedropper: an ORANGE (ground-edit palette) cursor over the cell that will be SAMPLED. Fine-grain
@@ -2279,7 +2332,12 @@ func _select_at(local: Vector2) -> void:
 	if inspector == null:
 		return
 	var obs = get_node_or_null("../Obstacles")
-	if obs != null and not obs.door_at(cell).is_empty():
+	# object layer first, then structure: a creature stands ON a cell, so clicking it should inspect
+	# the creature, not the floor or a wall behind it (the cell-occupancy model's topmost-first order)
+	var cr = get_node_or_null("../Creatures")
+	if cr != null and cr.has_creature(cell):
+		inspector.inspect_creature(cell)
+	elif obs != null and not obs.door_at(cell).is_empty():
 		inspector.inspect_door(cell)
 	elif obs != null and obs.is_blocked(cell):
 		inspector.inspect_wall(cell)
@@ -2426,6 +2484,15 @@ func _erase_single(cell: Vector2i) -> void:
 	var pk = get_node_or_null("../Pickups")
 	if pk != null and pk.has_pickup(cell):
 		pk.remove_pickup(cell)
+		_reapply_map()
+		EditHistory.commit("erase")
+		_reset_highlight()
+		call_deferred("_update_hover")
+		return
+	# a placed creature shares that object layer, so it erases at the same depth as an item
+	var cr = get_node_or_null("../Creatures")
+	if cr != null and cr.has_creature(cell):
+		cr.remove_creature(cell)
 		_reapply_map()
 		EditHistory.commit("erase")
 		_reset_highlight()

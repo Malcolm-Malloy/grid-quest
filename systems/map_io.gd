@@ -8,7 +8,7 @@ extends Node
 # Maps live in user://maps/<name>.json (persistent, writable, cross-platform). Writes are
 # atomic (temp file, then rename) so a crash mid-save can't corrupt an existing map.
 
-const VERSION := 12 # v12: door ids + locks (and pickup instance data); v11: placed item pickups; v10: sparse absent_cells (jagged/non-square maps); v9: per-quarter liquid river-bank OFF flags; v8: bridges (crossable decks over water); v7: per-quarter floor patterns; v6: per-cell wall materials; v5: per-quarter floor tints; v4: per-door authored open+swing; v3: per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
+const VERSION := 13 # v13: placed creatures (spawn points + fixed instances); v12: door ids + locks (and pickup instance data); v11: placed item pickups; v10: sparse absent_cells (jagged/non-square maps); v9: per-quarter liquid river-bank OFF flags; v8: bridges (crossable decks over water); v7: per-quarter floor patterns; v6: per-cell wall materials; v5: per-quarter floor tints; v4: per-door authored open+swing; v3: per-cell wall colours; v2: per-quarter floor "quads"; v1: per-room "floors"
 const DIR := "user://maps"
 const LAST_FILE := "user://last_map.txt" # remembers the map to reload on next launch
 
@@ -118,6 +118,16 @@ func serialize() -> Dictionary:
 			if not r.get("data", {}).is_empty():
 				prec["data"] = r["data"] # a unique key's binding: {door_id, name}
 			pickups.append(prec)
+	# placed creatures as {cell, creature, kind, id, blocks}: a Bestiary definition on a cell, authored
+	# either as a SPAWN POINT or as a FIXED INSTANCE, with a durable id and the per-object passability
+	# override. Whether a character has CAPTURED one is not here -- that is character data, the same
+	# split the pickups above make, so the map keeps its creatures for the editor and a fresh game.
+	var creatures: Array = []
+	var cr = w.get_node_or_null("Creatures")
+	if cr:
+		for r in cr.creatures:
+			creatures.append({"cell": [r["cell"].x, r["cell"].y], "creature": r["creature"],
+				"kind": r["kind"], "id": r["id"], "blocks": bool(r.get("blocks", true))})
 	# cell-existence holes as [cx, cy]; sparse (only absent cells). Empty = a solid rectangle (v9-and-
 	# earlier maps have no key, so they load as the full rect). See GridBackground.absent_cells.
 	var absent_cells: Array = []
@@ -140,6 +150,7 @@ func serialize() -> Dictionary:
 		"floor_patterns": floor_patterns,
 		"floor_no_bank": floor_no_bank,
 		"pickups": pickups,
+		"creatures": creatures,
 	}
 
 # apply a serialize()-shaped dict onto the live level without touching disk. Used by
@@ -250,6 +261,17 @@ func _apply(data: Dictionary, keep_player := false) -> void:
 				"item": String(r["item"]), "id": String(r.get("id", "")),
 				"data": (r.get("data", {}) as Dictionary).duplicate(true)})
 		pk2.apply_map(picks)
+
+	# 4e. creatures (v13+; objects on the floor, like the pickups above). A pre-v13 map has no
+	# "creatures" key, so apply_map([]) just clears any left from the previously loaded map.
+	var cr2 = w.get_node_or_null("Creatures")
+	if cr2:
+		var crs: Array = []
+		for r in data.get("creatures", []):
+			crs.append({"cell": Vector2i(int(r["cell"][0]), int(r["cell"][1])),
+				"creature": String(r["creature"]), "kind": String(r.get("kind", Bestiary.SPAWN_POINT)),
+				"id": String(r.get("id", "")), "blocks": bool(r.get("blocks", true))})
+		cr2.apply_map(crs)
 
 	# 5. spawn. The MARKER always follows the map (a resize/undo must move the authored spawn with
 	# everything else), while snapping the PLAYER onto it is skipped for undo/redo so history never
@@ -378,5 +400,5 @@ func _blank_map() -> Dictionary:
 		"absent_cells": [],
 		"spawn": {"x": w * CELL / 2.0, "y": h * CELL / 2.0},
 		"walls": [], "doors": [], "quads": [], "wall_colors": [], "wall_materials": [], "floor_tints": [],
-		"floor_patterns": [], "floor_no_bank": [],
+		"floor_patterns": [], "floor_no_bank": [], "pickups": [], "creatures": [],
 	}

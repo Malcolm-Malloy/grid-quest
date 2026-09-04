@@ -54,7 +54,18 @@ func _ready() -> void:
 		ev.keycode = sc[0]
 		ev.pressed = true
 		ts._unhandled_key_input(ev)
-	_check("all 13 legacy shortcuts are still mapped", ts.SHORTCUTS.size() == 13)
+	# every LEGACY letter must survive (the point of the merge), and each new tool adds its own; the
+	# check names the keys rather than counting them, so adding a tool does not "break" the merge test.
+	var keys := []
+	for sc in ts.SHORTCUTS:
+		keys.append(sc[0])
+	var legacy := [KEY_W, KEY_B, KEY_S, KEY_C, KEY_F, KEY_L, KEY_D, KEY_G, KEY_T, KEY_P, KEY_V, KEY_E, KEY_I]
+	var missing := []
+	for k in legacy:
+		if not (k in keys):
+			missing.append(k)
+	_check("every legacy shortcut is still mapped", missing.is_empty())
+	_check("A places a creature (added 2026-09-05)", KEY_A in keys)
 	var ev2 := InputEventKey.new()
 	ev2.keycode = KEY_F
 	ev2.pressed = true

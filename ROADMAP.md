@@ -96,7 +96,8 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
     -> As built.
 
 **Phase C: game pillar (creature-collector RPG).** Not gated on Phase A or B but authored against
-them: creatures, capture, absorb, domesticate, resource-gated building (same system as the editor),
+them: *(the editor's bridge to this is now built -- creatures can be PLACED and saved as of
+2026-09-05, see "Creature placement in the editor"; what they DO is still all ahead.)* creatures, capture, absorb, domesticate, resource-gated building (same system as the editor),
 builds, karma, and so on. See the creature and gameplay sections. Build after the editor can produce
 the maps these systems play in.
 
@@ -1945,7 +1946,7 @@ many tools exist.
 - **Slots into the tool strip era:** every tool (Magic Wand fills, Cell/Fine Details paint, Erase,
   wall/door, edge-cell) wraps its mutation in a history entry at the point it writes.
 
-## Creature placement in the editor (decided 2026-08-16: all three)
+## Creature placement in the editor (decided 2026-08-16: all three) SPAWN POINT + FIXED INSTANCE BUILT 2026-09-05
 The editor supports **three ways to author creatures (monsters/animals)**, each for a different design
 need. Ties into the creature systems (Wild Monsters, capture/absorb, respawn) which are Phase C.
 - **Spawn point:** marks a spot where a creature of a chosen type spawns on entering the map / play
@@ -1960,6 +1961,61 @@ need. Ties into the creature systems (Wild Monsters, capture/absorb, respawn) wh
   split), not map data, so a captured creature does not respawn.
 - Build order suggestion: fixed instance and spawn point first (single-cell records), spawn zone
   later (needs region storage + a spawn timer/cap).
+
+**As-built (2026-09-05): the two single-cell kinds are BUILT**, following this section's own build
+order. The SPAWN ZONE is deliberately still open (it needs region storage plus a spawn timer/cap).
+- **This is the EDITOR half only.** Roaming AI, fighting, Subdued/Entranced capture, domestication and
+  absorb are Phase C and are NOT built. What exists is everything needed to author creatures into a map
+  and save them, so the pillar has something to wake up to.
+- **`systems/bestiary.gd` (autoload `Bestiary`): the DEFINITION registry**, the creature half of the
+  same definition/instance split the items system uses. Named Bestiary, not Creatures, so the registry
+  and the world node holding the instances never read as the same thing. Carries the three starter
+  monsters (ROADMAP "Initial monsters"): **Frost Frog** (Common), **Fire Horse** (Rare), **Breaker
+  Monkey** (Uncommon), each with its ability recorded as text -- design intent the roster carries, not
+  behaviour, since there is no combat yet.
+- **Rarity is the SHARED scale, not a parallel one**, per "Item rarity and rarity highlight" ("one
+  shared enum + palette that both reference"): a creature's rarity IS an `Items.Rarity`, its colour
+  comes from `Items.RARITY_COLORS`, and its durable id from `Items.new_id()` -- one minter, so ids
+  never collide across object types.
+- **`world/creatures.gd` (node `Creatures`): the placed records**, built exactly like Pickups (a model
+  array plus nodes rebuilt from it, so MapIO's one rebuild path recreates everything). A record is
+  `{cell, creature, kind, id, blocks}`.
+- **The two kinds LOOK different, because they mean different things** (`world/creature_marker.gd`):
+  a SPAWN POINT draws in EDIT as a dashed green ground pad with the creature ghosted above it ("one of
+  these appears here"), and HATCHES in PLAY into the solid creature; a FIXED INSTANCE is always the
+  solid creature, both modes. So the author can see at a glance which cells are populated and which
+  merely spawn, and pressing Play shows what the map will actually contain.
+- **Bodies are procedural**, as walls, water, lava and pickups all are until art arrives. Verified by
+  render, which drove two rewrites of the horse: an UPRIGHT neck reads as a bird at ~20px however thick
+  it is, and legs shorter than the body is tall vanish under the world's y-squash. What survives is the
+  horizontal profile -- long low body, neck angled forward, long muzzle, and a MANE, the one cue nothing
+  else in the roster has. The spawn pad likewise moved to the creature's FEET after a render showed it
+  cutting across the body.
+- **The object layer is respected** (ROADMAP "Cell occupancy model": terrain / structure / object, at
+  most one of each). A creature IS an object, so it cannot share a cell with a pickup or another
+  creature, and it is refused on a wall/door cell exactly as the item tool is. Erase takes it at the
+  same depth as an item.
+- **Passability is built** (ROADMAP "Passability": "monster = blocks while alive", with a per-object
+  override). A placed creature blocks the player in PLAY, the inspector exposes the per-instance
+  "Blocks movement" toggle, and a creature made passable wears a small hollow diamond in EDIT so the
+  exception is visible on the map rather than buried in a panel. Kept OUT of `Obstacles.is_blocked`,
+  which stays "is a wall" for the editor -- the same separation the impassable-floor and locked-door
+  checks make in `player.gd`. Nothing blocks in EDIT, where the player is frozen and the cell must stay
+  editable. *This also delivers the "object's blocks-movement toggle" the Editor-layout section had
+  deferred as an inspector property type.*
+- **Editor surface.** Place tool gains a **Creature** kind on **A** (C is Paint and R is rotate; A is
+  "animal", the glossary's other word for one). The strip's Creature section picks the type and the
+  KIND -- the kind is a property of the armed brush, like Paint's grain switch, not a second tool, so
+  "fixed instance" can be set before a creature is ever chosen. The **Select** tool routes a click on a
+  creature to the inspector ahead of the wall/floor beneath it (topmost-first), where its type, kind and
+  passability are editable; retyping or re-kinding KEEPS the durable id, because that is an edit of the
+  creature standing there, not a replacement. The status bar names it "Place: Creature".
+- **Save v13** (`creatures`). A pre-v13 map has no such key and loads with no creatures rather than
+  crashing. Creatures ride the resize shift, the clipboard and paste like every other cell-keyed
+  record; a PASTE mints fresh ids, as it does for doors and pickups.
+- Covered by `dev/test_creatures` (47 checks) and a `GQ_CREATURES=` capture hook; verified by render.
+- **Still open here: the SPAWN ZONE** (a box-selected region with a spawn rate + cap), and everything
+  the creatures then do, which is Phase C.
 
 ## Door authored state (editor, decided 2026-08-16)
 A placed door defaults to **closed** (the common enclosure case), and its **authored state is
@@ -2043,7 +2099,13 @@ Each saved map stores a **small top-down snapshot captured on save**:
 - Accepted the extra UI overhead (folder management) over the simpler flat-list-with-search, per the
   user's choice, because the map collection is expected to get large (multi-map game + shared maps).
 
-## New Map flow (decided 2026-08-16)
+## New Map flow (decided 2026-08-16) BUILT (noted 2026-09-05)
+*As-built note added 2026-09-05: this was already built and had simply never been marked.* The Maps
+menu (M) carries a **New** button (`ui/save_load_menu.gd`) behind the unsaved-changes guard, and
+`MapIO.new_map()` produces exactly what this section specifies: a blank 48x32 map, no walls, doors,
+items or creatures, spawn at the centre, history reset and the dirty flag cleared. No size prompt and
+no templates, as decided.
+
 **New Map always starts as a blank 48x32 grass canvas** (the default size), no size prompt and no
 templates. The edge-cell tools handle any resizing afterward, so there is nothing to decide up front.
 - Keeps map creation one click; consistency over configurability.

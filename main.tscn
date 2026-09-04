@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3]
+[gd_scene load_steps=19 format=3]
 
 [ext_resource type="PackedScene" path="res://player/player.tscn" id="1"]
 [ext_resource type="Script" path="res://world/grid_background.gd" id="2"]
@@ -17,6 +17,7 @@
 [ext_resource type="Script" path="res://world/spawn_marker.gd" id="15"]
 [ext_resource type="Script" path="res://world/pickups.gd" id="16"]
 [ext_resource type="Script" path="res://ui/status_bar.gd" id="17"]
+[ext_resource type="Script" path="res://world/creatures.gd" id="18"]
 
 [node name="Main" type="Node2D"]
 
@@ -58,6 +59,10 @@ script = ExtResource("12")
 [node name="Pickups" type="Node2D" parent="World"]
 y_sort_enabled = true
 script = ExtResource("16")
+
+[node name="Creatures" type="Node2D" parent="World"]
+y_sort_enabled = true
+script = ExtResource("18")
 
 [node name="SpawnMarker" type="Node2D" parent="World"]
 position = Vector2(272, 400)
