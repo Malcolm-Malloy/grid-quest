@@ -2175,6 +2175,21 @@ Both safety nets, since the user wants maximum protection:
 - Build note: reuses the existing `MapIO` atomic-write path; adds a dirty flag (set on any edit,
   cleared on explicit save) and a recovery-file slot + newer-than check on launch.
 
+**As-built (2026-09-05): the QUIT half of the dirty-flag warning is done**, via a new **Exit** button.
+The game launches fullscreen with no title bar (see `systems/window_mode.gd`), so without an on-screen
+exit the only ways out were Cmd+Q or dropping out of fullscreen first.
+- **Where:** `ui/mode_toggle.gd`, which now owns the top-right chrome PAIR (the EDIT/PLAY toggle and
+  Exit) in one right-aligned row, so neither button has to know the other's width. Both stay visible in
+  **both modes**, for the same reason the toggle always was: play must be leavable.
+- **The guard, exactly as this section decided:** a clean map exits straight away; unsaved edits raise
+  **Save and Quit** (the OK/default action, so the safe choice is the one your hand is already on),
+  **Quit without Saving**, and **Cancel**. Quitting never silently discards edits.
+- **A never-saved map has no filename to write to**, so "Save and Quit" hands over the Maps menu's Save
+  As field rather than inventing a name behind the user's back.
+- Covered by `dev/test_exit_button` (16 checks).
+- Still open in this section: the **recovery file** half (a separate autosave slot + newer-than check on
+  launch). The dirty warning now guards New / Load / Quit; the recovery slot guards a crash.
+
 ## Box-select (rectangular area selection, decided 2026-08-16) BUILT 2026-08-17
 A second selection tool alongside the Magic Wand: **drag a rectangle to select every cell inside it,
 regardless of material or room boundaries.**

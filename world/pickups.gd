@@ -76,7 +76,7 @@ func clear_world() -> void:
 func build_world() -> void:
 	if pickup_script == null:
 		return
-	var map := MapIO.current_map()
+	var map := MapIO.current()
 	for rec in pickups:
 		if CharacterIO.is_collected(map, String(rec["id"])):
 			continue # this character already took it; the MAP still holds it (editor + a fresh game)
@@ -116,7 +116,7 @@ func _collect(rec: Dictionary) -> String:
 		player.add_to_stack(item, 1)
 	else:
 		player.add_unique(item, String(rec["id"]), rec.get("data", {}))
-	CharacterIO.mark_collected(MapIO.current_map(), String(rec["id"]))
+	CharacterIO.mark_collected(MapIO.current(), String(rec["id"]))
 	for n in get_tree().get_nodes_in_group("pickups"):
 		if n.id == rec["id"]:
 			n.queue_free()

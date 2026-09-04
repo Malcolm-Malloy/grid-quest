@@ -18,6 +18,7 @@ func _ready() -> void:
 	layer = 100 # above the game and the floor-highlight overlay (layer 90)
 	process_mode = Node.PROCESS_MODE_ALWAYS # keep working while the game is paused
 	visible = false
+	add_to_group("save_load_menu") # so the Exit guard can hand an unnamed map to the Save As field
 	_build_ui()
 	# live-update the current-map label's unsaved marker, and flash a note when autosave fires
 	MapIO.dirty_changed.connect(func(_d): if visible: _refresh_current_label())
@@ -113,6 +114,11 @@ func _unhandled_key_input(event: InputEvent) -> void:
 				_flash("Saved")
 				_refresh()
 		get_viewport().set_input_as_handled()
+
+# open the menu from elsewhere (the Exit button's "Save and Quit" on a never-saved map, which has no
+# filename to write to and so hands the user the Save As field instead of inventing one)
+func open() -> void:
+	_open()
 
 func _toggle() -> void:
 	if visible:

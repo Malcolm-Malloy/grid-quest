@@ -48,7 +48,7 @@ func _ready() -> void:
 	_check("one red key was consumed", player.stack_count("key_red") == 1)
 	_check("the door is no longer locked", not obs.is_locked(door, player))
 	_check("a coloured lock, once opened, is recorded on the CHARACTER",
-		CharacterIO.is_unlocked(MapIO.current_map(), door_id))
+		CharacterIO.is_unlocked(MapIO.current(), door_id))
 	_check("the MAP still holds the authored lock", obs.door_at(door)["lock"] == "colour")
 	_check("re-opening it costs nothing more", obs.try_unlock(door, player) and player.stack_count("key_red") == 1)
 
@@ -63,7 +63,7 @@ func _ready() -> void:
 	_check("the bound key opens it", not obs.is_locked(door, player) and obs.try_unlock(door, player))
 	_check("the unique key is NOT consumed", player.uniques_of("key").size() == 2)
 	_check("nothing was recorded: a unique lock is re-checked every time",
-		not CharacterIO.is_unlocked(MapIO.current_map(), door_id))
+		not CharacterIO.is_unlocked(MapIO.current(), door_id))
 	# losing the key shuts the door again -- the reason unique locks persist no opened flag
 	player.inventory["uniques"] = [{"item": "key", "id": "pk1", "data": {"door_id": "some-other-door"}}]
 	_check("losing the key locks the door again", obs.is_locked(door, player))

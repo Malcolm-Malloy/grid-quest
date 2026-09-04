@@ -270,11 +270,6 @@ func _ensure_dir() -> void:
 	if not DirAccess.dir_exists_absolute(DIR):
 		DirAccess.make_dir_recursive_absolute(DIR)
 
-# the name of the map currently in memory ("" = a new/unsaved map). Read by CharacterIO's collected
-# store, which keys what this character has picked up by map.
-func current_map() -> String:
-	return _current
-
 func _path(map_name: String) -> String:
 	return "%s/%s.json" % [DIR, map_name]
 

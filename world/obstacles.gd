@@ -111,7 +111,7 @@ func build_world() -> void:
 		# bound to THIS door id; the key is kept and the metal lock stays on the door, open or closed).
 		gate.lock = String(gate_data.get("lock", ""))
 		gate.lock_color = String(gate_data.get("lock_color", "red"))
-		gate.unlocked = gate.lock == "colour" and CharacterIO.is_unlocked(MapIO.current_map(), gate.door_id)
+		gate.unlocked = gate.lock == "colour" and CharacterIO.is_unlocked(MapIO.current(), gate.door_id)
 		# authored default state (MapIO-persisted); applied here so the gate spawns showing what was
 		# authored. In PLAY the player's proximity logic takes over; EDIT resets to these.
 		gate.authored_open = gate_data.get("open", false)
@@ -480,7 +480,7 @@ func is_locked(cell: Vector2i, player = null) -> bool:
 		return false
 	var id := String(d.get("id", ""))
 	if lock == "colour":
-		return not CharacterIO.is_unlocked(MapIO.current_map(), id)
+		return not CharacterIO.is_unlocked(MapIO.current(), id)
 	# unique: locked unless the bound key is in hand
 	if player == null:
 		player = get_tree().get_first_node_in_group("player")
@@ -503,12 +503,12 @@ func try_unlock(cell: Vector2i, player) -> bool:
 		return true
 	var id := String(d.get("id", ""))
 	if lock == "colour":
-		if CharacterIO.is_unlocked(MapIO.current_map(), id):
+		if CharacterIO.is_unlocked(MapIO.current(), id):
 			return true
 		var key := "key_" + String(d.get("lock_color", "red"))
 		if not player.take_from_stack(key, 1):
 			return false
-		CharacterIO.mark_unlocked(MapIO.current_map(), id)
+		CharacterIO.mark_unlocked(MapIO.current(), id)
 		var g = gate_node_at(cell)
 		if g:
 			g.unlocked = true # the lock is removed from the door, so it needs no open-state art
