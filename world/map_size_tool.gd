@@ -27,6 +27,12 @@ var _dragging := false
 var _drag_changed := false
 
 func _process(_delta: float) -> void:
+	# EDIT-only, like every other map tool: this one uses _input (which runs before the GUI), so without
+	# the guard its green add-band would sit frozen over a running game AND a click would still resize
+	# the map mid-play.
+	if EditorMode.is_play():
+		_clear()
+		return
 	# never preview or edit while the pointer is over the editor menu/panels (see _pointer_over_ui):
 	# the map size tool uses _input, which runs BEFORE the GUI, so without this it would fire over the menu.
 	if not active or _pointer_over_ui():
@@ -50,8 +56,8 @@ func _process(_delta: float) -> void:
 		_set_edge(_hovered_edge())
 
 func _input(event: InputEvent) -> void:
-	if not active:
-		return
+	if not active or EditorMode.is_play():
+		return # EDIT-only: a click must never resize the map while the game is being played
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		# a click that starts over the menu is not a map action (the GUI owns it)
 		if event.pressed and _pointer_over_ui():

@@ -182,6 +182,109 @@ func remove_cell(cell: Vector2i) -> bool:
 	print("MapEdit: removed cell %s (hole)" % cell)
 	return true
 
+# --- clip stamping: paste and move a copied REGION (ROADMAP "Copy, paste, and duplicate", "Move tool") ---
+# Both are pure transforms on the serialized dict, re-applied through MapIO exactly like every other
+# edit here, so a stamp rebuilds walls/lighting/shadows/floors together and lands as ONE undo entry.
+# See MapClipboard for the clip format and the rotate/flip orientation remap.
+
+# paste `clip` with its bounding box's top-left at `origin`. Target cells off the map (or on an
+# absent-cell hole) are CLIPPED; the rest still land. Returns the cells actually stamped ({} = nothing
+# landed, e.g. the whole clip fell outside the map, in which case nothing is committed).
+func stamp_clip(clip: Dictionary, origin: Vector2i, label := "paste") -> Dictionary:
+	if clip.is_empty():
+		return {}
+	var d := MapIO.serialize()
+	var stamped := _apply_clip(d, clip, origin, true) # a PASTE is a new instance: mint fresh ids
+	if stamped.is_empty():
+		return {}
+	MapIO.apply_serialized(d, true) # keep_player: a paste must never teleport the character
+	EditHistory.commit(label)
+	return stamped
+
+# move a region: clear `src_cells`, then stamp `clip` (built from those cells, optionally rotated or
+# flipped) at `origin`. One dict, one re-apply, ONE undo entry, so the region never flickers through a
+# half-moved state. Each record is carried across verbatim, so a moved door keeps its authored state
+# (and, once objects carry durable ids, its id) -- the "move keeps identity" contract that separates
+# a move from delete-then-place. Returns the cells actually stamped.
+func move_clip(src_cells: Dictionary, clip: Dictionary, origin: Vector2i, label := "move") -> Dictionary:
+	if clip.is_empty() or src_cells.is_empty():
+		return {}
+	var d := MapIO.serialize()
+	for c in src_cells:
+		_strip_cell(d, c)
+	# a MOVE KEEPS every durable id -- that is the whole contract (ROADMAP "Move tool": moving a locked
+	# door keeps its door_id, so its Unique key still resolves)
+	var stamped := _apply_clip(d, clip, origin, false)
+	if stamped.is_empty():
+		return {} # nothing landed: leave the map untouched rather than deleting the source
+	MapIO.apply_serialized(d, true)
+	EditHistory.commit(label)
+	return stamped
+
+# write `clip` into the dict `d` at `origin` (no apply, no undo). Every target cell is STRIPPED first,
+# so a paste overwrites within its footprint instead of half-merging with what was there.
+func _apply_clip(d: Dictionary, clip: Dictionary, origin: Vector2i, fresh_ids := false) -> Dictionary:
+	var w := int(d["grid"]["width"])
+	var h := int(d["grid"]["height"])
+	var absent := _absent_set(d)
+	var target := {}
+	for a in clip.get("cells", []):
+		var cell := origin + Vector2i(int(a[0]), int(a[1]))
+		if cell.x < 0 or cell.y < 0 or cell.x >= w or cell.y >= h or absent.has(cell):
+			continue # clipped at the map edge / on a hole
+		target[cell] = true
+	if target.is_empty():
+		return {}
+	for cell in target:
+		_strip_cell(d, cell)
+	for key in ["walls", "wall_colors", "wall_materials"]:
+		for a in clip.get(key, []):
+			var cell := origin + Vector2i(int(a[0]), int(a[1]))
+			if not target.has(cell):
+				continue
+			var row: Array = a.duplicate()
+			row[0] = cell.x
+			row[1] = cell.y
+			d[key].append(row)
+	for key in ["doors", "bridges", "pickups", "creatures"]:
+		for r in clip.get(key, []):
+			var cell := origin + Vector2i(int(r["cell"][0]), int(r["cell"][1]))
+			if not target.has(cell):
+				continue
+			var rec: Dictionary = r.duplicate(true)
+			rec["cell"] = [cell.x, cell.y]
+			if fresh_ids and key != "bridges":
+				# doors, pickups and creatures all carry a durable id; a bridge does not
+				# a COPY is a new instance (ROADMAP: a pasted locked door gets a fresh id, like any new
+				# placement, so the original's Unique key does not open the copy)
+				rec["id"] = Items.new_id()
+			d[key].append(rec)
+	# zones land whole, at the paste origin, with a fresh id (a pasted zone is a new rule, the same
+	# way a pasted door is a new door). One that would land partly off the map is clipped to it.
+	for z in clip.get("creature_zones", []):
+		var za: Array = z["rect"]
+		var zr := Rect2i(origin.x + int(za[0]), origin.y + int(za[1]), int(za[2]), int(za[3]))
+		var zclip := zr.intersection(Rect2i(0, 0, int(d["grid"]["width"]), int(d["grid"]["height"])))
+		if zclip.size.x <= 0 or zclip.size.y <= 0:
+			continue
+		var zrec: Dictionary = z.duplicate(true)
+		zrec["rect"] = [zclip.position.x, zclip.position.y, zclip.size.x, zclip.size.y]
+		if fresh_ids:
+			zrec["id"] = Items.new_id()
+		if not d.has("creature_zones"):
+			d["creature_zones"] = []
+		d["creature_zones"].append(zrec)
+	for key in ["quads", "floor_tints", "floor_patterns", "floor_no_bank"]:
+		for a in clip.get(key, []):
+			var q := Vector2i(origin.x * 2 + int(a[0]), origin.y * 2 + int(a[1]))
+			if not target.has(Vector2i(floori(q.x / 2.0), floori(q.y / 2.0))):
+				continue
+			var row: Array = a.duplicate()
+			row[0] = q.x
+			row[1] = q.y
+			d[key].append(row)
+	return target
+
 # true if add_cell(cell) would succeed, without mutating (drives the hover highlight). A cell is
 # addable when it is a hole inside the box with a present neighbour, or one step beyond exactly one edge.
 func can_add_cell(cell: Vector2i) -> bool:
@@ -272,6 +375,8 @@ func _strip_cell(d: Dictionary, cell: Vector2i) -> void:
 	d["wall_materials"] = _filter_cells(d.get("wall_materials", []), cell)
 	d["doors"] = _filter_door_cells(d.get("doors", []), cell)
 	d["bridges"] = _filter_door_cells(d.get("bridges", []), cell)
+	d["pickups"] = _filter_door_cells(d.get("pickups", []), cell)
+	d["creatures"] = _filter_door_cells(d.get("creatures", []), cell)
 	d["quads"] = _filter_quarters(d.get("quads", []), cell)
 	d["floor_tints"] = _filter_quarters(d.get("floor_tints", []), cell)
 	d["floor_patterns"] = _filter_quarters(d.get("floor_patterns", []), cell)
@@ -345,9 +450,17 @@ func _shift(d: Dictionary, dx: int, dy: int, nw: int, nh: int) -> Dictionary:
 		var x := int(dr["cell"][0]) + dx
 		var y := int(dr["cell"][1]) + dy
 		if _in_cells(x, y, nw, nh):
-			# carry the authored open/swing through the resize too (they were being dropped before)
-			doors.append({"cell": [x, y], "orientation": dr["orientation"],
-				"open": dr.get("open", false), "swing": dr.get("swing", false)})
+			# carry the authored open/swing through the resize too (they were being dropped before),
+			# and the v12 id + lock with them: a Unique key resolves by door id, so losing it on a
+			# resize would orphan the key.
+			var nd := {"cell": [x, y], "orientation": dr["orientation"],
+				"open": dr.get("open", false), "swing": dr.get("swing", false),
+				"id": dr.get("id", "")}
+			if String(dr.get("lock", "")) != "":
+				nd["lock"] = dr["lock"]
+				nd["lock_color"] = dr.get("lock_color", "red")
+				nd["lock_name"] = dr.get("lock_name", "")
+			doors.append(nd)
 	out["doors"] = doors
 
 	# floors are on the 16px quarter grid, so a cell shift is a two-quarter shift
@@ -418,6 +531,41 @@ func _shift(d: Dictionary, dx: int, dy: int, nw: int, nh: int) -> Dictionary:
 		if _in_cells(x, y, nw, nh):
 			brs.append({"cell": [x, y], "orientation": b["orientation"]})
 	out["bridges"] = brs
+
+	# placed items ride along with everything else; one on a removed band goes with it
+	var picks: Array = []
+	for r in d.get("pickups", []):
+		var x := int(r["cell"][0]) + dx
+		var y := int(r["cell"][1]) + dy
+		if _in_cells(x, y, nw, nh):
+			picks.append({"cell": [x, y], "item": r["item"], "id": r.get("id", ""),
+				"data": r.get("data", {})})
+	out["pickups"] = picks
+
+	# placed creatures ride along the same way; one on a removed band goes with it
+	var crs: Array = []
+	for r in d.get("creatures", []):
+		var cx := int(r["cell"][0]) + dx
+		var cy := int(r["cell"][1]) + dy
+		if _in_cells(cx, cy, nw, nh):
+			crs.append({"cell": [cx, cy], "creature": r["creature"], "kind": r["kind"],
+				"id": r.get("id", ""), "blocks": bool(r.get("blocks", true))})
+	out["creatures"] = crs
+
+	# spawn zones are RECTS, not cells, so they shift as a whole and are then CLIPPED to the new map:
+	# a zone half-off the edge should keep the half that survives, not vanish and not hang in the void.
+	# One that ends up entirely outside goes with the band that carried it.
+	var zs: Array = []
+	for z in d.get("creature_zones", []):
+		var a: Array = z["rect"]
+		var zr := Rect2i(int(a[0]) + dx, int(a[1]) + dy, int(a[2]), int(a[3]))
+		var clipped := zr.intersection(Rect2i(0, 0, nw, nh))
+		if clipped.size.x <= 0 or clipped.size.y <= 0:
+			continue
+		zs.append({"rect": [clipped.position.x, clipped.position.y, clipped.size.x, clipped.size.y],
+			"creature": z["creature"], "rate": z.get("rate", 4.0), "cap": z.get("cap", 3),
+			"id": z.get("id", "")})
+	out["creature_zones"] = zs
 
 	return out
 

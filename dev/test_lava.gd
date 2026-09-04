@@ -106,7 +106,9 @@ func _ready() -> void:
 	_fill(fm, Vector2i(38, 12), "lava")
 	fm._rebuild()
 	var data: Dictionary = MapIO.serialize()
-	_check("serialize bumps VERSION to 9", int(data["version"]) == 9)
+	# the save VERSION has moved on since lava landed (v10 = sparse absent_cells); lava only needs
+	# it to be at least the version that introduced the river-bank flags it writes
+	_check("serialize writes at least VERSION 9 (lava's river-bank flags)", int(data["version"]) >= 9)
 	_check("serialize writes floor_no_bank", data.has("floor_no_bank") and data["floor_no_bank"].size() == 4)
 	fm._quad_no_bank = {}
 	MapIO.apply_serialized(data, true)

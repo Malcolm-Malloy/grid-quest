@@ -35,6 +35,12 @@ var swing_up := false # horizontal gates only: true when the door swings north (
 var authored_open := false
 var authored_swing := false
 
+# --- lock (ROADMAP "Locked doors and keys"), set by Obstacles from the door record ---
+var door_id := ""        # this door's durable id; a Unique key binds to it
+var lock := ""           # "" none / "colour" (consumed on first open) / "unique" (metal, stays)
+var lock_color := "red"  # an Items.LOCK_COLORS name, for the coloured kind
+var unlocked := false    # a COLOURED lock this character already opened: consumed, so it is gone
+
 var closed_texture: Texture2D
 var open_texture: Texture2D # horizontal, swung south (toward camera): top + front
 var open_texture_north: Texture2D # horizontal, swung north (away): top only
@@ -217,6 +223,26 @@ func vertical_top() -> float:
 	var plain_bottom := CELL_SIZE / 2.0
 	return plain_bottom - (CELL_SIZE + face_height)
 
+# The lock, drawn on the door's FRONT layer over the closed panel, in every orientation (ROADMAP:
+# "A lock renders on the front layer of a closed door, in every orientation"). Two behaviours:
+#  - COLOURED: shows only while closed, and vanishes for good once opened (the lock is consumed), so
+#    it never needs open-state art -- exactly the reason the spec chose that rule.
+#  - UNIQUE: metal, and stays on the door OPEN or closed, since the key is kept rather than spent.
+const LOCK_DARK := Color(0.05, 0.05, 0.08, 0.9)
+const LOCK_METAL := Color(0.78, 0.80, 0.86)
+
+func _draw_lock(centre: Vector2) -> void:
+	if lock == "" or (lock == "colour" and (unlocked or is_open)):
+		return
+	var col: Color = LOCK_METAL if lock == "unique" else Items.lock_color(lock_color)
+	# shackle (the arc you hook through) then the body, dark-outlined so it reads on any door colour
+	draw_arc(centre + Vector2(0, -3.0), 2.6, PI, TAU, 10, LOCK_DARK, 3.0)
+	draw_arc(centre + Vector2(0, -3.0), 2.6, PI, TAU, 10, col, 1.6)
+	var body := Rect2(centre + Vector2(-3.6, -1.4), Vector2(7.2, 6.0))
+	draw_rect(body.grow(0.8), LOCK_DARK, true)
+	draw_rect(body, col, true)
+	draw_rect(Rect2(centre + Vector2(-0.7, 0.8), Vector2(1.4, 2.2)), LOCK_DARK, true) # keyhole
+
 func _draw() -> void:
 	if orientation == "vertical":
 		var plain_bottom := CELL_SIZE / 2.0
@@ -234,6 +260,8 @@ func _draw() -> void:
 		else:
 			var rect := Rect2(Vector2(-VERTICAL_WIDTH / 2.0, top), Vector2(VERTICAL_WIDTH, full_height))
 			draw_texture_rect(closed_texture, rect, false)
+		# the lock sits on the panel, a little above the door's midline in both states
+		_draw_lock(Vector2(0, top + full_height * 0.62))
 	else:
 		# full fence height (face + cap), matching wall_segment's silhouette so
 		# the gate's posts line up with the top of the surrounding wall pieces
@@ -252,3 +280,4 @@ func _draw() -> void:
 			draw_texture_rect(tex, Rect2(Vector2(-CELL_SIZE / 2.0, top - wall_top), Vector2(CELL_SIZE, oh)), false)
 		else:
 			draw_texture_rect(closed_texture, Rect2(Vector2(-CELL_SIZE / 2.0, top), Vector2(CELL_SIZE, full_height)), false)
+		_draw_lock(Vector2(0, top + full_height * 0.55))

@@ -87,13 +87,17 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
    2026-08-25** (`CharacterIO`; see the Saving section as-built). Whole-game saves (bundle the character
    file + current map name) still open. Reuses the MapIO atomic-write path. Inventory persists now, so
    keys can.
-10. **Item and pickup system.** Prerequisite for keys (keys are editor-placed pickups); see "Items
-    and pickups".
-11. **Locked doors and keys.** Terminal dependency: needs the door menu (4), inventory (9), and
-    pickups (10).
+10. **Item and pickup system. BUILT 2026-09-05.** Definitions + instances, both inventory entry
+    kinds, split interaction (stackables auto-collect on step, uniques are clicked), collected state in
+    character data, and an editor Item tool. Save v11. See "Items and pickups" -> As built.
+11. **Locked doors and keys. BUILT 2026-09-05.** Both lock types (coloured single-use, unique bound
+    key), durable door ids, inspector authoring with a "place its key" flow, and the bound-door delete
+    warning. Save v12. **This completes the 2026-08-13 dependency chain.** See "Locked doors and keys"
+    -> As built.
 
 **Phase C: game pillar (creature-collector RPG).** Not gated on Phase A or B but authored against
-them: creatures, capture, absorb, domesticate, resource-gated building (same system as the editor),
+them: *(the editor's bridge to this is now built -- creatures can be PLACED and saved as of
+2026-09-05, see "Creature placement in the editor"; what they DO is still all ahead.)* creatures, capture, absorb, domesticate, resource-gated building (same system as the editor),
 builds, karma, and so on. See the creature and gameplay sections. Build after the editor can produce
 the maps these systems play in.
 
@@ -120,6 +124,19 @@ authoring, which was inert because the player's proximity logic overwrites door 
   `GQ_HOLD` implies PLAY) to render/verify gameplay behaviour; editor-visual shots stay in EDIT.
 - **Unblocks next:** door open/closed + swing authoring can now store an authored default that EDIT
   honours (the proximity logic only runs in PLAY), surfaced through the properties inspector.
+- **As-built (2026-09-05): leaving EDIT clears the editor's live state.** On the user's note that
+  switching to play should unselect everything. The map tools stand down in PLAY (FloorManager returns
+  early in `_process` / `_unhandled_input`), which meant anything already drawn just sat frozen over
+  the running game -- marching ants, an armed paste ghost, a hover cursor -- and a selection you cannot
+  change is not a selection. `FloorManager._exit_edit_state()` now drops the selection, any armed paste
+  or half-finished move, the armed terrain brush (so the first click back in EDIT does not drop a stray
+  tile), every highlight, and the inspector's target. Nothing is restored on the way back: you return
+  to a clean slate rather than a stale selection from before you played. The CLIPBOARD is deliberately
+  kept -- it is cross-map and outlives maps, let alone mode switches.
+  - **Same bug, worse case, fixed with it:** `map_size_tool` had no mode guard at all and uses `_input`
+    (which runs before the GUI), so in PLAY its green add-band stayed on screen and **a click still
+    resized the map mid-game**. Now EDIT-only like everything else.
+  - Covered by `dev/test_play_clears` (15 checks).
 - Verified headlessly: EDIT shows the tool strip + "▶ Play" with a static/closed door by the frozen
   player; PLAY hides the strip, shows "■ Edit", and the door opens/swings as the player stands in it.
 2. **Make the map readable and sizable:** show the **map edge** (void/black), **remove unwalkable
@@ -128,12 +145,17 @@ authoring, which was inert because the player's proximity logic overwrites door 
 3. **Core authoring tools:** **Cell Selector / Fine Details** paint with the **terrain drop-preview
    UX**, the **coloured highlight palette** (orange ground / red erase / purple walls / green add /
    blue doors / yellow shadow), the **Erase** tool (topmost-first, per the **cell-occupancy** and
-   **passability** models), the **Eyedropper**, and **directional placement** (auto + R).
+   **passability** models), the **Eyedropper**, and **directional placement** (auto + R). *Progress: all
+   DONE except the last two palette colours (blue doors / yellow shadow, each waiting on an unbuilt
+   feature) -- **Eyedropper DONE 2026-09-04**, alongside the **player spawn marker**.*
 4. **Selection + power tools:** **Magic Wand** (click-to-grow, marching-ants) and **Box-select**,
    with **add/subtract** modifiers and **selection-fill**; then **Move** (keeps id), **copy/paste**
    (cross-map clipboard, rotate+flip), the **properties inspector**, the **status bar**, and
-   **wall/door authoring** (roster + door authored state).
-5. **Persistence + library:** **autosave+warn**, **New Map** flow, **map thumbnails**, **folders/
+   **wall/door authoring** (roster + door authored state). *Progress: ALL DONE -- **Move + copy/paste/
+   duplicate DONE 2026-08-30** (see "Copy, paste, and duplicate" -> As built) and the **status bar DONE
+   2026-09-05** (see "Editor layout" -> the status-bar as-built), which closed this group.*
+5. **Persistence + library:** **autosave+warn** *(DONE: the warn half 2026-09-05, the recovery-file
+   half 2026-09-05)*, **New Map** flow *(DONE, noted 2026-09-05)*, **map thumbnails**, **folders/
    categories**, and **export/import** for sharing.
 6. **Multi-tile object footprints** and **coloured floors / patterns / material variants** slot in as
    the object and material rosters grow.
@@ -318,6 +340,10 @@ questions to answer, roughly in dependency order:
   - **Autosave:** `MapIO._process` writes a NAMED, dirty map to disk every `AUTOSAVE_SEC` (30s) and
     emits `autosaved`; an unnamed/new map is never silently autosaved (the warning protects it).
     `autosave_enabled` gates it (tests drive `_process` manually).
+    - **SUPERSEDED 2026-09-05.** This wrote straight over the real `user://maps/<name>.json`, which is
+      exactly what the 2026-08-16 decision said not to do ("a separate recovery file ... without
+      silently overwriting the user's saved map"). It has been replaced by the recovery slot; see
+      "Unsaved-work protection" -> the 2026-09-05 as-built.
   - **Menu (`ui/save_load_menu.gd`):** New button; "Current: <name> *" unsaved marker (live via
     `dirty_changed`); a `ConfirmationDialog` "discard unsaved changes?" before New and Load; a
     transient status flash ("Saved"/"Autosaved"/"New map").
@@ -659,6 +685,46 @@ inventory needs to persist. Proposed design:
   `visibility_layer |= FloorHighlightMask.MASK_BIT` and y-sorts like other ground objects
   ([[grid-quest-floor-highlight-mask]], [[grid-quest-asset-perspective-model]]).
 
+**As-built (2026-09-05): BUILT.** The general system, with keys/coins/gems as the first three
+definitions. Covered by `dev/test_items` (38 checks).
+- **`Items` autoload (`systems/items.gd`)** holds the DEFINITIONS (a definition is data: name, kind,
+  rarity, glyph) and the shared rarity scale. **`world/pickups.gd`** holds the INSTANCES and the
+  collection rules, built like Obstacles (a model array plus nodes rebuilt from it, so MapIO's one
+  rebuild path recreates them). **`world/pickup.gd`** is the instance node. Nothing is key-shaped: a
+  new item type is one entry in `Items.DEFS`.
+- **Durable ids (Q3).** Minted at placement as a random hex string rather than a counter, so nothing
+  has to store "the next number" and ids stay unique when a map is pasted into another map. Carried
+  through save/load, resize and move; a **paste mints a fresh id** (a copied key is a different key).
+- **Interaction, split by type, as the 2026-08-16 refinement decided.** Stackables **auto-collect on
+  step** (the player's step-completion asks `Pickups.try_auto_collect`, no input at all). Uniques are
+  **clicked**: `Pickups._unhandled_input` in PLAY only, and the player must be **on or next to** the
+  cell -- clicking a key from across the map is not reaching for it.
+  - *This resolves the spec's open question* (mouse click on the sprite vs a general interact button
+    while standing on the cell) toward the mouse click the note itself described, since there is no
+    general interact button yet. When one lands it should become a second way in, not a replacement.
+  - **Consequence, and a bug fixed on the way:** `FloorManager` now stands down in PLAY (input and
+    hover). The tool strip already hid there, but clicks still reached the paint/select paths, so
+    playing could silently repaint the map with the last armed brush.
+- **Inventory: both entry kinds, as the structural call required.** `player.inventory` is now
+  `{stacks: {item: count}, uniques: [{item, id}]}` with `add_to_stack` / `take_from_stack` /
+  `add_unique` / `uniques_of` / `has_unique`. Capacity unlimited. A unique entry carries the pickup's
+  durable id, which is where a Unique key's `door_id` will hang off (item 11).
+- **Where collected state lives (the Q4 save call), implemented as specced:** the MAP always keeps its
+  pickups (so the key is there when you open the map in the editor, and for a fresh character), while
+  **whether this character took one is character data** -- `CharacterIO.collected`, keyed map name ->
+  pickup id. `Pickups.build_world` skips instances the current character has collected, so a reload
+  does not respawn them. CharacterIO is now **v2** (the v1 flat-array inventory, always empty in
+  practice, migrates to the empty v2 shape).
+- **Editor placement:** an **Item (T)** tool plus an **Item** section in the left panel listing the
+  definitions, each label in its rarity colour. One item per cell, never on a wall/door or the void;
+  one click is one undo entry. **Erase** takes an item before the terrain under it (topmost-first,
+  per the cell-occupancy model). Items ride through **resize** and **copy/paste** like every other
+  layer. Save format is now **v11** (`pickups`); pre-v11 maps load with none.
+- **Not built (deliberately deferred):** binding a Unique key to a door (`door_id`) -- that is item 11
+  and needs the door roster; consumables' use-action; stack counts shown in a UI (there is no
+  inventory screen yet); and item art (the glyphs are procedural, like the walls and water).
+- **Capture harness:** `GQ_ITEMS="x,y,item;..."` places items through the real tool path.
+
 ### Item rarity and rarity highlight (logged 2026-08-16)
 Items carry a **rarity tier**, shown as a coloured **outline around the item with no fill** (an
 outer line only, Diablo-style item colour coding). The line reads the rarity at a glance while the
@@ -702,6 +768,15 @@ item/creature itself and must not be confused with the editor action-highlight c
 orange=ground, green=add, and so on) under the Coloured highlight system; they share some hue names
 but serve unrelated purposes.
 
+**As-built (2026-09-05): the ramp + the outline are BUILT** (`Items.RARITY_*`, drawn by
+`world/pickup.gd`). All six tiers exist as one shared enum + palette, ready for creatures to reference
+rather than growing a parallel system. The render rules landed as decided: the ring is **fill-less**,
+drawn **dark first one step wider** so white and orange-gold stay legible over pale coloured floors,
+and **thickness steps up with rarity** (`RARITY_WIDTH`) as the required non-colour cue. Still open:
+the small rarity **pip/gem** as a second cue, and rarity shown in an inventory UI (there is no
+inventory screen yet). Verified by render: coin (white/common), gem (blue/rare) and key (purple/epic)
+read as three distinct tiers by both hue and ring weight.
+
 ## Locked doors and keys (decided 2026-08-13, not built yet)
 A lock renders on the **front layer of a closed door, in every orientation** (exact pixel offsets
 deferred to art time). The door keeps its own independent colour, and
@@ -726,6 +801,46 @@ Open scope this pulls in:
 - **Art:** Unique locks need open-door art per door type and orientation
   ([[grid-quest-modify-all-asset-states]], [[grid-quest-asset-perspective-model]]). Coloured
   locks only need the closed-door state.
+
+**As-built (2026-09-05): BUILT.** The terminal item of the 2026-08-13 chain (door menu + inventory +
+pickups were its three prerequisites, all now in). Covered by `dev/test_locked_doors` (40 checks).
+- **Doors carry a durable id.** A Unique key binds to it, so `id` joined the door record (save
+  **v12**), minted by Obstacles when a gate spawns -- which quietly migrates the seeded roster and
+  every pre-v12 map without touching disk.
+  - **Paste vs move, now a real distinction.** `MapEdit._apply_clip` grew a `fresh_ids` flag: a
+    **paste mints new ids** for doors and pickups (so the original's key does not open the copy),
+    while a **move keeps them** (ROADMAP "Move tool": a moved locked door keeps its door_id, so its
+    Unique key still resolves). Resize carries ids and locks through too.
+- **Two lock types, and each rule falls out of the type:**
+  - **Coloured (single use).** `Items.LOCK_COLORS` (red/blue/green/orange) is the shared table the
+    lock art, the key art and the door menu all read. Matching is by colour NAME, not a float colour
+    compare, so `key_red` opens any red lock -- exactly "matched by colour only". Opening consumes one
+    key and the lock is gone for good, which is why it never needs open-door art.
+  - **Unique.** A metal key bound to one door id, carrying a player-facing name. Never consumed, and
+    the lock **stays on the door open or closed**. Re-checked against the inventory every time, so
+    **losing the key shuts the door again** -- and that is why nothing is persisted for this type.
+- **Where the opened state lives:** the same map-data/character-data split as collected pickups. The
+  MAP keeps the authored lock (the editor and a fresh character still see it); "I already spent a red
+  key on this door" is `CharacterIO.unlocked` (v3), keyed map name -> door id.
+- **Locked doors block.** The player's move check treats a locked door like a wall, and **walking into
+  it IS the attempt to unlock** (one matching coloured key spent, or the bound unique key checked).
+  Kept out of `is_blocked` so that stays "is a wall" for the editor, like the impassable-floor check.
+  A still-locked door also never swings open on approach.
+- **Authoring** is in the inspector: Lock None / Coloured / Unique, a colour row for the coloured kind,
+  and for unique a key-name field plus a **"Place its key"** button that arms the Item tool with a key
+  ALREADY BOUND to that door. That is the answer to the spec's "place = pick a cell + item type; a
+  Unique key also binds to a door (pick the door)": the door is already the thing you are editing, so
+  no separate pick-the-door mode is needed.
+- **Deleting a bound door warns first**, as required, listing the key by its player-facing name;
+  confirming removes the door AND its now-useless key as ONE undo entry. The same warning covers a
+  selection erase that contains such a door.
+- **Art caveat:** the lock is drawn procedurally (a padlock: shackle, body, keyhole) over the door
+  panel, dark-outlined so it reads on any door colour. On an OPEN unique door its position is
+  approximate -- welding it to each swung-open sprite is the per-orientation art job this section
+  already called out. Coloured locks are exact, since they only ever draw closed.
+- **Capture harness:** `GQ_LOCK="x,y,kind[,colour];..."` authors a lock for eyeballing.
+- **Not built:** a lock colour option in the RIGHT-CLICK door submenu (the inspector is the authoring
+  surface for now); keys shown in an inventory UI (there is no inventory screen yet).
 
 ## Coloured floors
 - Per-texture colour tinting of the floor textures (for example, recolour the tiles orange).
@@ -1836,7 +1951,7 @@ many tools exist.
 - **Slots into the tool strip era:** every tool (Magic Wand fills, Cell/Fine Details paint, Erase,
   wall/door, edge-cell) wraps its mutation in a history entry at the point it writes.
 
-## Creature placement in the editor (decided 2026-08-16: all three)
+## Creature placement in the editor (decided 2026-08-16: all three) ALL THREE BUILT 2026-09-05
 The editor supports **three ways to author creatures (monsters/animals)**, each for a different design
 need. Ties into the creature systems (Wild Monsters, capture/absorb, respawn) which are Phase C.
 - **Spawn point:** marks a spot where a creature of a chosen type spawns on entering the map / play
@@ -1851,6 +1966,104 @@ need. Ties into the creature systems (Wild Monsters, capture/absorb, respawn) wh
   split), not map data, so a captured creature does not respawn.
 - Build order suggestion: fixed instance and spawn point first (single-cell records), spawn zone
   later (needs region storage + a spawn timer/cap).
+
+**As-built (2026-09-05): ALL THREE kinds are BUILT**, in this section's own build order -- the two
+single-cell kinds first, then the spawn zone.
+- **This is the EDITOR half only.** Roaming AI, fighting, Subdued/Entranced capture, domestication and
+  absorb are Phase C and are NOT built. What exists is everything needed to author creatures into a map
+  and save them, so the pillar has something to wake up to.
+- **`systems/bestiary.gd` (autoload `Bestiary`): the DEFINITION registry**, the creature half of the
+  same definition/instance split the items system uses. Named Bestiary, not Creatures, so the registry
+  and the world node holding the instances never read as the same thing. Carries the three starter
+  monsters (ROADMAP "Initial monsters"): **Frost Frog** (Common), **Fire Horse** (Rare), **Breaker
+  Monkey** (Uncommon), each with its ability recorded as text -- design intent the roster carries, not
+  behaviour, since there is no combat yet.
+- **Rarity is the SHARED scale, not a parallel one**, per "Item rarity and rarity highlight" ("one
+  shared enum + palette that both reference"): a creature's rarity IS an `Items.Rarity`, its colour
+  comes from `Items.RARITY_COLORS`, and its durable id from `Items.new_id()` -- one minter, so ids
+  never collide across object types.
+- **`world/creatures.gd` (node `Creatures`): the placed records**, built exactly like Pickups (a model
+  array plus nodes rebuilt from it, so MapIO's one rebuild path recreates everything). A record is
+  `{cell, creature, kind, id, blocks}`.
+- **The two kinds LOOK different, because they mean different things** (`world/creature_marker.gd`):
+  a SPAWN POINT draws in EDIT as a dashed green ground pad with the creature ghosted above it ("one of
+  these appears here"), and HATCHES in PLAY into the solid creature; a FIXED INSTANCE is always the
+  solid creature, both modes. So the author can see at a glance which cells are populated and which
+  merely spawn, and pressing Play shows what the map will actually contain.
+- **Bodies are procedural**, as walls, water, lava and pickups all are until art arrives. Verified by
+  render, which drove two rewrites of the horse: an UPRIGHT neck reads as a bird at ~20px however thick
+  it is, and legs shorter than the body is tall vanish under the world's y-squash. What survives is the
+  horizontal profile -- long low body, neck angled forward, long muzzle, and a MANE, the one cue nothing
+  else in the roster has. The spawn pad likewise moved to the creature's FEET after a render showed it
+  cutting across the body.
+- **The object layer is respected** (ROADMAP "Cell occupancy model": terrain / structure / object, at
+  most one of each). A creature IS an object, so it cannot share a cell with a pickup or another
+  creature, and it is refused on a wall/door cell exactly as the item tool is. Erase takes it at the
+  same depth as an item.
+- **Passability is built** (ROADMAP "Passability": "monster = blocks while alive", with a per-object
+  override). A placed creature blocks the player in PLAY, the inspector exposes the per-instance
+  "Blocks movement" toggle, and a creature made passable wears a small hollow diamond in EDIT so the
+  exception is visible on the map rather than buried in a panel. Kept OUT of `Obstacles.is_blocked`,
+  which stays "is a wall" for the editor -- the same separation the impassable-floor and locked-door
+  checks make in `player.gd`. Nothing blocks in EDIT, where the player is frozen and the cell must stay
+  editable. *This also delivers the "object's blocks-movement toggle" the Editor-layout section had
+  deferred as an inspector property type.*
+- **Editor surface.** Place tool gains a **Creature** kind on **A** (C is Paint and R is rotate; A is
+  "animal", the glossary's other word for one). The strip's Creature section picks the type and the
+  KIND -- the kind is a property of the armed brush, like Paint's grain switch, not a second tool, so
+  "fixed instance" can be set before a creature is ever chosen. The **Select** tool routes a click on a
+  creature to the inspector ahead of the wall/floor beneath it (topmost-first), where its type, kind and
+  passability are editable; retyping or re-kinding KEEPS the durable id, because that is an edit of the
+  creature standing there, not a replacement. The status bar names it "Place: Creature".
+- **Save v13** (`creatures`). A pre-v13 map has no such key and loads with no creatures rather than
+  crashing. Creatures ride the resize shift, the clipboard and paste like every other cell-keyed
+  record; a PASTE mints fresh ids, as it does for doors and pickups.
+
+**As-built (2026-09-05): the SPAWN ZONE, the third kind.** "An area flagged to periodically spawn a
+chosen type within it, for populating wild areas."
+- **Authored by DRAGGING, not clicking.** A zone is a region, so the Creature tool's third kind draws
+  a rectangle with a press-drag-release, the gesture box-select and wall-drawing already use, with a
+  live preview rectangle following the cursor. The kind sits beside Spawn Point and Fixed Instance in
+  the strip, because it is the same tool answering "how is this creature placed".
+- **Stored as a RECT** (`{rect, creature, rate, cap, id}`), not a cell set: a rect is what dragging one
+  out produces, what the spawner samples from and what the overlay draws, so a sparse cell set would
+  cost all three for no authoring gain.
+- **A zone is a RULE ABOUT AN AREA, not an occupant of its cells**, so the one-object-per-cell model
+  does not apply to it: zones may overlap each other and anything in them (a zone over a room with
+  walls in it is a sensible thing to author). Where two overlap, the most recently drawn wins.
+- **It really spawns.** In PLAY each zone tops itself up toward its `cap`, one creature per `rate`
+  seconds, at a random FREE cell inside it (skipping walls, doors, impassable floor, items, authored
+  creatures and its own output). It samples a bounded number of random cells rather than scanning the
+  rect, so a nearly-full zone gives up cheaply instead of sweeping thousands of cells mid-play. There
+  is still no AI, so what a spawned creature does is stand there and block -- but the RULE is real and
+  testable now, which is what the record exists to express.
+- **What a zone produced belongs to the PLAYTHROUGH, not the map.** Spawned creatures are runtime-only:
+  never serialized, cleared on leaving PLAY and on any map apply. The map holds only the rule. (This is
+  the same split the pickups make with collected state, and the one Q4 calls for.)
+- **Inspector: type / rate / cap**, exactly as "Editor layout" asked ("a spawn zone's type/rate/cap",
+  and "complex ones (spawn zones) show more"). Rate and cap are spinboxes, not buttons: they are
+  continuous quantities with a range, not a small fixed roster.
+- **Erase takes a zone LAST.** It sits under every object, structure and terrain in it, so it only goes
+  once the cell has nothing else to give up -- otherwise erasing a creature standing in a zone would
+  delete the zone out from under it. Select routes the same way: a click means the creature, then the
+  door, then the wall, and only then the zone.
+- **Overlay** (`world/creature_zone.gd`): a faint wash plus a dashed border in the creature's rarity
+  colour, and a label naming what it spawns and how many -- the rule is invisible otherwise, and
+  authoring one is entirely about the rule. EDIT-only chrome: in PLAY you should see the creatures it
+  made, not the box that made them. Deliberately NOT in the floor-highlight mask, unlike the creatures
+  that stand on the floor: that bit is for things which OCCLUDE the floor, and a translucent wash in
+  the mask pass would corrupt the key the highlight is drawn from.
+- **Save v14** (`creature_zones`); pre-v14 maps load with no zones. A resize shifts a zone and CLIPS it
+  to the new map (a zone half-off the edge keeps the half that survives); a copy takes a zone only if
+  it is FULLY inside the footprint, since a zone clipped in half would paste a different rule from the
+  one copied; a rotate/flip remaps its two opposite corners, so a wide zone becomes a tall one.
+- A zone covering a cell later removed from the map needs no special handling: the spawner asks
+  `cell_present` before placing, so a hole inside a zone is simply never spawned into.
+
+- Covered by `dev/test_creatures` (79 checks) plus `GQ_CREATURES=` and `GQ_ZONES=` capture hooks;
+  both the creature bodies and the zone overlay verified by render.
+- **Still open here:** nothing in this section. What the creatures then DO -- roaming, fighting,
+  capture, domestication -- is Phase C.
 
 ## Door authored state (editor, decided 2026-08-16)
 A placed door defaults to **closed** (the common enclosure case), and its **authored state is
@@ -1872,6 +2085,30 @@ so matching existing terrain needs no palette hunting.
   active; Alt = subtract only while a **selection** tool (wand/box) is active. The active tool
   disambiguates. Document this clearly so the mental model stays simple.
 - Picks material/colour only, not walls/objects (a wall eyedropper could come later).
+
+**As-built (2026-09-04): DONE.** `FloorManager.Mode.EYEDROP`, an **Eyedropper (I)** button on the tool
+strip, plus the **Alt+click** shortcut in Cell Selector / Fine Details. Covered by `dev/test_eyedropper`
+(19 checks).
+- **What a pick loads.** The FLOOR quarter under the cursor gives **material + tint**, the two axes of
+  the combined floor brush, and arms it so the next click lays exactly what was sampled. Bare grass
+  ("") is a real answer: it arms the grass eraser, which is how you match plain ground. Picking reads
+  the quarter, not the cell, because that is the grain `_quad_mat` / `_quad_tint` actually store.
+- **A pick never edits the map.** It writes the brush fields directly rather than going through
+  `arm_floor_material` / `arm_wall_material`, which deliberately RE-FILL an active selection (the
+  two-way panel binding). So picking with a room selected loads the brush and leaves the room alone,
+  and commits no undo entry.
+- **Walls too (beyond the 2026-08-16 spec).** That spec deferred walls ("a wall eyedropper could come
+  later") because wall *materials* did not exist yet. They do now, the wall brush has the same two axes
+  as the floor, and picking nothing on a wall would just read as broken -- so a wall under the cursor
+  loads the **wall** brush (material + colour). Easy to drop back to floors-only if that turns out to
+  be unwanted.
+- **The Alt modifier does not clash** with Alt = subtract-from-selection: subtract only applies while a
+  SELECTION tool (Wand/Box) is active, the eyedropper shortcut only while a PAINT brush is (Cell/Fine).
+  The mode sets are disjoint, so the active tool disambiguates, exactly as the note above predicted.
+- **Hover:** an ORANGE (ground-edit palette) cursor on the QUARTER that will be sampled.
+- Not picked: the floor **pattern** index. Painting has no pattern axis today (patterns are their own
+  tool, `_tool_kind == "pattern"`), so a picked pattern would be dropped on the next paint. If the
+  brush ever gains a pattern axis, pick it here too.
 
 ## Map sharing: export / import (decided 2026-08-16)
 Friends will build maps too, so maps share as **self-contained files**:
@@ -1910,7 +2147,13 @@ Each saved map stores a **small top-down snapshot captured on save**:
 - Accepted the extra UI overhead (folder management) over the simpler flat-list-with-search, per the
   user's choice, because the map collection is expected to get large (multi-map game + shared maps).
 
-## New Map flow (decided 2026-08-16)
+## New Map flow (decided 2026-08-16) BUILT (noted 2026-09-05)
+*As-built note added 2026-09-05: this was already built and had simply never been marked.* The Maps
+menu (M) carries a **New** button (`ui/save_load_menu.gd`) behind the unsaved-changes guard, and
+`MapIO.new_map()` produces exactly what this section specifies: a blank 48x32 map, no walls, doors,
+items or creatures, spawn at the centre, history reset and the dirty flag cleared. No size prompt and
+no templates, as decided.
+
 **New Map always starts as a blank 48x32 grass canvas** (the default size), no size prompt and no
 templates. The edge-cell tools handle any resizing afterward, so there is nothing to decide up front.
 - Keeps map creation one click; consistency over configurability.
@@ -1961,6 +2204,29 @@ saved position:
 - Build note: `MapIO` already serializes a spawn; this gives it an explicit editor affordance and a
   visible marker rather than implicitly using the player's position.
 
+**As-built (2026-09-04): DONE, and it fixes a real bug.** Covered by `dev/test_spawn_marker` (22 checks).
+- **`world/spawn_marker.gd`**, a `SpawnMarker` node in main.tscn's World. **Its position IS the spawn**
+  `MapIO` serializes: `serialize()` reads the marker (falling back to the player for a scene without
+  one) and `_apply` moves the marker on every apply, so a resize, an undo and a load all carry the
+  authored spawn with the rest of the map. The save format is unchanged (`spawn` is still {x, y}), so
+  old maps load with the marker landing on whatever they stored -- no version bump, no migration.
+- **The bug this fixes:** the spawn used to be `player.position` at save time, so walking the character
+  around in PLAY and saving silently moved the map's start point. Now the two are separate, which is
+  the split `CharacterIO` already described in its header ("Maps store an authored spawn (MapIO); this
+  stores where the player actually stands").
+- **Set Spawn (P)** on the tool strip: one click moves the marker, one undo entry. It **refuses walls**
+  (the player would start stuck) and cells off the map or on an absent-cell hole, and a repeat click on
+  the same cell commits nothing rather than an empty history step. It does **not** move the character --
+  that is the whole point; a map LOAD is what puts the player on the marker.
+- **The marker** is a white-on-dark pennant with a ground ring marking the cell, drawn in World space
+  so it sits in the game's perspective. Deliberately none of the editor's role colours (orange ground /
+  green add / red erase / purple walls), so it never reads as a hover or a selection. **Visible in EDIT,
+  hidden in PLAY**, like the rest of the editor chrome.
+- Not built: dragging the existing marker as a separate gesture. In Set Spawn mode a click IS the move,
+  which is the same result in fewer parts; revisit if it feels wrong in use.
+- **Capture harness:** `GQ_SPAWN="x,y"` moves the spawn through the real tool path (EDIT only, since
+  the marker is editor chrome).
+
 ## Move tool (drag-move, keeps identity, decided 2026-08-16)
 Reposition an already-placed thing without delete-and-replace. **Magic-Wand-select** it (or a
 region), then **drag it to a new cell**; the hover/drop-preview shows the destination before release.
@@ -1974,6 +2240,9 @@ region), then **drag it to a new cell**; the hover/drop-preview shows the destin
   keeping its id. One undo entry per move.
 - Reuses the selection, drop-preview, and undo systems already specced; the new piece is the "move
   op preserves id" path that the copy/paste and erase paths deliberately do not.
+
+**BUILT 2026-08-30** as the **Move (V)** tool, together with copy/paste/duplicate (they share the clip,
+the ghost and the stamp). See the as-built note under "Copy, paste, and duplicate".
 
 ## Editor camera: pan and zoom (decided 2026-08-16, Phase A)
 The 48x32 default map is larger than the screen, so the editor needs its own camera, **decoupled
@@ -2029,6 +2298,51 @@ Both safety nets, since the user wants maximum protection:
   navigation. Pairs with undo/redo for in-session recovery.
 - Build note: reuses the existing `MapIO` atomic-write path; adds a dirty flag (set on any edit,
   cleared on explicit save) and a recovery-file slot + newer-than check on launch.
+
+**As-built (2026-09-05): the QUIT half of the dirty-flag warning is done**, via a new **Exit** button.
+The game launches fullscreen with no title bar (see `systems/window_mode.gd`), so without an on-screen
+exit the only ways out were Cmd+Q or dropping out of fullscreen first.
+- **Where:** `ui/mode_toggle.gd`, which now owns the top-right chrome PAIR (the EDIT/PLAY toggle and
+  Exit) in one right-aligned row, so neither button has to know the other's width. Both stay visible in
+  **both modes**, for the same reason the toggle always was: play must be leavable.
+- **The guard, exactly as this section decided:** a clean map exits straight away; unsaved edits raise
+  **Save and Quit** (the OK/default action, so the safe choice is the one your hand is already on),
+  **Quit without Saving**, and **Cancel**. Quitting never silently discards edits.
+- **A never-saved map has no filename to write to**, so "Save and Quit" hands over the Maps menu's Save
+  As field rather than inventing a name behind the user's back.
+- Covered by `dev/test_exit_button` (16 checks).
+**As-built (2026-09-05): the RECOVERY FILE half is done, completing this section.** The dirty warning
+guards New / Load / Quit; the recovery slot now guards a crash.
+- **It also CORRECTS the 2026-08-17 autosave**, which wrote straight over the real map file every 30s.
+  That is the one thing this section had ruled out: it meant a saved map could not be gone back to,
+  because the edits you wanted to abandon had already replaced it. Autosave now writes
+  `user://recovery.json` and never touches `user://maps/`. *Visible behaviour change: a named map no
+  longer silently saves itself while you work. Explicit Save is the only thing that writes your map.*
+- **The three concepts stay distinct**, as this section asked: explicit Save writes the real file,
+  autosave writes the separate slot, the dirty warning guards navigation.
+- **Cadence as decided:** a **3s idle debounce** (`RECOVERY_IDLE_SEC`) so work is captured almost as
+  soon as you pause, plus a **120s fallback** (`RECOVERY_MAX_SEC`) so an unbroken editing run is not
+  one long unwritten stretch. A write only happens when the slot is actually behind (`_recovery_stale`,
+  set by `mark_dirty`), so a still editor costs nothing and never rewrites the same state.
+- **An UNNAMED map is covered now**, which the old autosave had to skip. That is the case where a crash
+  costs the most: there is no saved file to fall back on at all, so the slot is the only copy.
+- **The slot records which map it belongs to and when** (`{map, at, version, data}`), written through
+  the same atomic temp-then-rename the real save uses -- a crash mid-write must not leave a
+  half-written slot that then fails to parse exactly when it is needed.
+- **Newer-than check on launch, as decided.** For a NAMED map the slot is offered only when it is newer
+  than the file on disk (if you saved after the last autosave, it holds nothing you do not have); a
+  never-saved map, or one whose file has since been deleted, is always offered. The snapshot is read
+  BEFORE the launch auto-load, since loading a map clears the slot.
+- **Offered, never restored silently** (`recovery_available` -> a dialog in `ui/save_load_menu.gd`):
+  the user may well prefer the version they deliberately saved, and only they know which. Restore
+  brings the map back **dirty**, because recovered work is by definition work that was never saved.
+  Discard deletes the slot, so saying no once is not re-asked on every launch.
+- **The slot is dropped whenever its contents stop being what is worth recovering:** an explicit save
+  (the work is in the real file), a load, or a New (the live map has been replaced).
+- The menu's flash says **"Recovery saved"**, not "Saved": a recovery write does not save your map, and
+  saying so would be a lie the user would act on.
+- Covered by `dev/test_persistence` (40 checks), including that the real map file is left untouched by
+  an autosave tick, the debounce only fires on a pause, and the launch offer names the right map.
 
 ## Box-select (rectangular area selection, decided 2026-08-16) BUILT 2026-08-17
 A second selection tool alongside the Magic Wand: **drag a rectangle to select every cell inside it,
@@ -2116,6 +2430,65 @@ already specced, so it is a natural fast-follow rather than new machinery:
   door gets a fresh id, like any new placement) and clips or auto-extends at that map's edges.
 - **Timing:** after the core Phase A tools (needs the Magic Wand selection, placement drop-preview,
   and undo all working first); a Phase A fast-follow, not the first pass.
+
+**As-built (2026-08-30): COPY / PASTE / DUPLICATE + the MOVE tool, all DONE.** Built together because
+they are one mechanism with three entry points: a region is captured as a *clip*, previewed as a hover
+ghost, and stamped. Covered by `dev/test_clipboard` (64 checks).
+- **`MapClipboard` autoload (`systems/map_clipboard.gd`).** A clip is an ORIGIN-RELATIVE slice of the
+  same layers `MapIO.serialize()` stores (walls, doors, bridges, wall colours/materials, floor
+  quarters/tints/patterns/bank flags) plus the **footprint of cells** it covers. Because it is data in
+  the serialized shape, pasting is a pure dict transform re-applied through MapIO -- the same path
+  load, resize and undo use -- so a paste rebuilds everything derived (shadows, lighting, room
+  topology) and lands as **one undo entry**.
+- **Grain (the "settle at build" questions, answered).**
+  - *Footprint = CELLS.* A floor selection contributes every cell owning a selected quarter, so
+    magic-wand-selecting a room (interior + wall ring) and copying takes the room's floor **and** its
+    walls and doors -- the "build a room once, reuse it across levels" case. A Fine-Details part-cell
+    selection therefore copies its whole cell; sub-cell clips are not a thing (v1 caveat).
+  - *Paste OVERWRITES within its footprint.* Every target cell is stripped first, so a stamp never
+    half-merges with what was under it.
+  - *Paste CLIPS at the map edge.* Target cells off the grid or on an absent-cell hole are dropped and
+    the rest still land (nothing auto-extends the map). The ghost outlines those cells in **red** so
+    the clipping reads before the click; a wholly off-map paste does nothing and commits nothing.
+  - *Anchor:* a paste **centres** the block on the cursor (it reads as carrying it); a move keeps the
+    offset from the cell the drag grabbed.
+- **Rotate + flip, with the orientation-remap table (`MapClipboard._reorient`).** Clips transform as
+  DATA, not as rotated images: cell and quarter coordinates remap within the bounding box and every
+  directional record goes through the table -- a horizontal door becomes vertical, and its **swing side
+  follows the transform** (rotate CW: north->east, east->south, so a vertical source inverts; flip_h
+  inverts a vertical door's side, flip_v a horizontal one's). Walls carry no orientation of their own
+  (their shape is derived from neighbours) and floor materials/patterns are non-directional, so **every
+  clip can rotate today**; the table is the single source the R-key placement override should reuse.
+- **The hover ghost (`floors/clip_preview.gd`).** Draws the armed clip over the cells it will occupy:
+  the footprint washed and outlined in ADD-green (ERASE-red where it would clip), the clip's floor
+  drawn with its real material textures at the destination's tile phase, lifted a few px with a contact
+  shadow like the terrain drop-preview. Walls/doors show as lifted grey blocks marking WHERE they land
+  (their real art is derived from neighbours at build time, so faking the shape would lie) -- upgrading
+  those to real wall/gate preview nodes is the obvious polish pass.
+- **Keys.** **Ctrl+C** copies the selection, **Ctrl+V** arms a paste brush, **Ctrl+D** duplicates
+  (copy + arm). While a clip is armed: **R** rotates 90 degrees CW, **H** flips horizontally,
+  **Shift+H** flips vertically, **Esc** or a **right-click** drops it. The armed paste owns the next
+  left-click in any mode, and switching tools cancels it.
+- **MOVE tool (V on the tool strip).** Select with the Magic Wand or Box-select, then press **inside**
+  the selection and drag; the ghost follows the grab point, release drops it. The move clears the source
+  and stamps the destination **in one dict, one re-apply, one undo entry**, so the region never flickers
+  through a half-moved state, and every record is carried across **verbatim** -- a moved door keeps its
+  authored open/swing (and will keep its durable id once objects have one). That is the "move keeps
+  identity" contract that separates it from delete-then-place. A move never touches the clipboard, so
+  it cannot clobber what you copied. Dropping where it started is a no-op (unless you rotated).
+  - **Hotkey note:** the roadmap pencilled in M for Move, but M is the map menu; V is the
+    Photoshop/Illustrator move-tool key and Ctrl+V still pastes. The hotkey section says the final
+    letters are tunable at build.
+- **After a paste or a move the landed region becomes the selection**, so it can be moved again, filled
+  or erased immediately.
+- **Cross-map + restart.** The clipboard lives in the autoload (so it survives loading another map) and
+  mirrors to `user://clipboard.json` (so it survives a restart). Ids are not minted yet anywhere, so
+  "a pasted locked door gets a fresh id" is a no-op until doors carry ids.
+- **Capture harness:** `GQ_CLIP="sx,sy,w,h:px,py[:rotations[:drop]]"` copies a cell rectangle and either
+  ghosts it at a cell or stamps it. Since the ghost follows the OS cursor (which a capture run cannot
+  place), `FloorManager._ghost_origin_pin` pins the origin for the harness only. Verified by render: a
+  5x5 clip rotated once draws its green footprint, its wood floor and its wall blocks over the target
+  cells, and reads red past the map edge.
 
 ## Coloured highlight system (logged 2026-08-16, Phase A)
 
@@ -2692,6 +3065,42 @@ menu grows (modes, colour, pattern, material, walls, doors, items, creatures). W
   positions so muscle memory forms.
 - Revisit against real UI references at build time; logged as a design task, not yet decided.
 
+**As-built (2026-09-05): MERGED AND MINIMISED**, on the user's note that "not all the menu options are
+necessary". Two consolidations, both following this section's own "separate the axes" principle.
+- **The left strip: TWELVE tool buttons -> FOUR.** Select / Paint / Place / Move. The modes underneath
+  did not go away -- a tool switches between them -- but a tool is now the thing you pick, and WHAT it
+  acts with is a property in the panel:
+  - **Select** = Magic Wand + Box Select + Select, genuinely one tool now: a **click** grows a selection
+    (patch -> room, run -> building), a **drag past 6px** boxes one, and the click also loads what you
+    hit into the properties inspector. One press arms both gestures and waits to see which happened.
+  - **Paint** = Cell Selector + Fine Details, with the grain as a **Fine (quarter)** switch -- which is
+    what it always was: a property of the brush, not a separate tool.
+  - **Place** = Wall + Door + Bridge + Item + Set Spawn, with a **kind row** picking what drops. Adding
+    a placeable later is one entry in `PLACE_KINDS`, not another strip button.
+  - **Move** unchanged. **Erase and Eyedropper keep no button** (Erase: menu + Delete + E; Eyedropper:
+    Alt+click while painting, + I) -- the same call the roadmap already made for Erase.
+  - **Each tool's sub-choice is only on screen while that tool is active**, so the strip is four buttons
+    plus at most one row.
+  - **EVERY pre-merge shortcut still works** and sets the right sub-choice (W/B/S -> Select, C -> Paint
+    cell, F -> Paint fine, L/D/G/T/P -> Place that kind, V -> Move, E, I). Muscle memory survives the
+    consolidation, which is the main risk a merge like this carries. Covered by `dev/test_tool_strip`.
+- **The right-click menu: up to SEVEN top-level entries -> THREE.** It had grown to list every axis
+  separately (Floor Textures / Floor Colours / Pattern / Wall Colour / Wall Material / Build Wall /
+  Build Door) while the persistent left panel offered the same choices -- exactly the duplication this
+  section warned about, and the reconciliation the Build Wall configurator note asked for.
+  - **Style collapses to one submenu per target**: **Floor** (Texture / Colour / Pattern, grouped by
+    separator headings) and **Wall** (Colour / Material), plus the existing **Door**. Still one level
+    deep, never two. Nothing became unreachable: patterns stay in the menu on purpose, since they are
+    material-aware from the clicked cell, which a brush panel cannot be.
+  - **Building left the menu entirely.** The Place tool drops walls and doors and can DRAG a wall line,
+    which the menu items never could.
+  - What remains is what a context menu is for: **act on the thing under the cursor** (its style, Erase,
+    Grid). Covered by `dev/test_context_menu`, which now asserts the SHORT top level as a rule.
+- **Leftover to sweep:** the Build Wall configurator submenu (`build_wall_sub` + `_on_build_wall_id`) is
+  still constructed in `_ready` but no longer reachable from any menu, since the Place tool superseded
+  it. Left in place rather than ripped out mid-merge; delete it (and `dev/test_wall_brush_sync`'s hook
+  into it) next time that file is open.
+
 ### Editor UX revisions: actions into the right-click menu (logged 2026-08-17, not built)
 A batch of editor-UX notes that mostly **move actions off the left tool strip and into the contextual
 right-click menu**, and fix selection/deselection gaps. Several REVISE earlier decisions; newest intent
@@ -2734,6 +3143,17 @@ wins. Logged as design tasks, not yet built.
   edge grow/shrink controls (hover-add toggle + the four edge +/- rows) now live inside a collapsed
   **Advanced** accordion section on the left strip, so they are tucked away by default. Recenter stays
   visible below. See the accordion note next.
+- **Accordion is EXCLUSIVE: one section open at a time. DONE 2026-09-05.** On the user's note. Opening
+  a section now folds every other one (`_collapse_others`, re-entry guarded since setting
+  `button_pressed` re-fires `toggled`), so the strip stays one screen of controls instead of growing as
+  sections pile up open. Collapsing the open one leaves them all shut, which is fine -- the header rows
+  are still the whole menu. Only **Tools** starts open (Brush was the other expanded-by-default section);
+  selecting a floor or a wall still auto-opens Brush or Wall, and no longer has to fold its sibling by
+  hand, since opening does that now. Verified by `dev/test_tool_strip` (it asserts exactly one open at
+  startup and after a switch).
+  - *Consequence to watch:* the tool buttons live in Tools, so opening Brush/Item/Wall/Advanced folds
+    them away. Every tool keeps its keyboard shortcut, so switching tools does not need the section
+    open; if that proves annoying, pin Tools outside the accordion rather than relaxing the rule.
 - **Accordion menus for the left menu. DONE 2026-08-17.** The left tool strip (`ui/tool_strip.gd`) is now
   laid out as collapsible **accordion** sections via a new `_add_section(parent, title, expanded)` helper
   (header button with a ▾/▸ arrow that folds a content VBox; sections recorded in `_sections` for tests).
@@ -2783,6 +3203,12 @@ while editing, so letter keys are free):
   I = Eyedropper, M = Move, D = Door, plus a key each for Wall and Set Spawn (assign at build).
 - **Actions:** Ctrl+Z / Ctrl+Y = undo / redo, Ctrl+C / Ctrl+V = copy / paste, R = rotate (Shift+R or
   a flip key for flip), Esc = clear selection / cancel.
+  - *As built 2026-08-30:* Ctrl+C / Ctrl+V / **Ctrl+D (duplicate)**; while a clip is armed **R** rotates,
+    **H** flips horizontally, **Shift+H** flips vertically, **Esc**/right-click cancels. **Move took V**
+    (Photoshop's move key) rather than M, which is the map menu.
+  - *As built 2026-09-04:* **I = Eyedropper** (as pencilled in) and **P = Set Spawn** (the "key each for
+    Wall and Set Spawn, assign at build" that was left open; Wall took L earlier).
+  - *As built 2026-09-05:* **T = Item** (place a pickup).
 - **Modifiers (already decided):** Shift = add to selection, Alt = subtract (or eyedropper while a
   paint brush is active), Space+drag / MMB = pan, wheel = zoom.
 - Final letter assignments tunable at build; the scheme is mnemonic-first. Consider making them
@@ -2815,12 +3241,47 @@ menu" work:
       (the WALL_COLORS palette, current colour disabled). Holds the selected CELL not a node, so a
       rebuild can't strand it. One undo entry per edit.
     - **Deferred:** locked state (needs keys/inventory, Phase B), object/spawn-zone property types
-      (need those objects), the status bar, and folding the inspector's wall-colour into the same
-      right-click contextual menu path.
+      (need those objects) and folding the inspector's wall-colour into the same right-click contextual
+      menu path. (The status bar, also deferred here, was BUILT 2026-09-05 -- see its as-built below.)
 - **Centre: the map canvas.**
-- **A thin status bar (decided 2026-08-16, bottom or top).** Shows live editing info: hovered cell
-  x,y, active tool, current selection size, map dimensions (WxH), and zoom %. Cheap and genuinely
-  helps precise placement and resizing on the 48x32 grid. Updates on hover/selection/zoom change.
+- **A thin status bar (decided 2026-08-16, bottom or top). BUILT 2026-09-05.** Shows live editing info:
+  hovered cell x,y, active tool, current selection size, map dimensions (WxH), and zoom %. Cheap and
+  genuinely helps precise placement and resizing on the 48x32 grid. Updates on hover/selection/zoom
+  change.
+  - **As-built (2026-09-05): `ui/status_bar.gd`**, a bottom-anchored CanvasLayer in main.tscn. This was
+    the LAST open item of Phase A group 4 ("Selection + power tools"), so that group is now complete.
+  - **Two halves, anchored to opposite edges.** Left: `Cell 12, 7 · Paint (Fine) · Sel 24 cells`.
+    Right: `48 × 32 · 200%`. Anchoring them apart means neither field DANCES as the other's text
+    changes -- only the gap between them moves.
+  - **It names the TOOL, not the mode.** The strip merged twelve modes into four tools (2026-09-05), so
+    the bar maps `FloorManager.Mode` back through that vocabulary (`WAND`/`BOX`/`SELECT` all read
+    "Select", `CELL` -> "Paint", `FINE` -> "Paint (Fine)", `WALL` -> "Place: Wall", ...). Otherwise the
+    readout and the strip would disagree about what you are holding. Erase and Eyedropper have no strip
+    button but are still modes you can be in (E / I), so they name themselves.
+  - **New FloorManager accessors.** `hovered_cell()` -- the cell under the pointer, or `INVALID_CELL` in
+    PLAY / off-window / over the UI / past the map edge (a hole in a jagged map counts as past it). Its
+    gating deliberately mirrors `_process`'s, so the readout goes blank exactly when the hover highlights
+    stand down. It is NOT `_hover_cell`, which is a dedupe tracker the highlight paths blank out while
+    the cursor is still over a cell. And `selection_summary()` -- the selection size in the unit it was
+    made in: a floor selection reports cells only when its quarters tile whole cells and **quads**
+    otherwise, so half a cell never reads as a whole one; a wall selection counts walls.
+  - **Polls, with one exception.** The hovered cell changes with mouse motion AND with camera pan, so
+    there is no single signal to hang it on; a per-frame read of a few values is cheaper than the
+    plumbing, and the labels are only re-set when the composed text changes. The selection field is the
+    exception: counting a floor selection's cells walks every selected quarter, so it is cached off the
+    existing `selection_changed` signal rather than recomputed each frame.
+  - **Dimensions tell the truth about jagged maps.** WxH is the bounding box, which is the whole story
+    only while the map is a full rectangle; once the cell-existence model has carved holes in it, the
+    real cell count is appended (`48 × 32 (1533 cells)`) -- in that case and only that case.
+  - **It brings its own background.** The default PanelContainer panel is nearly transparent, and a
+    render showed the text washing out over pale floors. A readout must be readable over ANY map, so the
+    bar paints a near-opaque dark ground with a hairline top edge.
+  - **The tool strip stays clear of it.** Both are EDIT-only chrome and the strip can grow to fill the
+    window height, so `tool_strip._relayout` now subtracts the bar's height. It ASKS the bar
+    (`status_bar.height()`, the panel's combined minimum) rather than trusting a constant, because the
+    height comes from the theme: the declared `HEIGHT` is only a floor and a pre-instantiation fallback.
+    The panel grows UP if the theme makes it taller, so it stays flush with the bottom edge.
+  - Covered by `dev/test_status_bar` (31 checks); verified visually against a render.
 - **Right-click menu becomes purely contextual (contents decided 2026-08-16):** a short menu of
   actions for the specific thing hovered, no mode-switching. By target:
   - **Door:** Edit Door (type / colour / state closed-open-locked), Delete.
