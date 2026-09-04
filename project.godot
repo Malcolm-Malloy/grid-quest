@@ -25,6 +25,8 @@ EditHistory="*res://systems/edit_history.gd"
 EditorMode="*res://systems/editor_mode.gd"
 WindowMode="*res://systems/window_mode.gd"
 CharacterIO="*res://systems/character_io.gd"
+GameIO="*res://systems/game_io.gd"
+Hotkeys="*res://systems/hotkeys.gd"
 
 [display]
 

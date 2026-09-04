@@ -213,6 +213,78 @@ const FLOOR_COLORS := [
 	# as a muddy near-duplicate of Natural. Existing grey-tinted floors still render (tints store raw Color).
 ]
 
+# The MATERIAL-AWARE half of the palette (ROADMAP "Colour palette: 16 swatches, half material-aware",
+# decided 2026-08-16; the "fun" half above shipped 2026-08-16 and this was deferred). Eight realistic
+# tints per material, so the swatches on offer always make sense for the thing being coloured: wood
+# gets wood tones, stone gets greys, grass gets greens through to dry yellow. Selecting a material
+# swaps this row; the fun row above never changes.
+#
+# These are TINTS multiplied over a greyscale base (see "Colour system cleanup": material = the grey
+# pattern, colour = the tint), so they are chosen as multipliers, not as the final colour -- which is
+# why they sit near white rather than at the saturations the names suggest.
+const MATERIAL_COLORS := {
+	"wood": [
+		["Pine", Color(0.92, 0.78, 0.55)], ["Light Oak", Color(0.85, 0.66, 0.42)],
+		["Oak", Color(0.72, 0.52, 0.32)], ["Cherry", Color(0.70, 0.40, 0.30)],
+		["Walnut", Color(0.52, 0.36, 0.24)], ["Mahogany", Color(0.45, 0.26, 0.20)],
+		["Dark Stain", Color(0.32, 0.23, 0.17)], ["Driftwood", Color(0.74, 0.72, 0.68)],
+	],
+	# concrete, tile and slate all read as constructed greys, so they share a stone ramp
+	"concrete": [
+		["Bone", Color(0.94, 0.92, 0.87)], ["Pale Grey", Color(0.84, 0.85, 0.86)],
+		["Grey", Color(0.70, 0.71, 0.73)], ["Slate", Color(0.55, 0.58, 0.62)],
+		["Steel", Color(0.46, 0.50, 0.56)], ["Charcoal", Color(0.34, 0.35, 0.38)],
+		["Basalt", Color(0.24, 0.25, 0.28)], ["Sandstone", Color(0.88, 0.78, 0.60)],
+	],
+	"tile": [
+		["White", Color(0.96, 0.96, 0.96)], ["Ivory", Color(0.93, 0.90, 0.80)],
+		["Terracotta", Color(0.80, 0.45, 0.32)], ["Sage", Color(0.62, 0.74, 0.60)],
+		["Sky", Color(0.62, 0.78, 0.90)], ["Cobalt", Color(0.36, 0.48, 0.78)],
+		["Slate", Color(0.50, 0.54, 0.58)], ["Onyx", Color(0.28, 0.28, 0.32)],
+	],
+	"carpet": [
+		["Cream", Color(0.93, 0.89, 0.80)], ["Sand", Color(0.85, 0.76, 0.60)],
+		["Moss", Color(0.55, 0.65, 0.45)], ["Forest", Color(0.36, 0.50, 0.36)],
+		["Navy", Color(0.34, 0.42, 0.62)], ["Burgundy", Color(0.55, 0.24, 0.28)],
+		["Plum", Color(0.50, 0.36, 0.55)], ["Ash", Color(0.62, 0.62, 0.64)],
+	],
+	"grass": [
+		["Fresh", Color(0.72, 1.00, 0.66)], ["Meadow", Color(0.86, 1.00, 0.74)],
+		["Deep", Color(0.55, 0.80, 0.52)], ["Olive", Color(0.78, 0.82, 0.48)],
+		["Dry", Color(0.92, 0.88, 0.52)], ["Straw", Color(0.95, 0.82, 0.48)],
+		["Scorched", Color(0.72, 0.60, 0.40)], ["Frosted", Color(0.82, 0.94, 0.90)],
+	],
+	"sand": [
+		["Pale", Color(0.98, 0.94, 0.80)], ["Dune", Color(0.93, 0.85, 0.65)],
+		["Desert", Color(0.88, 0.75, 0.52)], ["Clay", Color(0.82, 0.62, 0.44)],
+		["Red Sand", Color(0.80, 0.50, 0.36)], ["Ash Grey", Color(0.74, 0.72, 0.68)],
+		["Black Sand", Color(0.42, 0.40, 0.40)], ["Shell", Color(0.95, 0.90, 0.88)],
+	],
+	"snow": [
+		["Fresh", Color(1.00, 1.00, 1.00)], ["Moonlit", Color(0.88, 0.92, 1.00)],
+		["Blue Shade", Color(0.78, 0.86, 0.98)], ["Glacier", Color(0.70, 0.86, 0.92)],
+		["Slush", Color(0.78, 0.80, 0.80)], ["Trodden", Color(0.66, 0.68, 0.72)],
+		["Dusk", Color(0.62, 0.64, 0.78)], ["Sunlit", Color(1.00, 0.96, 0.86)],
+	],
+	"water": [
+		["Shallow", Color(0.72, 0.94, 0.98)], ["Lagoon", Color(0.55, 0.88, 0.92)],
+		["Sea", Color(0.45, 0.72, 0.90)], ["Deep", Color(0.32, 0.52, 0.80)],
+		["Ocean", Color(0.24, 0.38, 0.66)], ["Murky", Color(0.48, 0.58, 0.48)],
+		["Swamp", Color(0.42, 0.50, 0.36)], ["Ink", Color(0.26, 0.30, 0.42)],
+	],
+	"lava": [
+		["Molten", Color(1.00, 0.80, 0.40)], ["Fire", Color(1.00, 0.62, 0.28)],
+		["Ember", Color(0.95, 0.42, 0.22)], ["Blood", Color(0.78, 0.24, 0.20)],
+		["Cooling", Color(0.60, 0.28, 0.24)], ["Crust", Color(0.42, 0.28, 0.26)],
+		["Sulphur", Color(0.92, 0.86, 0.42)], ["Cinder", Color(0.34, 0.30, 0.30)],
+	],
+}
+
+# the eight realistic swatches for `material`, or [] when it has no table (nothing to show, so the
+# panel hides the row rather than inventing colours that do not mean anything for it)
+func material_colors(material: String) -> Array:
+	return MATERIAL_COLORS.get(material, [])
+
 # emitted whenever the armed floor brush changes (material, armed flag, tool kind, or colour), so the
 # persistent left-panel Brush inspector (tool_strip.gd) can highlight the active material + colour live.
 signal brush_changed
@@ -855,9 +927,14 @@ func _apply_menu_context(cell: Vector2i) -> void:
 	_rebuild_floor_submenu()
 	_menu.add_submenu_item("Floor", "floor_sub")
 	_menu.add_item("Erase", ERASE_ID) # acts on the selection if there is one, else the clicked target
+	# right-click entries carry tooltips too (ROADMAP "Tooltips on menu and tool options": the sweep
+	# covers "right-click menu entries", not only the tool strip), composed from the one hotkey table
+	_menu.set_item_tooltip(_menu.get_item_index(ERASE_ID),
+		Hotkeys.tip("erase", "Acts on the selection if there is one, else the clicked target."))
 	_menu.add_separator()
 	_menu.add_check_item("Grid", GRID_ID)
 	_menu.set_item_checked(_menu.get_item_index(GRID_ID), _grid_on)
+	_menu.set_item_tooltip(_menu.get_item_index(GRID_ID), "Show the reference grid over the map")
 
 # The Floor submenu: texture, colour and pattern for the clicked ground, in one list with separator
 # headings. Rebuilt per right-click because the PATTERN entries are material-aware (they depend on what

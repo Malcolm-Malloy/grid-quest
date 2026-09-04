@@ -32,17 +32,22 @@ const T_SELECT := 0
 const T_PAINT := 1
 const T_PLACE := 2
 const T_MOVE := 3
+# name + tool id + the Hotkeys action it is bound to. The visible label and the tooltip are both
+# COMPOSED from that action (ROADMAP "Tooltips on menu and tool options": read the shortcut from the
+# same hotkey map so tooltip and binding never drift), rather than spelling "(S)" out here as a second
+# copy of the binding that could quietly go stale.
 const TOOLS := [
-	["Select (S)", T_SELECT],
-	["Paint (C)", T_PAINT],
-	["Place (L)", T_PLACE],
-	["Move (V)", T_MOVE],
+	["Select", T_SELECT, "select"],
+	["Paint", T_PAINT, "paint"],
+	["Place", T_PLACE, "place"],
+	["Move", T_MOVE, "move"],
 ]
 # what the Place tool drops, and the mode each maps to. The label is the whole roster of placeable
 # things in one row, so adding one later is one line here rather than another strip button.
 const PLACE_KINDS := [
-	["Wall", M_WALL, KEY_L], ["Door", M_DOOR, KEY_D], ["Bridge", M_BRIDGE, KEY_G],
-	["Item", M_ITEM, KEY_T], ["Creature", M_CREATURE, KEY_A], ["Spawn", M_SPAWN, KEY_P],
+	["Wall", M_WALL, KEY_L, "place_wall"], ["Door", M_DOOR, KEY_D, "place_door"],
+	["Bridge", M_BRIDGE, KEY_G, "place_bridge"], ["Item", M_ITEM, KEY_T, "place_item"],
+	["Creature", M_CREATURE, KEY_A, "place_creature"], ["Spawn", M_SPAWN, KEY_P, "place_spawn"],
 ]
 # EVERY pre-merge shortcut still works and simply selects the merged tool with the right sub-choice, so
 # muscle memory survives the consolidation: W/B/S -> Select, C -> Paint (cell), F -> Paint (fine),
@@ -71,6 +76,10 @@ var _pending_level := ""          # the map a confirmed Level switch will load
 # persistent Brush panel: shows/edits the armed floor material + colour without the right-click menu
 var _mat_buttons := {}            # floor material value -> Button (radio); the active one is highlighted
 var _col_swatches := []           # [{color, button}] clickable floor-colour boxes; active gets a border
+var _mat_col_label: Label         # heading for the material-aware swatch row (hidden with the row)
+var _mat_col_grid: GridContainer  # the row itself; rebuilt whenever the armed material changes
+var _mat_col_swatches := []       # [{color, button}] of that row, so the active one can be bordered
+var _mat_col_for := ""            # which material the row is currently showing, so it only rebuilds on a change
 var _brush_preview: TextureRect   # floor combined-brush swatch: the armed texture tinted by the colour
 var _bank_check: CheckButton      # River Bank switch (on = liquids grow a brown bank when laid)
 var _wall_mat_buttons := {}       # wall material value -> Button (radio)
@@ -133,7 +142,8 @@ func _ready() -> void:
 	var grp := ButtonGroup.new()
 	for t in TOOLS:
 		var b := Button.new()
-		b.text = t[0]
+		b.text = Hotkeys.labelled(t[0], t[2])
+		b.tooltip_text = Hotkeys.tip(t[2])
 		b.toggle_mode = true
 		b.button_group = grp
 		b.pressed.connect(_on_tool_pressed.bind(t[1]))
@@ -144,7 +154,7 @@ func _ready() -> void:
 	# Paint grain, the old Fine Details tool as what it always was: a property of the paint brush.
 	_fine_check = CheckButton.new()
 	_fine_check.text = "Fine (quarter)"
-	_fine_check.tooltip_text = "Paint 16px quarters instead of whole cells (F)"
+	_fine_check.tooltip_text = Hotkeys.tip("paint_fine", "16px quarters instead of whole cells.")
 	_fine_check.toggled.connect(func(_on):
 		if _current_tool() == T_PAINT:
 			_apply_tool(T_PAINT))
@@ -157,7 +167,7 @@ func _ready() -> void:
 	for i in PLACE_KINDS.size():
 		var pb := Button.new()
 		pb.text = PLACE_KINDS[i][0]
-		pb.tooltip_text = "Place %s (%s)" % [PLACE_KINDS[i][0], OS.get_keycode_string(PLACE_KINDS[i][2])]
+		pb.tooltip_text = Hotkeys.tip(PLACE_KINDS[i][3])
 		pb.pressed.connect(_on_place_kind.bind(i))
 		place_grid.add_child(pb)
 		_place_buttons[i] = pb
@@ -178,6 +188,18 @@ func _ready() -> void:
 		# 4-column material grid: keeps the Brush section short as the roster grows (8 materials = 2 rows,
 		# not 4), so the panel needs little scrolling. Buttons hug their text, so 4 short labels stay narrow.
 		_brush_preview = _fill_brush_section(brush, fm.MENU, 4, _on_brush_material, fm.FLOOR_COLORS, _on_brush_color, _mat_buttons, _col_swatches)
+		# --- the MATERIAL-AWARE half of the palette (ROADMAP "Colour palette: 16 swatches, half
+		# material-aware"). The row above is the eight constant "fun" tints; this one swaps to eight
+		# realistic tints for whatever material is armed -- wood tones for wood, greys for concrete,
+		# greens through dry yellow for grass. Only the floor brush has it: the wall palette's own
+		# material-aware set is a separate future entry.
+		_mat_col_label = Label.new()
+		_mat_col_label.text = "For this material"
+		brush.add_child(_mat_col_label)
+		_mat_col_grid = GridContainer.new()
+		_mat_col_grid.columns = 4
+		brush.add_child(_mat_col_grid)
+		_rebuild_material_colors(fm.armed_material())
 		# --- Item accordion section (collapsed): which item the Item (T) tool places. Each button is
 		# labelled with the definition's name and carries its RARITY colour, so the ramp is visible where
 		# you choose, not only on the ground (ROADMAP "Item rarity and rarity highlight").
@@ -188,7 +210,7 @@ func _ready() -> void:
 		for iid in Items.ids():
 			var ib := Button.new()
 			ib.text = Items.display_name(iid)
-			ib.tooltip_text = "%s (%s)" % [Items.display_name(iid), Items.rarity_name(iid)]
+			ib.tooltip_text = Hotkeys.tip("place_item", "%s -- %s." % [Items.display_name(iid), Items.rarity_name(iid)])
 			ib.add_theme_color_override("font_color", Items.rarity_color(iid))
 			ib.pressed.connect(_on_item_pressed.bind(iid))
 			item_grid.add_child(ib)
@@ -216,8 +238,8 @@ func _ready() -> void:
 			var cb := Button.new()
 			cb.text = Bestiary.display_name(cid)
 			# the ability is design intent only until Phase C builds combat, so the tooltip says so
-			cb.tooltip_text = "%s (%s)\n%s" % [Bestiary.display_name(cid), Bestiary.rarity_name(cid),
-				Bestiary.ability(cid)]
+			cb.tooltip_text = Hotkeys.tip("place_creature", "%s -- %s.\n%s" % [Bestiary.display_name(cid),
+				Bestiary.rarity_name(cid), Bestiary.ability(cid)])
 			cb.add_theme_color_override("font_color", Bestiary.rarity_color(cid))
 			cb.pressed.connect(_on_creature_pressed.bind(cid))
 			creature_grid.add_child(cb)
@@ -267,7 +289,8 @@ func _ready() -> void:
 	# --- Recenter (standalone, always visible below the accordion) ---
 	vb.add_child(HSeparator.new())
 	var recenter := Button.new()
-	recenter.text = "Recenter (Home)"
+	recenter.text = Hotkeys.labelled("Recenter", "recenter")
+	recenter.tooltip_text = Hotkeys.tip("recenter")
 	recenter.pressed.connect(_recenter)
 	vb.add_child(recenter)
 
@@ -424,6 +447,8 @@ func _refresh_brush() -> void:
 	if fm == null:
 		return
 	_refresh_brush_section(_mat_buttons, fm.armed_material(), _col_swatches, fm.active_floor_color(), _brush_preview, fm.armed_brush_texture())
+	_rebuild_material_colors(fm.armed_material())
+	_mark_active_swatch(_mat_col_swatches, fm.active_floor_color())
 	_refresh_brush_section(_wall_mat_buttons, fm.armed_wall_material(), _wall_col_swatches, fm.active_wall_color(), _wall_preview, fm.armed_wall_texture())
 
 # highlight one section: press the active material radio, border the active colour swatch, and set the
@@ -439,6 +464,41 @@ func _refresh_brush_section(mat_buttons: Dictionary, active_mat: String, col_swa
 	if preview != null:
 		preview.texture = tex
 		preview.modulate = active_col
+
+# Swap the material-aware swatch row to `material`'s realistic tints. Rebuilt rather than restyled
+# because the colours, the names and even the COUNT differ per material; only on an actual change, so
+# a brush_changed for something else (an arm flag, a tint) costs nothing. A material with no table
+# hides the row entirely rather than showing swatches that mean nothing for it.
+func _rebuild_material_colors(material: String) -> void:
+	if _mat_col_grid == null or material == _mat_col_for:
+		return
+	_mat_col_for = material
+	var fm := get_node_or_null("../World/FloorManager")
+	var entries: Array = fm.material_colors(material) if fm != null else []
+	for c in _mat_col_grid.get_children():
+		_mat_col_grid.remove_child(c)
+		c.queue_free()
+	_mat_col_swatches.clear()
+	var show := not entries.is_empty()
+	_mat_col_grid.visible = show
+	_mat_col_label.visible = show
+	if not show:
+		return
+	_mat_col_label.text = "For %s" % material.capitalize()
+	for entry in entries:
+		var cval: Color = entry[1]
+		var sw := _make_swatch(cval, entry[0])
+		sw.pressed.connect(_on_brush_color.bind(cval))
+		_mat_col_grid.add_child(sw)
+		_mat_col_swatches.append({"color": cval, "button": sw})
+
+# border whichever swatch in `row` matches the active colour (the same cue the fun row uses)
+func _mark_active_swatch(row: Array, active_col: Color) -> void:
+	for sw in row:
+		var active: bool = (sw["color"] as Color).is_equal_approx(active_col)
+		var b: Button = sw["button"]
+		b.add_theme_stylebox_override("normal", _swatch_box(sw["color"], active))
+		b.add_theme_stylebox_override("hover", _swatch_box(sw["color"], active))
 
 # picking a material/colour in the panel means "I want to paint with it", so drop into a
 # painting mode (Cell) if we're not already in one, then arm the brush. In Cell/Fine we leave the
@@ -665,7 +725,7 @@ func _on_creature_kind_pressed(kind: String) -> void:
 func _kind_tip(kind: String) -> String:
 	match kind:
 		Bestiary.INSTANCE: return "This exact creature, exactly here (boss / scripted / quest)"
-		Bestiary.ZONE: return "DRAG a region that keeps spawning this creature while you play"
+		Bestiary.ZONE: return Hotkeys.tip("place_creature", "DRAG a region that keeps spawning this creature while you play.")
 		_: return "Spawns this creature at play start, then it roams"
 
 func _sync_creature_buttons(active: String, kind: String) -> void:

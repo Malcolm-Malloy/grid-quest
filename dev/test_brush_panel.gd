@@ -54,5 +54,32 @@ func _ready() -> void:
 	_check("preview swatch shows the armed texture", ts._brush_preview.texture == fm.armed_brush_texture())
 	_check("preview swatch tinted by the armed colour", ts._brush_preview.modulate.is_equal_approx(fm.FLOOR_COLORS[1][1]))
 
+	# --- the MATERIAL-AWARE swatch row (ROADMAP "Colour palette: 16 swatches, half material-aware").
+	# The fun row above is constant; this one must SWAP with the armed material, which is the feature.
+	fm.arm_floor_material("wood")
+	_check("the material-aware row is shown", ts._mat_col_grid.visible and ts._mat_col_label.visible)
+	_check("...headed for the armed material", ts._mat_col_label.text == "For Wood")
+	_check("...with eight realistic tints", ts._mat_col_swatches.size() == 8)
+	var wood_first: Color = ts._mat_col_swatches[0]["color"]
+	fm.arm_floor_material("snow")
+	_check("arming another material SWAPS the row", ts._mat_col_label.text == "For Snow")
+	_check("...to that material's own tints", not (ts._mat_col_swatches[0]["color"] as Color).is_equal_approx(wood_first))
+	_check("...which are the table's", (ts._mat_col_swatches[0]["color"] as Color).is_equal_approx(fm.MATERIAL_COLORS["snow"][0][1]))
+	_check("every floor material has a table", func_all_have_tables(fm))
+	# picking one arms it, exactly like the fun row
+	ts._mat_col_swatches[2]["button"].pressed.emit()
+	_check("clicking a material-aware swatch arms that colour",
+		fm.active_floor_color().is_equal_approx(fm.MATERIAL_COLORS["snow"][2][1]))
+	# the fun row is unaffected by any of it
+	_check("the constant row still has its eight", ts._col_swatches.size() == fm.FLOOR_COLORS.size())
+
 	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
 	get_tree().quit(_fails)
+
+# every material the Material grid offers must have a realistic table, or picking it would silently
+# drop the row -- the one way this feature can be half-built as the roster grows
+func func_all_have_tables(fm) -> bool:
+	for entry in fm.MENU:
+		if fm.material_colors(entry[1]).size() != 8:
+			return false
+	return true

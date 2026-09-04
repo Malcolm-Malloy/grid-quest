@@ -467,6 +467,10 @@ func _set_last(map_name: String) -> void:
 		f.store_string(map_name)
 		f.close()
 
+# is there a saved map by this name? (GameIO checks before pointing a saved game at one)
+func has_map(map_name: String) -> bool:
+	return map_name != "" and FileAccess.file_exists(_path(map_name))
+
 func list_maps() -> Array:
 	var out: Array = []
 	var d := DirAccess.open(DIR)

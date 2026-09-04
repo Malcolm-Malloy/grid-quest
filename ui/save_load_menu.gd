@@ -13,6 +13,9 @@ var _save_btn: Button
 var _status_lbl: Label            # transient note ("Autosaved", "Saved")
 var _confirm: ConfirmationDialog  # unsaved-changes warning before New / Load
 var _recover_dialog: ConfirmationDialog # launch-time offer to restore a recovery slot
+var _game_lbl: Label          # what the saved game points at ("Continue: <map>")
+var _save_game_btn: Button
+var _continue_btn: Button
 var _pending: Callable            # the action to run once the user confirms discarding edits
 
 func _ready() -> void:
@@ -46,6 +49,7 @@ func _build_ui() -> void:
 
 	var title := Label.new()
 	title.text = "Maps"
+	title.tooltip_text = Hotkeys.tip("maps")
 	vb.add_child(title)
 
 	# current map + overwrite button + New
@@ -67,6 +71,32 @@ func _build_ui() -> void:
 	_status_lbl = Label.new()
 	_status_lbl.modulate = Color(0.6, 0.85, 0.6)
 	vb.add_child(_status_lbl)
+
+	# --- Saved game (ROADMAP Phase B item 9). Kept VISUALLY APART from the map rows above, behind a
+	# separator and its own heading, because it is a different thing entirely: the rows above save the
+	# LEVEL you are building, this saves the PLAYTHROUGH -- where your character is standing in it and
+	# what they are carrying. Confusing the two would be the easiest mistake in this menu.
+	vb.add_child(HSeparator.new())
+	var game_head := Label.new()
+	game_head.text = "Saved game"
+	vb.add_child(game_head)
+	_game_lbl = Label.new()
+	_game_lbl.add_theme_font_size_override("font_size", 11)
+	_game_lbl.add_theme_color_override("font_color", Color(0.68, 0.71, 0.77))
+	vb.add_child(_game_lbl)
+	var game_row := HBoxContainer.new()
+	_save_game_btn = Button.new()
+	_save_game_btn.text = "Save Game"
+	_save_game_btn.tooltip_text = "Save where your character is and what they carry, in the current map"
+	_save_game_btn.pressed.connect(_on_save_game)
+	game_row.add_child(_save_game_btn)
+	_continue_btn = Button.new()
+	_continue_btn.text = "Continue"
+	_continue_btn.tooltip_text = "Load the saved game: its map, then your character back into it"
+	_continue_btn.pressed.connect(_on_continue)
+	game_row.add_child(_continue_btn)
+	vb.add_child(game_row)
+	vb.add_child(HSeparator.new())
 
 	# unsaved-changes warning, shown before New / Load discard the live map
 	_confirm = ConfirmationDialog.new()
@@ -144,6 +174,49 @@ func _on_recovery_available(map_name: String, at: int) -> void:
 		% [which, when])
 	_recover_dialog.popup_centered()
 
+# --- saved game (the PLAYTHROUGH, not the level) ---
+
+# A game save points at the map BY NAME, so it is only as good as the saved map it names. Rather than
+# silently writing the map (the trap the recovery-slot work just removed) or saving a reference to
+# something that no longer matches, it says so and lets the user decide.
+func _on_save_game() -> void:
+	if MapIO.current() == "":
+		_flash("Name the map first (Save As)")
+		return
+	if MapIO.dirty:
+		_flash("Save the map first")
+		return
+	if GameIO.save_game():
+		_refresh_game_label()
+		_flash("Game saved")
+
+func _on_continue() -> void:
+	if not GameIO.has_save():
+		return
+	if GameIO.load_game():
+		# a saved game is a moment of PLAY, so it resumes in play rather than dropping you into the
+		# editor looking at the map it happens to live in
+		EditorMode.set_mode(EditorMode.Mode.PLAY)
+		_refresh_current_label()
+		_refresh_game_label()
+		_flash("Game loaded")
+	else:
+		_flash("That map is gone")
+
+func _refresh_game_label() -> void:
+	if _game_lbl == null:
+		return
+	var map_name := GameIO.saved_map()
+	if map_name == "":
+		_game_lbl.text = "No saved game"
+		_continue_btn.disabled = true
+		return
+	var when := Time.get_datetime_string_from_unix_time(GameIO.saved_at(), true).replace("T", " ")
+	_game_lbl.text = "%s  --  %s" % [map_name, when]
+	_continue_btn.disabled = not MapIO.has_map(map_name)
+	if _continue_btn.disabled:
+		_game_lbl.text = "%s (map deleted)" % map_name
+
 func open() -> void:
 	_open()
 
@@ -164,6 +237,7 @@ func _close() -> void:
 
 func _refresh() -> void:
 	_refresh_current_label()
+	_refresh_game_label()
 	var cur := MapIO.current()
 	_save_btn.disabled = cur == "" # nothing to overwrite until first save/load
 	for c in _list.get_children():

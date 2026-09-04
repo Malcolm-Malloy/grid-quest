@@ -159,6 +159,15 @@ func _ready() -> void:
 
 	# GQ_BRUSH="mat" arms a floor material through the real panel path (arm_floor_material) so the
 	# persistent Brush panel's preview swatch reflects it. "grass" = the empty grass material.
+	# GQ_SECTION="Brush" expands one tool-strip accordion section, so its panel can be eyeballed
+	# (the strip's accordion is exclusive, so only the named one stays open).
+	var sect := OS.get_environment("GQ_SECTION")
+	if sect != "":
+		var tsn := get_tree().get_first_node_in_group("tool_strip")
+		if tsn and tsn.has_method("_set_section"):
+			tsn._set_section(sect, true)
+			await get_tree().process_frame
+
 	var brush_env := OS.get_environment("GQ_BRUSH")
 	if brush_env != "":
 		var fmb := main.get_node_or_null("World/FloorManager")

@@ -33,7 +33,7 @@ func _ready() -> void:
 
 	_exit = Button.new()
 	_exit.text = "✕ Exit"
-	_exit.tooltip_text = "Close the game"
+	_exit.tooltip_text = "Close the game. Unsaved map edits are guarded first."
 	_exit.pressed.connect(_on_exit_pressed)
 	row.add_child(_exit)
 
@@ -55,7 +55,9 @@ func _ready() -> void:
 	_refresh()
 
 func _refresh() -> void:
-	_button.text = "▶ Play (Tab)" if EditorMode.is_edit() else "■ Edit (Tab)"
+	# label and tooltip both composed from the one hotkey table, so a rebind moves them together
+	_button.text = Hotkeys.labelled("▶ Play" if EditorMode.is_edit() else "■ Edit", "play_toggle")
+	_button.tooltip_text = Hotkeys.tip("play_toggle")
 
 # quit, but never on top of unsaved edits
 func _on_exit_pressed() -> void:
