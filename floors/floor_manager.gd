@@ -477,7 +477,30 @@ func _ready() -> void:
 	_clip_ghost.set_script(load("res://floors/clip_preview.gd"))
 	add_child(_clip_ghost)
 	_clip_ghost.setup(func(mat: String, pat: int) -> Texture2D: return _mat_tex(mat, pat), _stampable)
+	# leaving EDIT drops every piece of editor state that would otherwise sit frozen on top of the
+	# running game: the map tools stand down in PLAY (see _process / _unhandled_input), so anything
+	# already on screen would just stay there, and a selection you cannot change is not a selection.
+	EditorMode.changed.connect(func(_m):
+		if EditorMode.is_play():
+			_exit_edit_state())
 	call_deferred("_seed") # keep the existing wooden room once RoomLight has built
+
+# clear everything the editor was holding: the marching-ants selection, an armed paste or half-finished
+# move, every hover highlight, and any obstacle dimmed under the cursor. Nothing is restored on the way
+# back to EDIT -- you return to a clean slate rather than a stale selection from before you played.
+func _exit_edit_state() -> void:
+	_clear_selection()
+	_cancel_pending()
+	_armed = false      # an armed terrain brush would otherwise drop a tile on the first click back
+	_painting = false
+	_box_active = false
+	_box_maybe = false
+	_reset_highlight()
+	_restore_faded()
+	var inspector = get_tree().get_first_node_in_group("inspector")
+	if inspector != null:
+		inspector.clear() # it hides itself in PLAY, but it should not come back holding an old target
+	brush_changed.emit()
 
 func _seed() -> void:
 	set_room_style(Vector2i(8, 9), "wood")

@@ -123,6 +123,19 @@ authoring, which was inert because the player's proximity logic overwrites door 
   `GQ_HOLD` implies PLAY) to render/verify gameplay behaviour; editor-visual shots stay in EDIT.
 - **Unblocks next:** door open/closed + swing authoring can now store an authored default that EDIT
   honours (the proximity logic only runs in PLAY), surfaced through the properties inspector.
+- **As-built (2026-09-05): leaving EDIT clears the editor's live state.** On the user's note that
+  switching to play should unselect everything. The map tools stand down in PLAY (FloorManager returns
+  early in `_process` / `_unhandled_input`), which meant anything already drawn just sat frozen over
+  the running game -- marching ants, an armed paste ghost, a hover cursor -- and a selection you cannot
+  change is not a selection. `FloorManager._exit_edit_state()` now drops the selection, any armed paste
+  or half-finished move, the armed terrain brush (so the first click back in EDIT does not drop a stray
+  tile), every highlight, and the inspector's target. Nothing is restored on the way back: you return
+  to a clean slate rather than a stale selection from before you played. The CLIPBOARD is deliberately
+  kept -- it is cross-map and outlives maps, let alone mode switches.
+  - **Same bug, worse case, fixed with it:** `map_size_tool` had no mode guard at all and uses `_input`
+    (which runs before the GUI), so in PLAY its green add-band stayed on screen and **a click still
+    resized the map mid-game**. Now EDIT-only like everything else.
+  - Covered by `dev/test_play_clears` (15 checks).
 - Verified headlessly: EDIT shows the tool strip + "▶ Play" with a static/closed door by the frozen
   player; PLAY hides the strip, shows "■ Edit", and the door opens/swings as the player stands in it.
 2. **Make the map readable and sizable:** show the **map edge** (void/black), **remove unwalkable
