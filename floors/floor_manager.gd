@@ -56,7 +56,6 @@ var _quad_no_bank := {} # LIQUID quarter coords (Vector2i, 16px grid) painted wi
 var _base_fills: Array = [] # [Rect2, Texture2D, Color, (src_override), (animate)], one per painted/tinted
 							# quarter. A 4th element overrides the sampled src rect (shoreline atlas); a 5th
 							# truthy element flags an ANIMATED water fill (grid_background shimmers it).
-var _has_water := false # any water fill emitted this _rebuild, so grid_background knows to run the shimmer
 var _fills_dirty := false # the floor stores changed since _base_fills was built (rebuilt lazily on read)
 var _click_tools := {} # single-click modes -> the method a press calls at the mouse (see _on_left_button)
 var _painting := false       # true while the left button is held, for drag painting
@@ -1823,7 +1822,6 @@ func _ensure_fills() -> void:
 	if _fills_dirty:
 		_fills_dirty = false
 		_base_fills = _render.build()
-		_has_water = _render.has_water
 
 func _redraw_floor_layers() -> void:
 	if _grid_bg:
@@ -1836,12 +1834,6 @@ func _redraw_floor_layers() -> void:
 func base_fills() -> Array:
 	_ensure_fills()
 	return _base_fills
-
-# any water on the map this rebuild, so grid_background runs the shimmer redraw loop only when needed
-# (zero cost on a dry map). Set in _rebuild whenever a water quarter emits a fill.
-func has_animated_water() -> bool:
-	_ensure_fills()
-	return _has_water
 
 # the floor texture that renders at 16px quarter `q`, or null for the grass base. The single
 # source of truth the door-open shadow pass restamps from, so it matches the indoor base_fills

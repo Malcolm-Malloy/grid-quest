@@ -151,14 +151,12 @@ func _ready() -> void:
 	# --- water shimmer plumbing (grid_background animates flagged water fills; dry maps cost nothing) ---
 	fm._quad_mat.clear()
 	fm._rebuild()
-	_check("dry map reports no animated water", not fm.has_animated_water())
 	# a full-water cell plus a wood cell: water fills carry the animate flag (5th element), wood does not
 	for qq in _quads(Vector2i(30, 10)):
 		fm._quad_mat[qq] = "water"
 	for qq in _quads(Vector2i(33, 10)):
 		fm._quad_mat[qq] = "wood"
 	fm._rebuild()
-	_check("map with water reports animated water", fm.has_animated_water())
 	var water_animated := false
 	var wood_animated := false
 	var wood_tex = FloorMaterials.texture("wood", 0)

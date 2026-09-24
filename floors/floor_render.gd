@@ -6,8 +6,6 @@ extends RefCounted
 # feathering over lower ones. Nothing here is stored or saved; build() recomputes it from the stores.
 # A fill is [dst_rect, texture, tint, (src_rect override), (animate)] (see grid_background._draw).
 
-var has_water := false # the last build() emitted an animated liquid fill (grid_background shimmers)
-
 # the stores are FloorManager's own Dictionaries, shared by reference (it only ever clears them)
 var _mat: Dictionary     # quarter -> material
 var _tint: Dictionary    # quarter -> Color
@@ -50,7 +48,6 @@ func build() -> Array:
 	var fills: Array = []
 	for q in _fills_by_q:
 		fills.append_array(_fills_by_q[q])
-	has_water = not _animated.is_empty()
 	return fills
 
 # --- incremental bookkeeping: a quarter's fills depend only on its own inputs and its 8 neighbours',
@@ -58,7 +55,6 @@ func build() -> Array:
 # the stores against copies from the last build, so any writer (or a test poking the stores) is covered.
 
 var _fills_by_q := {} # quarter -> its fills: main (or tinted grass), then the river bank on top
-var _animated := {}   # quarters whose fills shimmer (liquids)
 var _snap: Array = [{}, {}, {}, {}] # copies of [_mat, _tint, _pattern, _no_bank] as of the last build
 var _extent := []     # [width, height, holes] as of the last build
 
@@ -72,7 +68,6 @@ func _take_snapshot() -> void:
 
 func _rebuild_all() -> void:
 	_fills_by_q.clear()
-	_animated.clear()
 	var bank := bank_quads() # the ring as a set, once, rather than a neighbour test per quarter
 	var todo := bank.duplicate()
 	for q in _mat:
@@ -112,10 +107,6 @@ func _refresh(q: Vector2i, bank: bool) -> void:
 		_fills_by_q.erase(q)
 	else:
 		_fills_by_q[q] = fills
-	if FloorMaterials.LIQUID_SHORE.has(_mat.get(q, "")): # exactly the quarters whose fills shimmer
-		_animated[q] = true
-	else:
-		_animated.erase(q)
 
 # everything drawn on quarter `q`: its material's fill(s), or a tinted patch of grass, then the brown
 # river bank on top if `q` borders a banked liquid. A 5th `true` flags a shimmering (liquid) fill.
