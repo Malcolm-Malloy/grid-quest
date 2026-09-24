@@ -1460,12 +1460,12 @@ func apply_wall_material(mat: String, at: Vector2) -> void:
 
 func _apply_to_walls(at: Vector2, apply: Callable, label: String) -> void:
 	var cell := Grid.cell_of(at)
-	var cells = null
+	var cells := {}
 	if EditorState.sel_kind == EditorState.SelKind.WALL and selection.overlay.has_selection():
 		cells = EditorState.sel_cells
 	elif _obs != null and _obs.is_blocked(cell):
-		cells = _obs.building_cells(cell) if EditorState.mode == EditorState.Mode.WAND else [cell]
-	if cells != null and _obs != null:
+		cells = _obs.building_cells(cell) if EditorState.mode == EditorState.Mode.WAND else {cell: true}
+	if not cells.is_empty():
 		apply.call(cells)
 		EditHistory.commit(label) # one menu apply = one undo step
 	reset_highlight()
