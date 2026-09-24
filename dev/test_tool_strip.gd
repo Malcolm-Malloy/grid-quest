@@ -26,16 +26,16 @@ func _ready() -> void:
 	# each tool resolves to a real FloorManager mode, and the sub-choices steer it
 	var fmts = main.get_node("World/FloorManager")
 	ts._apply_tool(ts.T_PAINT)
-	_check("Paint means Cell mode by default", fmts.mode() == ts.M_CELL)
+	_check("Paint means Cell mode by default", fmts.mode() == FloorManager.Mode.CELL)
 	ts._fine_check.button_pressed = true
 	ts._apply_tool(ts.T_PAINT)
-	_check("Paint with Fine on means Fine mode", fmts.mode() == ts.M_FINE)
+	_check("Paint with Fine on means Fine mode", fmts.mode() == FloorManager.Mode.FINE)
 	ts._fine_check.set_pressed_no_signal(false)
 	ts._on_place_kind(1) # Door
 	_check("picking a Place kind selects the Place tool", ts._current_tool() == ts.T_PLACE)
-	_check("...and switches to that kind's mode", fmts.mode() == ts.M_DOOR)
+	_check("...and switches to that kind's mode", fmts.mode() == FloorManager.Mode.DOOR)
 	ts._apply_tool(ts.T_SELECT)
-	_check("Select means Wand mode (click grows, drag boxes)", fmts.mode() == ts.M_WAND)
+	_check("Select means Wand mode (click grows, drag boxes)", fmts.mode() == FloorManager.Mode.WAND)
 
 	# EVERY pre-merge shortcut still works, which is the point of the merge: fewer buttons, same muscle
 	# memory. Each entry names the tool it now picks and the sub-choice it sets.
@@ -60,13 +60,13 @@ func _ready() -> void:
 	ev2.keycode = KEY_F
 	ev2.pressed = true
 	ts._unhandled_key_input(ev2)
-	_check("F still means fine-grain paint", fmts.mode() == ts.M_FINE and ts._current_tool() == ts.T_PAINT)
+	_check("F still means fine-grain paint", fmts.mode() == FloorManager.Mode.FINE and ts._current_tool() == ts.T_PAINT)
 	ev2.keycode = KEY_G
 	ts._unhandled_key_input(ev2)
-	_check("G still means place a bridge", fmts.mode() == ts.M_BRIDGE and ts._current_tool() == ts.T_PLACE)
+	_check("G still means place a bridge", fmts.mode() == FloorManager.Mode.BRIDGE and ts._current_tool() == ts.T_PLACE)
 	ev2.keycode = KEY_W
 	ts._unhandled_key_input(ev2)
-	_check("W still means select", fmts.mode() == ts.M_WAND and ts._current_tool() == ts.T_SELECT)
+	_check("W still means select", fmts.mode() == FloorManager.Mode.WAND and ts._current_tool() == ts.T_SELECT)
 
 	# the body is wrapped in a ScrollContainer so a growing roster scrolls instead of overflowing the
 	# window; horizontal scroll is off so the strip width still hugs the widest button.

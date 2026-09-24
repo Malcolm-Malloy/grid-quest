@@ -38,11 +38,11 @@ func _ready() -> void:
 	fm._write_pattern(quads[0], 1)
 	fm._rebuild()
 	var tex1 = fm.floor_tex_at_quad(quads[0])
-	_check("render: quarter draws the wood variant-1 texture", tex1 == fm.textures["wood"][1])
+	_check("render: quarter draws the wood variant-1 texture", tex1 == FloorMaterials.TEXTURES["wood"][1])
 	# a stale over-range index (e.g. left over from a many-variant material) clamps, never crashes
 	fm._quad_pattern[quads[0]] = 9
 	var texc = fm.floor_tex_at_quad(quads[0])
-	_check("render: an out-of-range index clamps to the last variant", texc == fm.textures["wood"][fm.textures["wood"].size() - 1])
+	_check("render: an out-of-range index clamps to the last variant", texc == FloorMaterials.TEXTURES["wood"][FloorMaterials.TEXTURES["wood"].size() - 1])
 	fm._quad_pattern.clear(); fm._rebuild()
 
 	# --- room-grain: interior + wall-ring quarters ---

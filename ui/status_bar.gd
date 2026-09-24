@@ -19,21 +19,19 @@ extends CanvasLayer
 # below is the truth, and the tool strip asks for it.
 const HEIGHT := 24
 
-# authoring modes, mirrored from FloorManager.Mode (the M_* order MUST match that enum), the same
-# way ui/tool_strip.gd mirrors it.
-enum { M_WAND, M_CELL, M_FINE, M_ERASE, M_WALL, M_DOOR, M_SELECT, M_BOX, M_BRIDGE, M_MOVE, M_EYEDROP,
-	M_SPAWN, M_ITEM, M_CREATURE }
+# the authoring modes are FloorManager's own enum (no local mirror to keep in step)
+const Mode := FloorManager.Mode
 
 # What each mode is CALLED, in the merged four-tool vocabulary the strip now speaks (Select / Paint /
 # Place / Move, see tool_strip.gd): the bar must name the tool the user picked, not the internal mode
 # it resolved to, or the readout and the strip would disagree. Erase and Eyedropper have no strip
 # button but are still modes you can be in (E / I), so they name themselves.
 const TOOL_NAMES := {
-	M_WAND: "Select", M_BOX: "Select", M_SELECT: "Select",
-	M_CELL: "Paint", M_FINE: "Paint (Fine)",
-	M_WALL: "Place: Wall", M_DOOR: "Place: Door", M_BRIDGE: "Place: Bridge",
-	M_ITEM: "Place: Item", M_SPAWN: "Place: Spawn", M_CREATURE: "Place: Creature",
-	M_MOVE: "Move", M_ERASE: "Erase", M_EYEDROP: "Eyedropper",
+	Mode.WAND: "Select", Mode.BOX: "Select", Mode.SELECT: "Select",
+	Mode.CELL: "Paint", Mode.FINE: "Paint (Fine)",
+	Mode.WALL: "Place: Wall", Mode.DOOR: "Place: Door", Mode.BRIDGE: "Place: Bridge",
+	Mode.ITEM: "Place: Item", Mode.SPAWN: "Place: Spawn", Mode.CREATURE: "Place: Creature",
+	Mode.MOVE: "Move", Mode.ERASE: "Erase", Mode.EYEDROP: "Eyedropper",
 }
 
 const SEP := "   ·   "

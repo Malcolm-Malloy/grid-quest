@@ -75,7 +75,7 @@ func _ready() -> void:
 	fm._rebuild()
 	var grass_fill := false
 	for f in fm.base_fills():
-		if f.size() >= 3 and f[2] == red and f[1] == fm.GRASS:
+		if f.size() >= 3 and f[2] == red and f[1] == FloorMaterials.GRASS:
 			grass_fill = true
 	_check("tinted grass: an unpainted tinted quarter draws a tinted grass fill", grass_fill)
 

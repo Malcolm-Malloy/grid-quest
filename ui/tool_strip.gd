@@ -12,10 +12,8 @@ const EDGES := ["top", "bottom", "left", "right"]
 # only for its HEIGHT: the strip stops short of the status bar rather than overlapping it
 const StatusBarScript := preload("res://ui/status_bar.gd")
 
-# authoring modes, mirrored from FloorManager.Mode (the M_* order MUST match that enum, since
-# set_mode receives the raw index).
-enum { M_WAND, M_CELL, M_FINE, M_ERASE, M_WALL, M_DOOR, M_SELECT, M_BOX, M_BRIDGE, M_MOVE, M_EYEDROP,
-	M_SPAWN, M_ITEM, M_CREATURE }
+# the authoring modes are FloorManager's own enum (no local mirror to keep in step)
+const Mode := FloorManager.Mode
 
 # THE STRIP IS FOUR TOOLS (merged 2026-09-05, from twelve). The modes above did not go away -- they are
 # what each tool switches between -- but a tool is now the thing you pick, and WHAT it acts with is a
@@ -45,9 +43,9 @@ const TOOLS := [
 # what the Place tool drops, and the mode each maps to. The label is the whole roster of placeable
 # things in one row, so adding one later is one line here rather than another strip button.
 const PLACE_KINDS := [
-	["Wall", M_WALL, KEY_L, "place_wall"], ["Door", M_DOOR, KEY_D, "place_door"],
-	["Bridge", M_BRIDGE, KEY_G, "place_bridge"], ["Item", M_ITEM, KEY_T, "place_item"],
-	["Creature", M_CREATURE, KEY_A, "place_creature"], ["Spawn", M_SPAWN, KEY_P, "place_spawn"],
+	["Wall", Mode.WALL, KEY_L, "place_wall"], ["Door", Mode.DOOR, KEY_D, "place_door"],
+	["Bridge", Mode.BRIDGE, KEY_G, "place_bridge"], ["Item", Mode.ITEM, KEY_T, "place_item"],
+	["Creature", Mode.CREATURE, KEY_A, "place_creature"], ["Spawn", Mode.SPAWN, KEY_P, "place_spawn"],
 ]
 # EVERY pre-merge shortcut still works and simply selects the merged tool with the right sub-choice, so
 # muscle memory survives the consolidation: W/B/S -> Select, C -> Paint (cell), F -> Paint (fine),
@@ -58,7 +56,7 @@ const SHORTCUTS := [
 	[KEY_C, T_PAINT, 0], [KEY_F, T_PAINT, 1],
 	[KEY_L, T_PLACE, 0], [KEY_D, T_PLACE, 1], [KEY_G, T_PLACE, 2], [KEY_T, T_PLACE, 3],
 	[KEY_A, T_PLACE, 4], [KEY_P, T_PLACE, 5],
-	[KEY_V, T_MOVE, -1], [KEY_E, -1, M_ERASE], [KEY_I, -1, M_EYEDROP],
+	[KEY_V, T_MOVE, -1], [KEY_E, -1, Mode.ERASE], [KEY_I, -1, Mode.EYEDROP],
 ]
 
 var _tool_buttons := {} # tool id -> Button, so a shortcut can light the right radio
@@ -190,7 +188,7 @@ func _ready() -> void:
 		var brush := _add_section(vb, "Brush", false)
 		# 4-column material grid: keeps the Brush section short as the roster grows (8 materials = 2 rows,
 		# not 4), so the panel needs little scrolling. Buttons hug their text, so 4 short labels stay narrow.
-		_brush_preview = _fill_brush_section(brush, _fm.MENU, 4, _on_brush_material, _fm.FLOOR_COLORS, _on_brush_color, _mat_buttons, _col_swatches)
+		_brush_preview = _fill_brush_section(brush, FloorMaterials.MATERIAL_NAMES, 4, _on_brush_material, FloorMaterials.COLORS, _on_brush_color, _mat_buttons, _col_swatches)
 		# --- the MATERIAL-AWARE half of the palette (ROADMAP "Colour palette: 16 swatches, half
 		# material-aware"). The row above is the eight constant "fun" tints; this one swaps to eight
 		# realistic tints for whatever material is armed -- wood tones for wood, greys for concrete,
@@ -474,7 +472,7 @@ func _rebuild_material_colors(material: String) -> void:
 	if _mat_col_grid == null or material == _mat_col_for:
 		return
 	_mat_col_for = material
-	var entries: Array = _fm.material_colors(material) if _fm != null else []
+	var entries: Array = FloorMaterials.material_colors(material) if _fm != null else []
 	for c in _mat_col_grid.get_children():
 		_mat_col_grid.remove_child(c)
 		c.queue_free()
@@ -509,15 +507,15 @@ func _mark_active_swatch(row: Array, active_col: Color) -> void:
 func _on_brush_material(mval: String) -> void:
 	if _fm == null:
 		return
-	if not _fm.has_floor_selection() and _fm.mode() != M_CELL and _fm.mode() != M_FINE:
-		_select_mode(M_CELL)
+	if not _fm.has_floor_selection() and _fm.mode() != Mode.CELL and _fm.mode() != Mode.FINE:
+		_select_mode(Mode.CELL)
 	_fm.arm_floor_material(mval)
 
 func _on_brush_color(cval: Color) -> void:
 	if _fm == null:
 		return
-	if not _fm.has_floor_selection() and _fm.mode() != M_CELL and _fm.mode() != M_FINE:
-		_select_mode(M_CELL)
+	if not _fm.has_floor_selection() and _fm.mode() != Mode.CELL and _fm.mode() != Mode.FINE:
+		_select_mode(Mode.CELL)
 	_fm.arm_floor_color(cval)
 
 # wall picks: with a wall selection active they EDIT it in place (arm_wall_* do the fill); with NO
@@ -526,15 +524,15 @@ func _on_brush_color(cval: Color) -> void:
 func _on_wall_material(mval: String) -> void:
 	if _fm == null:
 		return
-	if not _fm.has_wall_selection() and _fm.mode() != M_WALL:
-		_select_mode(M_WALL)
+	if not _fm.has_wall_selection() and _fm.mode() != Mode.WALL:
+		_select_mode(Mode.WALL)
 	_fm.arm_wall_material(mval)
 
 func _on_wall_color(cval: Color) -> void:
 	if _fm == null:
 		return
-	if not _fm.has_wall_selection() and _fm.mode() != M_WALL:
-		_select_mode(M_WALL)
+	if not _fm.has_wall_selection() and _fm.mode() != Mode.WALL:
+		_select_mode(Mode.WALL)
 	_fm.arm_wall_color(cval)
 
 func _edge_button(text: String, edge: String, mode: String) -> Button:
@@ -591,13 +589,13 @@ func _on_tool_pressed(tool_id: int) -> void:
 func _mode_for_tool(tool_id: int) -> int:
 	match tool_id:
 		T_PAINT:
-			return M_FINE if (_fine_check and _fine_check.button_pressed) else M_CELL
+			return Mode.FINE if (_fine_check and _fine_check.button_pressed) else Mode.CELL
 		T_PLACE:
 			return PLACE_KINDS[_place_kind][1]
 		T_MOVE:
-			return M_MOVE
+			return Mode.MOVE
 		_:
-			return M_WAND
+			return Mode.WAND
 
 func _apply_tool(tool_id: int) -> void:
 	if _tool_buttons.has(tool_id):
@@ -628,13 +626,13 @@ func _sync_place_buttons() -> void:
 # Place/Item), so the strip never disagrees with what the map tools are actually doing.
 func reflect_mode(mode: int) -> void:
 	match mode:
-		M_CELL, M_FINE:
+		Mode.CELL, Mode.FINE:
 			if _fine_check:
-				_fine_check.set_pressed_no_signal(mode == M_FINE)
+				_fine_check.set_pressed_no_signal(mode == Mode.FINE)
 			_tool_buttons[T_PAINT].button_pressed = true
-		M_MOVE:
+		Mode.MOVE:
 			_tool_buttons[T_MOVE].button_pressed = true
-		M_WAND, M_BOX, M_SELECT:
+		Mode.WAND, Mode.BOX, Mode.SELECT:
 			_tool_buttons[T_SELECT].button_pressed = true
 		_:
 			for i in PLACE_KINDS.size():
@@ -685,7 +683,7 @@ func _on_item_pressed(item: String) -> void:
 		return
 	_fm.arm_item(item)
 	_sync_item_buttons(item)
-	_select_mode(M_ITEM)
+	_select_mode(Mode.ITEM)
 
 # show which item is armed: the active button keeps its rarity font colour and gains a flat highlight
 func _sync_item_buttons(active: String) -> void:
@@ -701,7 +699,7 @@ func _on_creature_pressed(creature: String) -> void:
 		return
 	_fm.arm_creature(creature)
 	_sync_creature_buttons(creature, _fm.armed_creature_kind())
-	_select_mode(M_CREATURE)
+	_select_mode(Mode.CREATURE)
 
 # the KIND is a property of the armed brush, not a tool of its own, so picking one does NOT switch
 # tools: you can set "fixed instance" before ever choosing a creature.

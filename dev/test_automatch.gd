@@ -19,24 +19,24 @@ func _ready() -> void:
 	var fm = main.get_node("World/FloorManager")
 
 	# --- registration (sand + snow are passable outdoor naturals) ---
-	_check("sand registered (textures)", fm.textures.has("sand"))
-	_check("snow registered (textures)", fm.textures.has("snow"))
+	_check("sand registered (textures)", FloorMaterials.TEXTURES.has("sand"))
+	_check("snow registered (textures)", FloorMaterials.TEXTURES.has("snow"))
 	var menu_has := {"sand": false, "snow": false}
-	for entry in fm.MENU:
+	for entry in FloorMaterials.MATERIAL_NAMES:
 		if menu_has.has(entry[1]):
 			menu_has[entry[1]] = true
 	_check("sand + snow in the floor MENU", menu_has["sand"] and menu_has["snow"])
-	_check("sand is NOT impassable", not fm.IMPASSABLE.has("sand"))
-	_check("snow is NOT impassable", not fm.IMPASSABLE.has("snow"))
-	_check("sand + snow have an edge atlas", fm.EDGE_ATLAS.has("sand") and fm.EDGE_ATLAS.has("snow"))
+	_check("sand is NOT impassable", not FloorMaterials.IMPASSABLE.has("sand"))
+	_check("snow is NOT impassable", not FloorMaterials.IMPASSABLE.has("snow"))
+	_check("sand + snow have an edge atlas", FloorMaterials.EDGE_ATLAS.has("sand") and FloorMaterials.EDGE_ATLAS.has("snow"))
 
 	# --- precedence table (grass 0 < sand 1 < snow 2 < water 99) ---
 	_check("precedence grass < sand < snow < water",
-		fm.TERRAIN_RANK[""] < fm.TERRAIN_RANK["sand"]
-		and fm.TERRAIN_RANK["sand"] < fm.TERRAIN_RANK["snow"]
-		and fm.TERRAIN_RANK["snow"] < fm.TERRAIN_RANK["water"])
+		FloorMaterials.TERRAIN_RANK[""] < FloorMaterials.TERRAIN_RANK["sand"]
+		and FloorMaterials.TERRAIN_RANK["sand"] < FloorMaterials.TERRAIN_RANK["snow"]
+		and FloorMaterials.TERRAIN_RANK["snow"] < FloorMaterials.TERRAIN_RANK["water"])
 	_check("indoor materials are NOT in the precedence table",
-		not fm.TERRAIN_RANK.has("wood") and not fm.TERRAIN_RANK.has("tile"))
+		not FloorMaterials.TERRAIN_RANK.has("wood") and not FloorMaterials.TERRAIN_RANK.has("tile"))
 
 	# --- edge mask: a 2x2-cell sand block on grass = 4x4 quarters (60..63, 20..23) ---
 	fm._quad_mat = {}
@@ -52,9 +52,9 @@ func _ready() -> void:
 	# _rebuild emits a shore tile for each of the 12 edge quarters; the 4 interior quarters stay flat
 	var sand_shore := 0
 	var interior_flat := false
-	var flat_sand = fm._mat_tex("sand", 0)
+	var flat_sand = FloorMaterials.texture("sand", 0)
 	for f in fm.base_fills():
-		if f[1] == fm.EDGE_ATLAS["sand"]:
+		if f[1] == FloorMaterials.EDGE_ATLAS["sand"]:
 			sand_shore += 1
 		if f[0] == Rect2(61 * 16, 21 * 16, 16, 16) and f[1] == flat_sand and f.size() == 3:
 			interior_flat = true
@@ -100,7 +100,7 @@ func _ready() -> void:
 		var f = fills[i]
 		if f[0] == rect and f[1] == flat_sand and under_idx == -1:
 			under_idx = i
-		if f[0] == rect and f[1] == fm.EDGE_ATLAS["snow"]:
+		if f[0] == rect and f[1] == FloorMaterials.EDGE_ATLAS["snow"]:
 			snow_idx = i
 	_check("snow edge lays a sand underlay then the snow shore tile (underlay first)",
 		under_idx != -1 and snow_idx != -1 and under_idx < snow_idx)

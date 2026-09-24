@@ -18,7 +18,7 @@ func _center(cell: Vector2i) -> Vector2:
 func _bank_count(fm) -> int:
 	var n := 0
 	for f in fm.base_fills():
-		if f[1] == fm.RIVER_BANK:
+		if f[1] == FloorMaterials.RIVER_BANK:
 			n += 1
 	return n
 
@@ -29,16 +29,16 @@ func _ready() -> void:
 	EditHistory.reset()
 
 	# --- registration ---
-	_check("lava is a floor material", fm.textures.has("lava"))
+	_check("lava is a floor material", FloorMaterials.TEXTURES.has("lava"))
 	var in_menu := false
-	for e in fm.MENU:
+	for e in FloorMaterials.MATERIAL_NAMES:
 		if e[1] == "lava":
 			in_menu = true
 	_check("lava is in the MENU", in_menu)
-	_check("lava is IMPASSABLE", fm.IMPASSABLE.has("lava"))
-	_check("lava grows a bank (BANK_AROUND)", fm.BANK_AROUND.has("lava"))
-	_check("lava has a shore atlas (LIQUID_SHORE)", fm.LIQUID_SHORE.has("lava"))
-	_check("lava is top-rank terrain (never auto-matched over)", fm.TERRAIN_RANK.get("lava", 0) == 99)
+	_check("lava is IMPASSABLE", FloorMaterials.IMPASSABLE.has("lava"))
+	_check("lava grows a bank (BANK_AROUND)", FloorMaterials.BANK_AROUND.has("lava"))
+	_check("lava has a shore atlas (LIQUID_SHORE)", FloorMaterials.LIQUID_SHORE.has("lava"))
+	_check("lava is top-rank terrain (never auto-matched over)", FloorMaterials.TERRAIN_RANK.get("lava", 0) == 99)
 
 	# --- lava blocks + shorelines like water ---
 	fm._quad_mat = {}
@@ -51,7 +51,7 @@ func _ready() -> void:
 	_check("lava edge quarter feathers toward land", fm._liquid_edge_mask(qedge, "lava") != 0)
 	var lava_shore := false
 	for f in fm.base_fills():
-		if f[1] == fm.LIQUID_SHORE["lava"]:
+		if f[1] == FloorMaterials.LIQUID_SHORE["lava"]:
 			lava_shore = true
 	_check("base_fills carries a lava shore tile", lava_shore)
 

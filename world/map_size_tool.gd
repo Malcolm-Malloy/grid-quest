@@ -14,7 +14,6 @@ extends Node2D
 
 const CELL := Grid.CELL
 const BAND := 32.0 # how far into the void (px) beyond an edge the add-zone reaches
-const M_CELL := 1  # FloorManager.Mode.CELL; the single-cell grain runs in Cell mode
 
 var active := false
 var _edge := "" # currently hovered add edge ("" = none, whole row/column grain)
@@ -101,7 +100,7 @@ func _pointer_over_ui() -> bool:
 # is the editor in Cell mode? (drives the single-cell grain). Defaults to the row/column grain if the
 # FloorManager can't be found, matching the pre-single-cell behaviour.
 func _single_cell_grain() -> bool:
-	return _fm != null and _fm.has_method("mode") and _fm.mode() == M_CELL
+	return _fm != null and _fm.mode() == FloorManager.Mode.CELL
 
 # the addable void/hole cell under the cursor, or _NO_CELL. Uses MapEdit.can_add_cell so the highlight
 # only lights where a click would actually add (a perimeter spur or a fillable hole).

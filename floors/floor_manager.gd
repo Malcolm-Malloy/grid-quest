@@ -34,7 +34,7 @@ const HALF := Grid.HALF # a quarter is 16px; a cell is four independently-set qu
 # reference grid: a distinct-but-restrained blue, toggled from the menu (off by default)
 const GRID_ID := 100
 # right-click-menu ACTION ids (single items, not swatch ranges). All < 300 so they are matched by
-# explicit equality in _on_menu_id BEFORE the range branches (and before the MENU-index fallthrough).
+# explicit equality in _on_menu_id BEFORE the range branches (and before the FloorMaterials.MATERIAL_NAMES-index fallthrough).
 const ERASE_ID := 101       # erase the selection if one exists, else the clicked target
 const BUILD_WALL_ID := 102  # build a wall on the clicked (empty) cell
 const BUILD_DOOR_ID := 103  # build a door on the clicked (empty) cell
@@ -62,99 +62,7 @@ const GRID_COLOR := Color(0.38, 0.64, 0.95, 0.4)
 # NOTE: BRIDGE is appended LAST so existing Mode indices stay stable (tool_strip.M_* mirrors this).
 enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR, SELECT, BOX, BRIDGE, MOVE, EYEDROP, SPAWN, ITEM, CREATURE }
 
-# each material maps to an ARRAY of pattern variants (index 0 = default, matches the pre-pattern
-# single texture). The active pattern per quarter is stored in _quad_pattern (parallel to _quad_mat /
-# _quad_tint), so pattern is an axis distinct from material and colour. A stale pattern index (e.g. a
-# quarter that was herringbone wood, then painted concrete) is clamped to the material's range at draw.
-var textures := {
-	# grass is the base terrain, now a real material so it can carry PATTERNS. Index 0 (Plain) is the
-	# ground-grass tile (used for the Brush preview); in _rebuild Plain draws NOTHING so the base ground
-	# shows through with no patch seam. Wild/Tuft are ALPHA overlays of extra blades drawn over the base.
-	"grass": [preload("res://world/ground_grass.png"), preload("res://floors/grass_wild.png"), preload("res://floors/grass_tuft.png")],
-	"wood": [preload("res://floors/wood_floor.png"), preload("res://floors/wood_diagonal.png")],
-	"concrete": [preload("res://floors/concrete_floor.png")],
-	"tile": [preload("res://floors/tile_floor.png"), preload("res://floors/tile_diamond.png")],
-	"carpet": [preload("res://floors/carpet_floor.png"), preload("res://floors/carpet_argyle.png")],
-	# outdoor natural terrains (walkable) that AUTO-MATCH: they feather into lower-precedence naturals
-	# via the shared edge autotile (see TERRAIN_RANK / EDGE_ATLAS below), so grass/sand/snow blend.
-	"sand": [preload("res://floors/sand.png")],
-	"snow": [preload("res://floors/snow.png")],
-	# water + lava are the IMPASSABLE "liquids" (see IMPASSABLE / LIQUID_SHORE): still, tintable tiles that
-	# shimmer and grow a feathered shore. Lava works just like water but is its OWN material, so wooden
-	# bridges cannot be built over it (see _place_bridge_at).
-	"water": [preload("res://floors/water_still.png")],
-	"lava": [preload("res://floors/lava_still.png")],
-}
-# human names for each material's pattern variants, aligned by index with `textures`. Drives the
-# per-material Pattern submenu (rebuilt per right-click from the clicked quarter's material).
-const PATTERN_NAMES := {
-	"grass": ["Plain", "Wild", "Tuft"],
-	"wood": ["Planks", "Diagonal"],
-	"concrete": ["Plain"],
-	"tile": ["Square", "Diamond"],
-	"carpet": ["Solid", "Argyle"],
-	"sand": ["Sand"],
-	"snow": ["Snow"],
-	"water": ["Still"],
-	"lava": ["Still"],
-}
-# the grass base, so a quarter that carries a floor TINT but no material still draws (a tinted
-# patch of grass): _rebuild emits it as a tinted grass fill. Matches grid_background/shadow_manager.
-const GRASS := preload("res://world/ground_grass.png")
-
-# popup id -> [label, material]; "" is the grass base (the eraser)
-const MENU := [
-	["Grass", "grass"], ["Wood", "wood"], ["Concrete", "concrete"], ["Tile", "tile"], ["Carpet", "carpet"],
-	["Sand", "sand"], ["Snow", "snow"], ["Water", "water"], ["Lava", "lava"],
-]
-
-# floor materials that BLOCK the player. Today only walls/gates block (obstacles.is_blocked, which
-# every editor tool reads as "is a wall"); water is the first FLOOR that blocks, so the check lives
-# here (is_cell_impassable) and is consulted separately by the player, NOT folded into is_blocked.
-const IMPASSABLE := {"water": true, "lava": true}
-
-# River-bank auto-edge: the surrounding tile-quarters of water auto-render a brown, WALKABLE bank
-# texture that outlines every body of water regardless of the neighbouring terrain. It is DERIVED
-# in _rebuild (never stored in _quad_mat), so it is not saved, needs no editing, and stays passable
-# (is_cell_impassable only counts _quad_mat water quarters, so a bank quarter never blocks). The
-# first concrete case of the Ground-layer phase-2 auto-matching / better-edging system.
-const RIVER_BANK := preload("res://floors/river_bank.png")
-const BANK_AROUND := {"water": true, "lava": true} # materials whose non-matching quarter-neighbours become bank
-# The river bank is now a per-body SWITCH (set before laying a liquid): a liquid quarter painted with the
-# bank OFF is recorded in _quad_no_bank, and both the derived ring (_bank_quads) and the shore underlay
-# skip it, so that body has no brown bank. Default ON, matching older maps (no _quad_no_bank entries).
-
-# Shoreline autotile (feathered beach): a water quarter that touches LAND on an orthogonal side draws
-# a per-configuration variant whose blue feathers into a wavy, foam-fringed transparent edge, so a body
-# reads as an organic shore rather than a blue grid. Purely visual: the quarter stays material "water"
-# in _quad_mat, so collision (is_cell_impassable) is unchanged. WATER_SHORE is a 4x4 atlas of 32px tiles
-# indexed by a 4-bit LAND mask (N=1 E=2 S=4 W=8); tile 0 (open water) is never used here (mask 0 keeps
-# the flat, seamless, world-tiled tile). Under a shore quarter we lay the brown bank first so the feather
-# reveals wet sand, extending the dry river-bank ring (RIVER_BANK) onto the water side.
-const WATER_SHORE := preload("res://floors/water_shore.png")
-const LAVA_SHORE := preload("res://floors/lava_shore.png")
-const SHORE_TILE := 32 # one atlas cell is 32px (drawn stretched into the 16px quarter)
-# the feathered shore atlas per LIQUID (water/lava). A liquid quarter renders through the shoreline branch
-# in _rebuild (bank underlay + this atlas), NOT the EDGE_ATLAS auto-match path. Both shimmer.
-const LIQUID_SHORE := {"water": WATER_SHORE, "lava": LAVA_SHORE}
-
-# Auto-matching (ground-layer phase 2, item 8): OUTDOOR natural terrains blend where they meet, using
-# the SAME feathered edge autotile the water shoreline pioneered. Each natural has a PRECEDENCE rank;
-# a higher-rank terrain feathers its edge over any orthogonally-adjacent LOWER-rank natural, revealing
-# it through the wavy transparent edge (an underlay draws the revealed terrain when it is not the grass
-# base). Grass is the base (rank 0, material ""); water sits at the top and keeps its own shoreline
-# branch (it also lays a brown bank underlay, unlike the dry naturals). INDOOR/constructed materials
-# (wood/concrete/tile/carpet) are absent from this table, so they never auto-match: a hard edge is
-# correct for a rug or a wood floor. A quarter's stored material is unchanged, so collision/save are too.
-const TERRAIN_RANK := {"": 0, "grass": 0, "sand": 1, "snow": 2, "water": 99, "lava": 99}
-# the feathered edge atlas per auto-matching terrain (4x4 of 32px cells, same layout as WATER_SHORE).
-# Water is NOT here: it renders through the dedicated shoreline branch (bank underlay + WATER_SHORE).
-const EDGE_ATLAS := {
-	"sand": preload("res://floors/sand_edge.png"),
-	"snow": preload("res://floors/snow_edge.png"),
-}
-
-# floor patterns: a per-quarter pattern index into the material's `textures` variant array, separate
+# floor patterns: a per-quarter pattern index into the material's `FloorMaterials.TEXTURES` variant array, separate
 # from the colour tint. Menu id is PATTERN_BASE_ID + index. Base is 700 so it sits above every other
 # id range and is matched FIRST in _on_menu_id. The submenu is rebuilt per right-click (material-aware).
 const PATTERN_BASE_ID := 700
@@ -172,91 +80,6 @@ const WALL_BASE_ID := 300
 # The colour values match WallSegment.COLORS where they overlap so the two palettes read as one system.
 const FLOOR_COLOR_BASE_ID := 400
 const FLOOR_PICKER_ID := 500 # "Custom..." opens the colour picker; checked before the 400+ swatches
-const FLOOR_COLORS := [
-	["Natural", Color.WHITE],
-	["Red", Color(0.85, 0.3, 0.28)],
-	["Orange", Color(0.9, 0.58, 0.3)],
-	["Yellow", Color(0.9, 0.82, 0.35)],
-	["Green", Color(0.42, 0.72, 0.42)],
-	["Blue", Color(0.4, 0.55, 0.85)],
-	["Purple", Color(0.66, 0.45, 0.8)],
-	["Pink", Color(0.9, 0.55, 0.7)],
-	# Grey culled 2026-08-23: a grey tint over the greyscale bases just darkens them (no hue), so it read
-	# as a muddy near-duplicate of Natural. Existing grey-tinted floors still render (tints store raw Color).
-]
-
-# The MATERIAL-AWARE half of the palette (ROADMAP "Colour palette: 16 swatches, half material-aware",
-# decided 2026-08-16; the "fun" half above shipped 2026-08-16 and this was deferred). Eight realistic
-# tints per material, so the swatches on offer always make sense for the thing being coloured: wood
-# gets wood tones, stone gets greys, grass gets greens through to dry yellow. Selecting a material
-# swaps this row; the fun row above never changes.
-#
-# These are TINTS multiplied over a greyscale base (see "Colour system cleanup": material = the grey
-# pattern, colour = the tint), so they are chosen as multipliers, not as the final colour -- which is
-# why they sit near white rather than at the saturations the names suggest.
-const MATERIAL_COLORS := {
-	"wood": [
-		["Pine", Color(0.92, 0.78, 0.55)], ["Light Oak", Color(0.85, 0.66, 0.42)],
-		["Oak", Color(0.72, 0.52, 0.32)], ["Cherry", Color(0.70, 0.40, 0.30)],
-		["Walnut", Color(0.52, 0.36, 0.24)], ["Mahogany", Color(0.45, 0.26, 0.20)],
-		["Dark Stain", Color(0.32, 0.23, 0.17)], ["Driftwood", Color(0.74, 0.72, 0.68)],
-	],
-	# concrete, tile and slate all read as constructed greys, so they share a stone ramp
-	"concrete": [
-		["Bone", Color(0.94, 0.92, 0.87)], ["Pale Grey", Color(0.84, 0.85, 0.86)],
-		["Grey", Color(0.70, 0.71, 0.73)], ["Slate", Color(0.55, 0.58, 0.62)],
-		["Steel", Color(0.46, 0.50, 0.56)], ["Charcoal", Color(0.34, 0.35, 0.38)],
-		["Basalt", Color(0.24, 0.25, 0.28)], ["Sandstone", Color(0.88, 0.78, 0.60)],
-	],
-	"tile": [
-		["White", Color(0.96, 0.96, 0.96)], ["Ivory", Color(0.93, 0.90, 0.80)],
-		["Terracotta", Color(0.80, 0.45, 0.32)], ["Sage", Color(0.62, 0.74, 0.60)],
-		["Sky", Color(0.62, 0.78, 0.90)], ["Cobalt", Color(0.36, 0.48, 0.78)],
-		["Slate", Color(0.50, 0.54, 0.58)], ["Onyx", Color(0.28, 0.28, 0.32)],
-	],
-	"carpet": [
-		["Cream", Color(0.93, 0.89, 0.80)], ["Sand", Color(0.85, 0.76, 0.60)],
-		["Moss", Color(0.55, 0.65, 0.45)], ["Forest", Color(0.36, 0.50, 0.36)],
-		["Navy", Color(0.34, 0.42, 0.62)], ["Burgundy", Color(0.55, 0.24, 0.28)],
-		["Plum", Color(0.50, 0.36, 0.55)], ["Ash", Color(0.62, 0.62, 0.64)],
-	],
-	"grass": [
-		["Fresh", Color(0.72, 1.00, 0.66)], ["Meadow", Color(0.86, 1.00, 0.74)],
-		["Deep", Color(0.55, 0.80, 0.52)], ["Olive", Color(0.78, 0.82, 0.48)],
-		["Dry", Color(0.92, 0.88, 0.52)], ["Straw", Color(0.95, 0.82, 0.48)],
-		["Scorched", Color(0.72, 0.60, 0.40)], ["Frosted", Color(0.82, 0.94, 0.90)],
-	],
-	"sand": [
-		["Pale", Color(0.98, 0.94, 0.80)], ["Dune", Color(0.93, 0.85, 0.65)],
-		["Desert", Color(0.88, 0.75, 0.52)], ["Clay", Color(0.82, 0.62, 0.44)],
-		["Red Sand", Color(0.80, 0.50, 0.36)], ["Ash Grey", Color(0.74, 0.72, 0.68)],
-		["Black Sand", Color(0.42, 0.40, 0.40)], ["Shell", Color(0.95, 0.90, 0.88)],
-	],
-	"snow": [
-		["Fresh", Color(1.00, 1.00, 1.00)], ["Moonlit", Color(0.88, 0.92, 1.00)],
-		["Blue Shade", Color(0.78, 0.86, 0.98)], ["Glacier", Color(0.70, 0.86, 0.92)],
-		["Slush", Color(0.78, 0.80, 0.80)], ["Trodden", Color(0.66, 0.68, 0.72)],
-		["Dusk", Color(0.62, 0.64, 0.78)], ["Sunlit", Color(1.00, 0.96, 0.86)],
-	],
-	"water": [
-		["Shallow", Color(0.72, 0.94, 0.98)], ["Lagoon", Color(0.55, 0.88, 0.92)],
-		["Sea", Color(0.45, 0.72, 0.90)], ["Deep", Color(0.32, 0.52, 0.80)],
-		["Ocean", Color(0.24, 0.38, 0.66)], ["Murky", Color(0.48, 0.58, 0.48)],
-		["Swamp", Color(0.42, 0.50, 0.36)], ["Ink", Color(0.26, 0.30, 0.42)],
-	],
-	"lava": [
-		["Molten", Color(1.00, 0.80, 0.40)], ["Fire", Color(1.00, 0.62, 0.28)],
-		["Ember", Color(0.95, 0.42, 0.22)], ["Blood", Color(0.78, 0.24, 0.20)],
-		["Cooling", Color(0.60, 0.28, 0.24)], ["Crust", Color(0.42, 0.28, 0.26)],
-		["Sulphur", Color(0.92, 0.86, 0.42)], ["Cinder", Color(0.34, 0.30, 0.30)],
-	],
-}
-
-# the eight realistic swatches for `material`, or [] when it has no table (nothing to show, so the
-# panel hides the row rather than inventing colours that do not mean anything for it)
-func material_colors(material: String) -> Array:
-	return MATERIAL_COLORS.get(material, [])
-
 # emitted whenever the armed floor brush changes (material, armed flag, tool kind, or colour), so the
 # persistent left-panel Brush inspector (tool_strip.gd) can highlight the active material + colour live.
 signal brush_changed
@@ -275,7 +98,7 @@ var _quad_tint := {}  # quarter coord (Vector2i, 16px grid) -> Color; a multiply
 					  # Parallel to _quad_mat and also SOURCE OF TRUTH (MapIO saves it). White/absent
 					  # = no tint. A quarter may carry a tint with no material (a tinted grass patch).
 var _quad_pattern := {} # quarter coord (Vector2i, 16px grid) -> int pattern index into the material's
-					  # `textures` variant array. Parallel to _quad_mat and also SOURCE OF TRUTH (MapIO
+					  # `FloorMaterials.TEXTURES` variant array. Parallel to _quad_mat and also SOURCE OF TRUTH (MapIO
 					  # saves it). Absent / 0 = the default pattern. Only meaningful with a material.
 var _quad_no_bank := {} # LIQUID quarter coords (Vector2i, 16px grid) painted with the bank switch OFF.
 					  # SOURCE OF TRUTH (MapIO saves it). Absent = bank ON (default). Both the derived bank
@@ -402,8 +225,8 @@ func _ready() -> void:
 	# PopupMenu has no set_item_hidden, so contextual = rebuild the top level). See ROADMAP item 4.
 	var floor_sub := PopupMenu.new()
 	floor_sub.name = "floor_sub"
-	for i in MENU.size():
-		floor_sub.add_item(MENU[i][0], i)
+	for i in FloorMaterials.MATERIAL_NAMES.size():
+		floor_sub.add_item(FloorMaterials.MATERIAL_NAMES[i][0], i)
 	floor_sub.id_pressed.connect(_on_menu_id)
 	_menu.add_child(floor_sub)
 
@@ -463,8 +286,8 @@ func _ready() -> void:
 	# routes through the same _on_menu_id like the other submenus.
 	var floor_color_sub := PopupMenu.new()
 	floor_color_sub.name = "floor_color_sub"
-	for i in FLOOR_COLORS.size():
-		floor_color_sub.add_item(FLOOR_COLORS[i][0], FLOOR_COLOR_BASE_ID + i)
+	for i in FloorMaterials.COLORS.size():
+		floor_color_sub.add_item(FloorMaterials.COLORS[i][0], FLOOR_COLOR_BASE_ID + i)
 	floor_color_sub.add_separator()
 	floor_color_sub.add_item("Custom...", FLOOR_PICKER_ID) # opens the full colour picker
 	floor_color_sub.id_pressed.connect(_on_menu_id)
@@ -533,7 +356,7 @@ func _ready() -> void:
 	_clip_ghost = Node2D.new()
 	_clip_ghost.set_script(load("res://floors/clip_preview.gd"))
 	add_child(_clip_ghost)
-	_clip_ghost.setup(func(mat: String, pat: int) -> Texture2D: return _mat_tex(mat, pat), _in_bounds)
+	_clip_ghost.setup(func(mat: String, pat: int) -> Texture2D: return FloorMaterials.texture(mat, pat), _in_bounds)
 	# leaving EDIT drops every piece of editor state that would otherwise sit frozen on top of the
 	# running game: the map tools stand down in PLAY (see _process / _unhandled_input), so anything
 	# already on screen would just stay there, and a selection you cannot change is not a selection.
@@ -922,18 +745,18 @@ func _rebuild_floor_submenu() -> void:
 	var sub: PopupMenu = _menu.get_node("floor_sub")
 	sub.clear()
 	sub.add_separator("Texture")
-	for i in MENU.size():
-		sub.add_item(MENU[i][0], i)
+	for i in FloorMaterials.MATERIAL_NAMES.size():
+		sub.add_item(FloorMaterials.MATERIAL_NAMES[i][0], i)
 	sub.add_separator("Colour")
-	for i in FLOOR_COLORS.size():
-		sub.add_item(FLOOR_COLORS[i][0], FLOOR_COLOR_BASE_ID + i)
+	for i in FloorMaterials.COLORS.size():
+		sub.add_item(FloorMaterials.COLORS[i][0], FLOOR_COLOR_BASE_ID + i)
 	sub.add_item("Custom...", FLOOR_PICKER_ID)
 	var pq := Grid.quad_of(_pending)
 	var mat: String = _quad_mat.get(pq, "")
-	var variants: int = textures[mat].size() if textures.has(mat) else 0
+	var variants: int = FloorMaterials.TEXTURES[mat].size() if FloorMaterials.TEXTURES.has(mat) else 0
 	if variants > 1:
 		sub.add_separator("Pattern")
-		var names: Array = PATTERN_NAMES.get(mat, [])
+		var names: Array = FloorMaterials.PATTERN_NAMES.get(mat, [])
 		for i in variants:
 			sub.add_item(names[i] if i < names.size() else "Pattern %d" % (i + 1), PATTERN_BASE_ID + i)
 
@@ -965,7 +788,7 @@ func _on_menu_id(id: int) -> void:
 		set_grid(not _grid_on)
 		return
 	var cell := Grid.cell_of(_pending)
-	# action items (all < 300, matched here before the swatch-range branches and the MENU fallthrough)
+	# action items (all < 300, matched here before the swatch-range branches and the FloorMaterials.MATERIAL_NAMES fallthrough)
 	if id == ERASE_ID:
 		_menu_erase(cell)
 		return
@@ -1025,7 +848,7 @@ func _on_menu_id(id: int) -> void:
 		# Mirrors the wall-colour branch below. Leaves _tool_kind = "floor_color" armed so a
 		# left-drag keeps tinting (see _paint) with the orange ground cursor (see _update_hover).
 		_tool_kind = "floor_color"
-		_floor_color = FLOOR_COLORS[id - FLOOR_COLOR_BASE_ID][1]
+		_floor_color = FloorMaterials.COLORS[id - FLOOR_COLOR_BASE_ID][1]
 		brush_changed.emit()
 		if _apply_floor_tint(_floor_color):
 			_rebuild()
@@ -1058,15 +881,15 @@ func _on_menu_id(id: int) -> void:
 	# the clicked room. In Cell/Fine, selecting a terrain no longer auto-places: it just arms the
 	# brush and the user clicks the target to drop it (ROADMAP "Terrain placement UX").
 	_tool_kind = "floor"
-	_brush = MENU[id][1]
+	_brush = FloorMaterials.MATERIAL_NAMES[id][1]
 	_armed = true # a material was explicitly chosen: Cell/Fine may now drop it
 	brush_changed.emit()
 	if _sel_kind == "floor" and _selection.has_selection():
 		var drop_rects := _selection_drop_rects() # capture the shape before the highlight resets
 		_fill_floor_selection(_brush)
 		EditHistory.commit("paint") # one menu fill = one undo step
-		if _brush != "" and textures.has(_brush):
-			_preview.play_shape_drop(drop_rects, _mat_tex(_brush, 0)) # animate the whole shape dropping in
+		if _brush != "" and FloorMaterials.TEXTURES.has(_brush):
+			_preview.play_shape_drop(drop_rects, FloorMaterials.texture(_brush, 0)) # animate the whole shape dropping in
 		_reset_highlight()
 	elif _mode == Mode.WAND:
 		set_room_style(cell, _brush) # convenience room fill; may no-op outside a room
@@ -1181,9 +1004,9 @@ func active_floor_color() -> Color:
 # the base texture of the armed floor material, for the panel's combined-brush preview swatch. Grass
 # ("" / unknown) previews the grass base, so tinting it reads the same as a tinted grass patch.
 func armed_brush_texture() -> Texture2D:
-	if _brush == "" or not textures.has(_brush):
-		return GRASS
-	return _mat_tex(_brush, 0)
+	if _brush == "" or not FloorMaterials.TEXTURES.has(_brush):
+		return FloorMaterials.GRASS
+	return FloorMaterials.texture(_brush, 0)
 
 # is there a committed FLOOR selection? Used by the panel to decide whether picking a material/colour
 # EDITS the selection (recolour/re-texture in place) rather than arming a brush to paint by hand.
@@ -1822,7 +1645,7 @@ func _cancel_pending() -> void:
 	_clip_ghost.hide_clip()
 
 func _fill_floor_selection(mat: String) -> void:
-	var valid := mat != "" and textures.has(mat)
+	var valid := mat != "" and FloorMaterials.TEXTURES.has(mat)
 	for q in _sel_quads:
 		if valid:
 			_quad_mat[q] = mat
@@ -1976,10 +1799,10 @@ func _show_preview(rect: Rect2) -> void:
 	# the floor-colour and pattern tools re-texture/tint an existing floor, so they show only the
 	# square cursor, no lifted tile (there is nothing being dropped). Same for Erase, the grass eraser,
 	# and an un-armed Cell/Fine (no material picked yet).
-	if _mode == Mode.ERASE or _tool_kind == "floor_color" or _tool_kind == "pattern" or not _armed or not textures.has(_brush):
+	if _mode == Mode.ERASE or _tool_kind == "floor_color" or _tool_kind == "pattern" or not _armed or not FloorMaterials.TEXTURES.has(_brush):
 		_preview.hide_preview()
 		return
-	_preview.arm(_mat_tex(_brush, 0), _floor_color)
+	_preview.arm(FloorMaterials.texture(_brush, 0), _floor_color)
 	_preview.show_at(rect)
 
 # clear the mask highlight and reset the dedupe cells so a later hover recomputes cleanly
@@ -2117,7 +1940,7 @@ func _paint(local: Vector2, drop := false) -> void:
 			changed = _write_tint(q, tint) or changed
 	if changed:
 		_rebuild()
-		if drop and mat != "" and textures.has(mat):
+		if drop and mat != "" and FloorMaterials.TEXTURES.has(mat):
 			_preview.play_drop(rect) # falling-tile effect for this placement
 
 # wall tool drag: colour the single wall segment under the cursor. No-op off a wall. Whole-building
@@ -2648,9 +2471,9 @@ func _update_bridge_hover(cell: Vector2i) -> void:
 # set one quarter's material ("" erases it back to grass). Returns whether anything changed,
 # so a drag that stays inside the same quarter doesn't trigger a redundant rebuild.
 func _write_quad(q: Vector2i, mat: String) -> bool:
-	if mat != "" and textures.has(mat):
+	if mat != "" and FloorMaterials.TEXTURES.has(mat):
 		# a change is the material OR the bank flag flipping (re-painting a liquid with the switch toggled)
-		var want_no_bank: bool = LIQUID_SHORE.has(mat) and not _bank_on
+		var want_no_bank: bool = FloorMaterials.LIQUID_SHORE.has(mat) and not _bank_on
 		var changed: bool = _quad_mat.get(q) != mat or _quad_no_bank.has(q) != want_no_bank
 		_quad_mat[q] = mat
 		_stamp_bank(q, mat)
@@ -2665,7 +2488,7 @@ func _write_quad(q: Vector2i, mat: String) -> bool:
 # record the river-bank switch for a freshly-painted quarter: a LIQUID quarter laid with the switch OFF
 # goes into _quad_no_bank (so it grows no bank); anything else clears any stale flag.
 func _stamp_bank(q: Vector2i, mat: String) -> void:
-	if LIQUID_SHORE.has(mat) and not _bank_on:
+	if FloorMaterials.LIQUID_SHORE.has(mat) and not _bank_on:
 		_quad_no_bank[q] = true
 	else:
 		_quad_no_bank.erase(q)
@@ -2739,7 +2562,7 @@ func apply_floors(list: Array) -> void:
 	_quad_mat.clear()
 	for f in list:
 		var style: String = f["style"]
-		if style == "" or not textures.has(style):
+		if style == "" or not FloorMaterials.TEXTURES.has(style):
 			continue
 		_write_room(room_light.room_floor_cells(f["cell"]), style)
 	_rebuild()
@@ -2750,7 +2573,7 @@ func apply_quads(list: Array) -> void:
 	_quad_no_bank.clear() # repopulated by apply_no_bank (MapIO calls it before the final rebuild)
 	for a in list:
 		var mat: String = a[2]
-		if not textures.has(mat):
+		if not FloorMaterials.TEXTURES.has(mat):
 			continue
 		_quad_mat[Vector2i(int(a[0]), int(a[1]))] = mat
 	_rebuild()
@@ -2800,15 +2623,6 @@ func apply_tints(list: Array) -> void:
 		_quad_tint[Vector2i(int(a[0]), int(a[1]))] = Color(float(a[2]), float(a[3]), float(a[4]))
 	_rebuild()
 
-# _quad_mat is the whole floor (interior + under-wall quarters written by room fills), so the
-# render is a straight one-rect-per-quarter pass. No room/uniformity derivation: laying a tile
-# changes only that quarter and never disturbs the under-wall ground already stored.
-# the texture for material `mat` at pattern index `pattern`, clamped to the material's variant range
-# (so a stale pattern index left over from a different material never indexes out of bounds).
-func _mat_tex(mat: String, pattern: int) -> Texture2D:
-	var variants: Array = textures[mat]
-	return variants[clampi(pattern, 0, variants.size() - 1)]
-
 # the floor stores changed: mark the render derivation stale and queue the redraw. The fills themselves are
 # built lazily on the next read (grid_background's _draw), so a paint drag that writes many quarters in one
 # frame, or a load that sets materials, patterns and tints back to back, derives them once, not per write.
@@ -2836,6 +2650,9 @@ func _quad_in_map(q: Vector2i) -> bool:
 	return cx >= 0 and cy >= 0 and cx < _grid_bg.grid_width and cy < _grid_bg.grid_height \
 		and (_grid_bg.absent_cells.is_empty() or not _grid_bg.absent_cells.has(Vector2i(cx, cy)))
 
+# _quad_mat is the whole floor (interior + under-wall quarters written by room fills), so the render is a
+# straight one-rect-per-quarter pass: laying a tile changes only that quarter and never disturbs the
+# under-wall ground already stored.
 func _build_fills() -> void:
 	_base_fills = []
 	_has_water = false
@@ -2843,7 +2660,7 @@ func _build_fills() -> void:
 		var rect := Grid.quad_rect(q)
 		var mat: String = _quad_mat[q]
 		var tint: Color = _quad_tint.get(q, Color.WHITE)
-		if LIQUID_SHORE.has(mat):
+		if FloorMaterials.LIQUID_SHORE.has(mat):
 			# Liquids (water/lava): a feathered shore where they meet a different material, over a bank
 			# underlay UNLESS the bank switch was off for this quarter (then the feather reveals grass).
 			# Fills carry a 5th `true` so grid_background shimmers them; the bank underlay stays static.
@@ -2852,19 +2669,19 @@ func _build_fills() -> void:
 			var mask := _liquid_edge_mask(q, mat)
 			if mask != 0:
 				if not _quad_no_bank.has(q):
-					_base_fills.append([rect, RIVER_BANK, Color.WHITE]) # bank the feather reveals
-				_base_fills.append([rect, LIQUID_SHORE[mat], tint, _shore_src(mask), true]) # feathered liquid
+					_base_fills.append([rect, FloorMaterials.RIVER_BANK, Color.WHITE]) # bank the feather reveals
+				_base_fills.append([rect, FloorMaterials.LIQUID_SHORE[mat], tint, _shore_src(mask), true]) # feathered liquid
 			else:
-				_base_fills.append([rect, _mat_tex(mat, 0), tint, GridBackground.tiled_src(rect), true])
+				_base_fills.append([rect, FloorMaterials.texture(mat, 0), tint, GridBackground.tiled_src(rect), true])
 			continue
-		elif EDGE_ATLAS.has(mat):
+		elif FloorMaterials.EDGE_ATLAS.has(mat):
 			# Auto-match: a natural terrain feathers over its lower-precedence orthogonal neighbours.
 			var mask := _terrain_edge_mask(q, mat)
 			if mask != 0:
 				var under: String = _edge_underlay_mat(q, mat)
 				if under != "": # reveal a non-base lower terrain (e.g. sand under snow) through the feather
-					_base_fills.append([rect, _mat_tex(under, 0), Color.WHITE])
-				_base_fills.append([rect, EDGE_ATLAS[mat], tint, _shore_src(mask)])
+					_base_fills.append([rect, FloorMaterials.texture(under, 0), Color.WHITE])
+				_base_fills.append([rect, FloorMaterials.EDGE_ATLAS[mat], tint, _shore_src(mask)])
 				continue
 			# mask 0 (bordered only by same/higher terrain): fall through to the flat, seamless tile
 		elif mat == "grass":
@@ -2873,36 +2690,36 @@ func _build_fills() -> void:
 			# overlay over the base. Never falls through to the opaque generic tile.
 			var gp: int = _quad_pattern.get(q, 0)
 			if gp != 0:
-				_base_fills.append([rect, _mat_tex("grass", gp), tint, GridBackground.tiled_src(rect)])
+				_base_fills.append([rect, FloorMaterials.texture("grass", gp), tint, GridBackground.tiled_src(rect)])
 			elif tint != Color.WHITE:
-				_base_fills.append([rect, GRASS, tint])
+				_base_fills.append([rect, FloorMaterials.GRASS, tint])
 			continue
-		_base_fills.append([rect, _mat_tex(mat, _quad_pattern.get(q, 0)), tint])
+		_base_fills.append([rect, FloorMaterials.texture(mat, _quad_pattern.get(q, 0)), tint])
 	# a quarter carrying a tint but NO material is a tinted patch of grass: draw the grass base
 	# under the tint so the recolour shows (an unpainted quarter isn't in _quad_mat above).
 	for q in _quad_tint:
 		if _quad_mat.has(q):
 			continue
-		_base_fills.append([Grid.quad_rect(q), GRASS, _quad_tint[q]])
+		_base_fills.append([Grid.quad_rect(q), FloorMaterials.GRASS, _quad_tint[q]])
 	# River-bank auto-edge: every non-water quarter touching water (8-neighbour, in-bounds) draws the
 	# brown bank on TOP of whatever is there. Appended last so it renders over the underlying fill;
-	# untinted (native brown). Derived only, so it is neither saved nor blocking (see RIVER_BANK).
+	# untinted (native brown). Derived only, so it is neither saved nor blocking (see FloorMaterials.RIVER_BANK).
 	for bq in _bank_quads():
-		_base_fills.append([Grid.quad_rect(bq), RIVER_BANK, Color.WHITE])
+		_base_fills.append([Grid.quad_rect(bq), FloorMaterials.RIVER_BANK, Color.WHITE])
 
 # the set of 16px quarter coords that render as river bank: any in-bounds quarter that is NOT a
-# BANK_AROUND material but is 8-neighbour-adjacent to one. Returned as a dict (used as a set) so a
+# FloorMaterials.BANK_AROUND material but is 8-neighbour-adjacent to one. Returned as a dict (used as a set) so a
 # quarter shared by several water quarters is emitted once. Purely derived from _quad_mat.
 func _bank_quads() -> Dictionary:
 	var bank := {}
 	for q in _quad_mat:
-		if not BANK_AROUND.has(_quad_mat[q]):
+		if not FloorMaterials.BANK_AROUND.has(_quad_mat[q]):
 			continue
 		if _quad_no_bank.has(q):
 			continue # this liquid quarter was laid with the bank switch OFF
 		for d in _N8:
 			var n: Vector2i = q + d
-			if bank.has(n) or BANK_AROUND.has(_quad_mat.get(n, "")):
+			if bank.has(n) or FloorMaterials.BANK_AROUND.has(_quad_mat.get(n, "")):
 				continue # already banked, or a neighbouring water quarter (not bank)
 			if _quad_in_map(n): # keep bank inside the map grid, not out in the void
 				bank[n] = true
@@ -2926,12 +2743,12 @@ func _liquid_edge_mask(q: Vector2i, mat: String) -> int:
 # feathers over it). Out-of-map, same-rank, higher-rank (incl. water), and non-natural (indoor) neighbours
 # never set a bit, so terrain never feathers toward the void, a peer, water, or a constructed floor.
 func _terrain_edge_mask(q: Vector2i, mat: String) -> int:
-	var r: int = TERRAIN_RANK.get(mat, 0)
+	var r: int = FloorMaterials.TERRAIN_RANK.get(mat, 0)
 	var m := 0
 	for i in 4:
 		var nq: Vector2i = q + _N4[i]
 		var nmat: String = _quad_mat.get(nq, "")
-		if TERRAIN_RANK.has(nmat) and TERRAIN_RANK[nmat] < r and _quad_in_map(nq):
+		if FloorMaterials.TERRAIN_RANK.has(nmat) and FloorMaterials.TERRAIN_RANK[nmat] < r and _quad_in_map(nq):
 			m |= 1 << i
 	return m
 
@@ -2939,20 +2756,20 @@ func _terrain_edge_mask(q: Vector2i, mat: String) -> int:
 # HIGHEST-ranked lower natural among the orthogonal neighbours. Returns "" (no underlay) when that is the
 # grass base (rank 0), since the whole map already draws grass beneath every quarter.
 func _edge_underlay_mat(q: Vector2i, mat: String) -> String:
-	var r: int = TERRAIN_RANK.get(mat, 0)
+	var r: int = FloorMaterials.TERRAIN_RANK.get(mat, 0)
 	var best := ""
 	var best_rank := 0
 	for d in _N4:
 		var nq: Vector2i = q + d
 		var nmat: String = _quad_mat.get(nq, "")
-		if TERRAIN_RANK.has(nmat) and TERRAIN_RANK[nmat] < r and TERRAIN_RANK[nmat] > best_rank and _quad_in_map(nq):
-			best_rank = TERRAIN_RANK[nmat]
+		if FloorMaterials.TERRAIN_RANK.has(nmat) and FloorMaterials.TERRAIN_RANK[nmat] < r and FloorMaterials.TERRAIN_RANK[nmat] > best_rank and _quad_in_map(nq):
+			best_rank = FloorMaterials.TERRAIN_RANK[nmat]
 			best = nmat
 	return best
 
 # the atlas source rect for shoreline mask `m`: the 4x4 grid of 32px cells, indexed m%4 across, m/4 down.
 func _shore_src(m: int) -> Rect2:
-	return Rect2((m % 4) * SHORE_TILE, (m / 4) * SHORE_TILE, SHORE_TILE, SHORE_TILE)
+	return Rect2((m % 4) * FloorMaterials.SHORE_TILE, (m / 4) * FloorMaterials.SHORE_TILE, FloorMaterials.SHORE_TILE, FloorMaterials.SHORE_TILE)
 
 func _redraw_floor_layers() -> void:
 	if _grid_bg:
@@ -2976,7 +2793,7 @@ func has_animated_water() -> bool:
 # source of truth the door-open shadow pass restamps from, so it matches the indoor base_fills
 # exactly (every painted quarter, interior or under a wall/door).
 func floor_tex_at_quad(q: Vector2i):
-	return _mat_tex(_quad_mat[q], _quad_pattern.get(q, 0)) if _quad_mat.has(q) else null
+	return FloorMaterials.texture(_quad_mat[q], _quad_pattern.get(q, 0)) if _quad_mat.has(q) else null
 
 # the multiply tint at 16px quarter `q` (white = none), so the door-open shadow restamp tints the
 # floor the same way base_fills does (see shadow_manager._stamp_floor).
@@ -2984,16 +2801,16 @@ func floor_tint_at_quad(q: Vector2i) -> Color:
 	return _quad_tint.get(q, Color.WHITE)
 
 # does the FLOOR at 32px cell `cell` block movement? Cell-level granularity (matches the 32px move
-# grid): a cell holds 2x2 quarters, and it blocks when a MAJORITY (>=2 of 4) carry an IMPASSABLE
+# grid): a cell holds 2x2 quarters, and it blocks when a MAJORITY (>=2 of 4) carry a FloorMaterials.IMPASSABLE
 # material. Majority (not "any") keeps a lone stray quarter - e.g. a future shoreline/bank quarter -
 # from sealing an otherwise-walkable cell; a full-water cell has all four, so it always blocks.
-# Consulted by the player alongside obstacles.is_blocked (walls); see the IMPASSABLE note above.
+# Consulted by the player alongside obstacles.is_blocked (walls); see the FloorMaterials.IMPASSABLE note above.
 func is_cell_impassable(cell: Vector2i) -> bool:
 	var count := 0
 	for dx in 2:
 		for dy in 2:
 			var q := Vector2i(cell.x * 2 + dx, cell.y * 2 + dy)
-			if IMPASSABLE.has(_quad_mat.get(q, "")):
+			if FloorMaterials.IMPASSABLE.has(_quad_mat.get(q, "")):
 				count += 1
 	return count >= 2
 

@@ -21,14 +21,14 @@ func _ready() -> void:
 	var player = main.get_node("World/Player")
 
 	# --- registration ---
-	_check("water is a floor material (textures)", fm.textures.has("water"))
-	_check("water has a pattern name (PATTERN_NAMES)", fm.PATTERN_NAMES.has("water"))
+	_check("water is a floor material (textures)", FloorMaterials.TEXTURES.has("water"))
+	_check("water has a pattern name (PATTERN_NAMES)", FloorMaterials.PATTERN_NAMES.has("water"))
 	var in_menu := false
-	for entry in fm.MENU:
+	for entry in FloorMaterials.MATERIAL_NAMES:
 		if entry[1] == "water":
 			in_menu = true
 	_check("water is in the floor MENU", in_menu)
-	_check("water is flagged IMPASSABLE", fm.IMPASSABLE.has("water"))
+	_check("water is flagged IMPASSABLE", FloorMaterials.IMPASSABLE.has("water"))
 
 	# --- cell-level majority granularity ---
 	var cell := Vector2i(20, 20) # open ground, no wall/door in the default map
@@ -63,8 +63,8 @@ func _ready() -> void:
 	_check("player.floor_manager wired", player.floor_manager == fm)
 
 	# --- river-bank auto-edge (derived, walkable, not saved) ---
-	_check("river-bank texture registered (RIVER_BANK)", fm.RIVER_BANK != null)
-	_check("water is a BANK_AROUND source", fm.BANK_AROUND.has("water"))
+	_check("river-bank texture registered (RIVER_BANK)", FloorMaterials.RIVER_BANK != null)
+	_check("water is a BANK_AROUND source", FloorMaterials.BANK_AROUND.has("water"))
 
 	fm._quad_mat = {} # isolate: one full-water cell in open ground, well away from the map edge
 	var wcell := Vector2i(30, 10)
@@ -91,7 +91,7 @@ func _ready() -> void:
 	# bank renders: a RIVER_BANK-textured fill exists in base_fills
 	var bank_fill := false
 	for f in fm.base_fills():
-		if f[1] == fm.RIVER_BANK:
+		if f[1] == FloorMaterials.RIVER_BANK:
 			bank_fill = true
 	_check("base_fills carries a river-bank fill", bank_fill)
 
@@ -107,7 +107,7 @@ func _ready() -> void:
 	_check("corner water emits no out-of-bounds bank", all_in_bounds)
 
 	# --- shoreline autotile (feathered beach): a 2x2-cell water block = 4x4 quarters (60..63, 20..23) ---
-	_check("shore atlas registered (WATER_SHORE)", fm.WATER_SHORE != null)
+	_check("shore atlas registered (WATER_SHORE)", FloorMaterials.WATER_SHORE != null)
 	fm._quad_mat = {}
 	for cy in [10, 11]:
 		for cx in [30, 31]:
@@ -127,15 +127,15 @@ func _ready() -> void:
 	var interior_flat := false
 	var corner_has_shore := false
 	var corner_has_underlay := false
-	var flat = fm._mat_tex("water", 0)
+	var flat = FloorMaterials.texture("water", 0)
 	var corner_rect := Rect2(60 * 16, 20 * 16, 16, 16)
 	var interior_rect := Rect2(61 * 16, 21 * 16, 16, 16)
 	for f in fm.base_fills():
-		if f[1] == fm.WATER_SHORE:
+		if f[1] == FloorMaterials.WATER_SHORE:
 			shore_fills += 1
 			if f[0] == corner_rect:
 				corner_has_shore = true
-		if f[0] == corner_rect and f[1] == fm.RIVER_BANK:
+		if f[0] == corner_rect and f[1] == FloorMaterials.RIVER_BANK:
 			corner_has_underlay = true
 		# interior uses the flat still tile, not the shore atlas (it now also carries a tiled-src + animate
 		# flag for the shimmer, so it is no longer a bare 3-element fill).
@@ -161,10 +161,10 @@ func _ready() -> void:
 	_check("map with water reports animated water", fm.has_animated_water())
 	var water_animated := false
 	var wood_animated := false
-	var wood_tex = fm._mat_tex("wood", 0)
+	var wood_tex = FloorMaterials.texture("wood", 0)
 	for f in fm.base_fills():
 		var is_anim: bool = f.size() > 4 and f[4]
-		if is_anim and (f[1] == fm.WATER_SHORE or f[1] == fm._mat_tex("water", 0)):
+		if is_anim and (f[1] == FloorMaterials.WATER_SHORE or f[1] == FloorMaterials.texture("water", 0)):
 			water_animated = true
 		if f[1] == wood_tex and is_anim:
 			wood_animated = true
