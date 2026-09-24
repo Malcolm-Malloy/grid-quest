@@ -13,7 +13,7 @@ const EDGES := ["top", "bottom", "left", "right"]
 # only for its HEIGHT: the strip stops short of the status bar rather than overlapping it
 
 # the authoring modes are FloorManager's own enum (no local mirror to keep in step)
-const Mode := FloorManager.Mode
+const Mode := EditorState.Mode
 
 # THE STRIP IS FOUR TOOLS (merged 2026-09-05, from twelve). The modes above did not go away -- they are
 # what each tool switches between -- but a tool is now the thing you pick, and WHAT it acts with is a
@@ -258,8 +258,8 @@ func _ready() -> void:
 		# the floor Brush (a wall selection reflects here; picking here edits the selection in place) ---
 		var wall := _add_section(vb, "Wall", false) # collapsed by default; opens when a wall is selected
 		_wall_preview = _fill_brush_section(wall, WallSegment.MATERIAL_NAMES, 3, _on_wall_material, WallSegment.COLORS, _on_wall_color, _wall_mat_buttons, _wall_col_swatches)
-		_fm.brush_changed.connect(_refresh_brush)
-		_fm.selection_changed.connect(_on_selection_changed)
+		EditorState.brush_changed.connect(_refresh_brush)
+		EditorState.selection_changed.connect(_on_selection_changed)
 		_refresh_brush()
 
 	# --- Advanced accordion section (collapsed): the Map Size edge controls ---

@@ -32,7 +32,7 @@ func _ready() -> void:
 	# --- 2. editor placement: one per cell, never on a wall or off the map ---
 	var coin_cell := Vector2i(20, 12)
 	var key_cell := Vector2i(21, 12)
-	fm.set_mode(fm.Mode.ITEM)
+	fm.set_mode(EditorState.Mode.ITEM)
 	fm.arm_item("coin")
 	_check("placed a coin", fm._place_item_at(_mid(coin_cell)))
 	fm.arm_item("key")
@@ -110,7 +110,7 @@ func _ready() -> void:
 		pk.pickup_at(Vector2i(30, 24))["id"] != pk.pickup_at(moved_coin)["id"])
 
 	# --- 9. Erase takes the item before the ground under it ---
-	fm.set_mode(fm.Mode.ERASE)
+	fm.set_mode(EditorState.Mode.ERASE)
 	fm._erase_single(moved_coin)
 	await get_tree().process_frame
 	_check("erase removed the item", not pk.has_pickup(moved_coin))

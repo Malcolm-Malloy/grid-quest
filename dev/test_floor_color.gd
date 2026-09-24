@@ -116,9 +116,9 @@ func _ready() -> void:
 
 	# --- slice 2: the shared _apply_floor_tint helper (used by swatches AND the picker) ---
 	fm._quad_tint.clear(); fm._rebuild()
-	fm._mode = 1 # Mode.CELL
+	EditorState.mode = 1 # Mode.CELL
 	fm._pending = Vector2(cell.x * 32 + 16, cell.y * 32 + 16)
-	fm._sel_kind = FloorManager.SelKind.NONE # no active selection
+	EditorState.sel_kind = EditorState.SelKind.NONE # no active selection
 	var applied: bool = fm._apply_floor_tint(red)
 	_check("apply-helper (Cell): reports a change", applied)
 	var cell_all_red := true

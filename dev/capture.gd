@@ -221,8 +221,8 @@ func _ready() -> void:
 				var wp := pt.split(",")
 				if wp.size() == 2:
 					fmw._wand_click(Vector2(float(wp[0]), float(wp[1])))
-			print("GQ_WAND kind=", fmw._sel_kind, " quads=", fmw._sel_quads.size(),
-				" cells=", fmw._sel_cells.size(), " level=", fmw._sel_level,
+			print("GQ_WAND kind=", EditorState.sel_kind, " quads=", EditorState.sel_quads.size(),
+				" cells=", EditorState.sel_cells.size(), " level=", EditorState.sel_level,
 				" overlay=", fmw._selection.has_selection())
 			# frame the whole map by default; GQ_WAND_NOFIT=1 keeps the GQ_POS-centred view instead
 			if OS.get_environment("GQ_WAND_NOFIT") != "1":
@@ -243,7 +243,7 @@ func _ready() -> void:
 			var camp := main.get_node_or_null("Camera2D")
 			if fmp and camp:
 				fmp.set_mode(1) # Mode.CELL
-				fmp._brush = pp[2]
+				EditorState.brush = pp[2]
 				await get_tree().process_frame # let the camera settle onto the player first
 				var wc := Vector2(int(pp[0]) * 32 + 16, int(pp[1]) * 32 + 16)
 				var screen: Vector2 = (wc - camp.global_position) * camp.zoom \

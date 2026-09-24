@@ -99,7 +99,7 @@ func _ready() -> void:
 
 	# --- the Select tool routes a click on a creature to the inspector, object layer first ---
 	var insp = get_tree().get_first_node_in_group("inspector")
-	fm.set_mode(fm.Mode.SELECT)
+	fm.set_mode(EditorState.Mode.SELECT)
 	fm._select_at(Vector2(a.x * 32 + 16, a.y * 32 + 16))
 	_check("clicking a creature inspects the CREATURE", insp._kind == "creature")
 	_check("...at its cell", insp._cell == a)
@@ -151,7 +151,7 @@ func _ready() -> void:
 	_check("erase removes the creature", not cr.has_creature(c))
 
 	# ================= SPAWN ZONES (the third placement kind) =================
-	fm.set_mode(fm.Mode.CREATURE)
+	fm.set_mode(EditorState.Mode.CREATURE)
 	fm.arm_creature("frost_frog")
 	fm.arm_creature_kind(Bestiary.ZONE)
 	_check("Zone is a brush kind but NOT a cell-record kind",
@@ -176,7 +176,7 @@ func _ready() -> void:
 	_check("a zero-size zone is refused", cr.add_zone(Rect2i(5, 5, 0, 3), "frost_frog").is_empty())
 
 	# the inspector's type / rate / cap (ROADMAP "Editor layout": a spawn zone shows more)
-	fm.set_mode(fm.Mode.SELECT)
+	fm.set_mode(EditorState.Mode.SELECT)
 	fm._select_at(Vector2(31 * 32 + 16, 25 * 32 + 16))
 	_check("clicking inside a zone inspects the ZONE", insp._kind == "zone")
 	cr.set_zone_type(Vector2i(31, 25), "fire_horse")
@@ -189,11 +189,11 @@ func _ready() -> void:
 	cr.set_zone_cap(Vector2i(31, 25), 2)
 
 	# a creature standing IN a zone still inspects as the creature: the zone is under it
-	fm.set_mode(fm.Mode.CREATURE)
+	fm.set_mode(EditorState.Mode.CREATURE)
 	fm.arm_creature_kind(Bestiary.SPAWN_POINT)
 	fm.arm_creature("frost_frog")
 	fm._place_creature_at(Vector2(31 * 32 + 16, 25 * 32 + 16))
-	fm.set_mode(fm.Mode.SELECT)
+	fm.set_mode(EditorState.Mode.SELECT)
 	fm._select_at(Vector2(31 * 32 + 16, 25 * 32 + 16))
 	_check("a creature inside a zone still inspects as the creature", insp._kind == "creature")
 

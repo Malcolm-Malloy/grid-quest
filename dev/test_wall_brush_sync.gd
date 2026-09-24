@@ -19,9 +19,9 @@ func _ready() -> void:
 	fm.set_mode(0) # Mode.WAND
 	fm._wand_click(wallCenter)
 	_check("wand select: a wall selection exists", fm.has_wall_selection())
-	var wcell: Vector2i = fm._sel_cells.keys()[0]
-	obs.material_cells(fm._sel_cells, "wood")
-	obs.color_cells(fm._sel_cells, Color.RED)
+	var wcell: Vector2i = EditorState.sel_cells.keys()[0]
+	obs.material_cells(EditorState.sel_cells, "wood")
+	obs.color_cells(EditorState.sel_cells, Color.RED)
 	fm._clear_selection()
 	fm._wand_click(wallCenter) # re-select the now wood+red run -> reflect into the panel
 	_check("panel reflects wall material (wood)", fm.armed_wall_material() == "wood")

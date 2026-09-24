@@ -21,7 +21,7 @@ func _ready() -> void:
 
 	# --- 1. the Set Spawn tool moves the marker, one click = one undo entry ---
 	var target := Vector2i(30, 20)
-	fm.set_mode(fm.Mode.SPAWN)
+	fm.set_mode(EditorState.Mode.SPAWN)
 	_check("set spawn on an open cell", fm._set_spawn_at(_mid(target)))
 	_check("the marker moved to that cell", marker.spawn_cell() == target)
 	_check("serialize now stores the MARKER's position", MapIO.serialize()["spawn"]["x"] == 30 * 32 + 16)

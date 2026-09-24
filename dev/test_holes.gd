@@ -15,7 +15,7 @@ func _ready() -> void:
 	_check("a hole is not in bounds", not fm._in_bounds(hole))
 	_check("its neighbour is", fm._in_bounds(hole + Vector2i.LEFT))
 
-	fm.set_mode(fm.Mode.CELL)
+	fm.set_mode(EditorState.Mode.CELL)
 	fm.arm_floor_material("wood")
 	fm._paint(Grid.cell_center(hole), true)
 	var stored := false
@@ -35,7 +35,7 @@ func _ready() -> void:
 	_check("no river bank grows into a hole", not banked)
 	_check("water does not feather toward a hole", fm._render.liquid_edge_mask(Vector2i(wet.x * 2 + 1, wet.y * 2), "water") & 2 == 0)
 
-	fm.set_mode(fm.Mode.WALL)
+	fm.set_mode(EditorState.Mode.WALL)
 	fm._place_wall_at(Grid.cell_center(hole))
 	_check("a wall cannot be placed in a hole", not obs.is_blocked(hole))
 	finish()

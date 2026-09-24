@@ -24,13 +24,13 @@ func _ready() -> void:
 
 	# --- (2) armed state: entering Cell/Fine disarms ---
 	fm.set_mode(1) # Mode.CELL
-	_check("enter Cell: no material armed", not fm._armed)
+	_check("enter Cell: no material armed", not EditorState.armed)
 
 	# arming via the menu (Cell mode, no selection -> arm-only, nothing placed yet)
 	fm._pending = _center(cellA)
-	fm._sel_kind = FloorManager.SelKind.NONE
+	EditorState.sel_kind = EditorState.SelKind.NONE
 	fm._on_menu_id(TILE_ID)
-	_check("pick material: now armed", fm._armed and fm._brush == "tile")
+	_check("pick material: now armed", EditorState.armed and EditorState.brush == "tile")
 	_check("pick material (Cell, no sel): nothing placed yet", fm._quad_mat.get(qA0, "") == "wood")
 
 	# armed paint drops the material
@@ -39,7 +39,7 @@ func _ready() -> void:
 
 	# re-entering Fine disarms again, so a paint places nothing (even though _brush is still "tile")
 	fm.set_mode(2) # Mode.FINE
-	_check("enter Fine: disarmed again", not fm._armed)
+	_check("enter Fine: disarmed again", not EditorState.armed)
 	var beforeB: String = fm._quad_mat.get(qB0, "")
 	fm._paint(_center(cellB), true)
 	_check("un-armed Fine paint: no-op (cell unchanged)", fm._quad_mat.get(qB0, "") == beforeB)
@@ -54,21 +54,21 @@ func _ready() -> void:
 	# --- right-click while armed in Cell/Fine disarms the brush (removes the hover graphic), no menu ---
 	fm.set_mode(1) # Mode.CELL
 	fm._pending = _center(cellA)
-	fm._sel_kind = FloorManager.SelKind.NONE
+	EditorState.sel_kind = EditorState.SelKind.NONE
 	fm._on_menu_id(TILE_ID) # arm
-	_check("armed before right-click", fm._armed)
+	_check("armed before right-click", EditorState.armed)
 	var rc := InputEventMouseButton.new()
 	rc.button_index = MOUSE_BUTTON_RIGHT
 	rc.pressed = true
 	fm._unhandled_input(rc)
-	_check("right-click while armed: disarms the brush", not fm._armed)
+	_check("right-click while armed: disarms the brush", not EditorState.armed)
 
 	# --- custom-shape drop: a Wand-selection fill animates the whole shape dropping in ---
 	fm.set_mode(0) # Mode.WAND
 	fm._wand_click(_center(cellA)) # makes a floor selection
 	var drop_rects: Array = fm._selection_drop_rects()
 	_check("shape-drop rects: >0 and <= selected quarters (excludes under-wall ring)",
-		drop_rects.size() > 0 and drop_rects.size() <= fm._sel_quads.size())
+		drop_rects.size() > 0 and drop_rects.size() <= EditorState.sel_quads.size())
 	fm._pending = _center(cellA)
 	fm._on_menu_id(TILE_ID) # selection-fill path -> fills + plays the shape drop
 	_check("shape-drop: preview holds the shape rects after a selection fill", fm._preview._shape_rects.size() > 0)

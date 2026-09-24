@@ -35,7 +35,7 @@ func _ready() -> void:
 	# open space (no adjacent structure) -> the R-flippable default (_door_orient)
 	obs.apply_map([], [], [])
 	await get_tree().process_frame
-	fm._door_orient = "vertical"
+	EditorState.door_orient = "vertical"
 	fm._show_door_ghost(c, obs)
 	_check("door in open space uses the default orientation", fm._door_preview.orientation == "vertical")
 

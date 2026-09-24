@@ -147,12 +147,12 @@ func _ready() -> void:
 	fm._clear_selection()
 	_check("Ctrl+C with no selection copies nothing", not fm._copy_selection())
 	fm._arm_paste(MapClipboard.clip())
-	_check("Ctrl+V arms a paste", fm._pending_kind == FloorManager.Pending.PASTE and not fm._pending_clip.is_empty())
-	var id_before: int = fm._pending_id
-	fm._transform_pending(MapClipboard.rotate_cw(fm._pending_clip))
-	_check("R rotates the armed clip (and bumps the ghost id)", int(fm._pending_clip["w"]) == 2 and fm._pending_id > id_before)
+	_check("Ctrl+V arms a paste", EditorState.pending_kind == EditorState.Pending.PASTE and not EditorState.pending_clip.is_empty())
+	var id_before: int = EditorState.pending_id
+	fm._transform_pending(MapClipboard.rotate_cw(EditorState.pending_clip))
+	_check("R rotates the armed clip (and bumps the ghost id)", int(EditorState.pending_clip["w"]) == 2 and EditorState.pending_id > id_before)
 	fm._cancel_pending()
-	_check("Esc / right-click drops the armed paste", fm._pending_clip.is_empty() and fm._pending_kind == FloorManager.Pending.NONE)
+	_check("Esc / right-click drops the armed paste", EditorState.pending_clip.is_empty() and EditorState.pending_kind == EditorState.Pending.NONE)
 	_check("a stampable cell reads in-bounds, an off-map one does not",
 		fm._in_bounds(Vector2i(3, 3)) and not fm._in_bounds(Vector2i(99, 3)))
 
@@ -161,13 +161,13 @@ func _ready() -> void:
 	EditHistory.reset()
 	fm._select_cells(src)
 	fm._begin_move(Vector2i(2, 2)) # grab the run's left end
-	_check("MOVE press inside the selection arms a move", fm._pending_kind == FloorManager.Pending.MOVE and fm._move_src.size() == 4)
+	_check("MOVE press inside the selection arms a move", EditorState.pending_kind == EditorState.Pending.MOVE and EditorState.move_src.size() == 4)
 	fm._ghost_origin_pin = Vector2i(5, 6) # stands in for the cursor (see _pending_origin)
 	fm._drop_pending()
 	await get_tree().process_frame
 	_check("the move drag landed the region", _has_wall(obs, Vector2i(5, 6)) and not _has_wall(obs, Vector2i(2, 2)))
 	_check("the moved region stays selected (so it can be moved again)", fm._selection_cells().has(Vector2i(5, 6)))
-	_check("the gesture cleared itself", fm._pending_clip.is_empty() and fm._move_src.is_empty())
+	_check("the gesture cleared itself", EditorState.pending_clip.is_empty() and EditorState.move_src.is_empty())
 	EditHistory.undo()
 	await get_tree().process_frame
 	_check("one undo reverses the whole drag-move", _has_wall(obs, Vector2i(2, 2)) and not _has_wall(obs, Vector2i(5, 6)))

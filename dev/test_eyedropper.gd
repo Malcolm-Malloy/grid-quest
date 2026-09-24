@@ -27,12 +27,12 @@ func _ready() -> void:
 
 	# --- 1. the tool picks material AND colour, and never edits the map ---
 	var before := JSON.stringify(MapIO.serialize())
-	fm.set_mode(fm.Mode.EYEDROP)
+	fm.set_mode(EditorState.Mode.EYEDROP)
 	_check("picked a floor", fm._eyedrop_at(_mid(sand)))
 	_check("picked the material", fm.armed_material() == "sand")
 	_check("picked the colour", fm.active_floor_color().is_equal_approx(Color(0.8, 0.2, 0.2)))
 	_check("the pick armed the brush (next click paints it)", fm.is_armed())
-	_check("the pick is a floor-brush pick", fm.active_tool_kind() == FloorManager.Brush.FLOOR)
+	_check("the pick is a floor-brush pick", fm.active_tool_kind() == EditorState.Brush.FLOOR)
 	_check("picking edited nothing", JSON.stringify(MapIO.serialize()) == before)
 	_check("picking committed no undo entry", not EditHistory.can_undo())
 
@@ -48,12 +48,12 @@ func _ready() -> void:
 	# --- 4. the same pick from a PAINT mode replaces the armed brush without painting. (This is what
 	# Alt+click runs; the routing itself reads the OS cursor, which a headless run cannot place, so the
 	# branch that calls this is covered by inspection, not here.) ---
-	fm.set_mode(fm.Mode.CELL)
+	fm.set_mode(EditorState.Mode.CELL)
 	fm.arm_floor_material("snow")
 	_check("armed snow to paint with", fm.armed_material() == "snow")
 	fm._eyedrop_at(_mid(sand))
 	_check("picking in Cell mode loaded the sampled material over the armed one", fm.armed_material() == "sand")
-	_check("picking kept the mode on Cell (you keep painting)", fm.mode() == fm.Mode.CELL)
+	_check("picking kept the mode on Cell (you keep painting)", fm.mode() == EditorState.Mode.CELL)
 	_check("picking in a paint mode painted nothing", JSON.stringify(MapIO.serialize()) == before)
 
 	# --- 5. a WALL picks the wall brush (material + colour) ---
@@ -62,11 +62,11 @@ func _ready() -> void:
 	obs.set_wall_material(wall, "slate")
 	obs.set_wall_color(wall, Color(0.2, 0.4, 0.9))
 	await get_tree().process_frame
-	fm.set_mode(fm.Mode.EYEDROP)
+	fm.set_mode(EditorState.Mode.EYEDROP)
 	fm._eyedrop_at(_mid(wall))
 	_check("picked the wall material", fm.armed_wall_material() == "slate")
 	_check("picked the wall colour", fm.active_wall_color().is_equal_approx(Color(0.2, 0.4, 0.9)))
-	_check("the pick is a wall-brush pick", fm.active_tool_kind() == FloorManager.Brush.WALL_MATERIAL)
+	_check("the pick is a wall-brush pick", fm.active_tool_kind() == EditorState.Brush.WALL_MATERIAL)
 
 	# --- 6. off-map picks nothing ---
 	_check("a pick off the map does nothing", not fm._eyedrop_at(Vector2(-40, -40)))

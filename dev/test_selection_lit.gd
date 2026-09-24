@@ -15,8 +15,8 @@ func _ready() -> void:
 	_check("floor selection: wash off (ants only)", not fm._selection._wash)
 
 	# selection_lit_cells maps the selected quarters to their owning 32px cells for RoomLight
-	fm._sel_kind = FloorManager.SelKind.FLOOR
-	fm._sel_quads = {Vector2i(16, 18): true, Vector2i(17, 18): true}
+	EditorState.sel_kind = EditorState.SelKind.FLOOR
+	EditorState.sel_quads = {Vector2i(16, 18): true, Vector2i(17, 18): true}
 	var lit: Dictionary = fm.selection_lit_cells()
 	_check("selection_lit_cells: quarter (16,18) -> cell (8,9)", lit.has(Vector2i(8, 9)))
 	_check("selection_lit_cells: no stray cells", lit.size() == 1)
@@ -26,8 +26,8 @@ func _ready() -> void:
 	_check("wall selection: wash on", fm._selection._wash)
 
 	# no floor selection -> nothing extra lit
-	fm._sel_kind = FloorManager.SelKind.NONE
-	fm._sel_quads = {}
+	EditorState.sel_kind = EditorState.SelKind.NONE
+	EditorState.sel_quads = {}
 	_check("no floor selection: selection_lit_cells empty", fm.selection_lit_cells().is_empty())
 
 	finish()

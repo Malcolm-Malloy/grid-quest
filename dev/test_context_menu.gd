@@ -65,7 +65,7 @@ func _ready() -> void:
 	_check("door cell: 'Erase' present", _idx_of(menu, "Erase") != -1)
 
 	# --- Grid check reflects the current toggle state after a rebuild ---
-	fm._grid_on = true
+	EditorState.grid_on = true
 	fm._apply_menu_context(floor_cell)
 	_check("Grid check mirrors _grid_on after rebuild", menu.is_item_checked(menu.get_item_index(fm.GRID_ID)))
 

@@ -21,7 +21,7 @@ extends CanvasLayer
 const HEIGHT := 24
 
 # the authoring modes are FloorManager's own enum (no local mirror to keep in step)
-const Mode := FloorManager.Mode
+const Mode := EditorState.Mode
 
 # What each mode is CALLED, in the merged four-tool vocabulary the strip now speaks (Select / Paint /
 # Place / Move, see tool_strip.gd): the bar must name the tool the user picked, not the internal mode
@@ -89,7 +89,7 @@ func _ready() -> void:
 
 	var fm := _floor_manager()
 	if fm != null:
-		fm.selection_changed.connect(_on_selection_changed)
+		EditorState.selection_changed.connect(_on_selection_changed)
 	_refresh()
 
 func _on_selection_changed() -> void:
