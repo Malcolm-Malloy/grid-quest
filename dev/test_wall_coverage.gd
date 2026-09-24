@@ -25,7 +25,7 @@ func _ready() -> void:
 	walls.append_array([Vector2i(25,5),Vector2i(26,5),Vector2i(25,6),Vector2i(26,6)]) # 2x2 block
 	walls.append_array([Vector2i(30,5),Vector2i(31,6),Vector2i(32,7)]) # diagonal staircase (each isolated)
 	walls.append(Vector2i(35,5)) # wall above a perpendicular (horizontal) door
-	var doors: Array = [{"cell":Vector2i(35,6),"orientation":"horizontal","open":false,"swing":false}]
+	var doors: Array = [{"cell":Vector2i(35,6),"orientation":Grid.Orient.HORIZONTAL,"open":false,"swing":false}]
 
 	obs.apply_map(walls, doors)
 	await get_tree().process_frame

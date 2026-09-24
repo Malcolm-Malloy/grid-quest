@@ -78,8 +78,8 @@ func hide_wall() -> void:
 func show_door(cell: Vector2i) -> void:
 	if _obs == null:
 		return
-	var orient: String = _obs.wall_run_orientation(cell)
-	if orient == "":
+	var orient: Grid.Orient = _obs.wall_run_orientation(cell)
+	if orient == Grid.Orient.NONE:
 		orient = EditorState.door_orient
 	var key := "%s|%s" % [cell, orient]
 	if key == _door_key and door.visible:
@@ -96,7 +96,7 @@ func hide_door() -> void:
 	door.visible = false
 
 # the bridge deck a click on `cell` would place, oriented `orient`, lifted a few px over the cell
-func show_bridge(cell: Vector2i, orient: String) -> void:
+func show_bridge(cell: Vector2i, orient: Grid.Orient) -> void:
 	bridge.orientation = orient
 	bridge.position = Grid.cell_center(cell) - Vector2(0, BRIDGE_LIFT)
 	bridge.visible = true

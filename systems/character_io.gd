@@ -46,7 +46,7 @@ func serialize() -> Dictionary:
 	return {
 		"version": VERSION,
 		"position": {"x": player.position.x, "y": player.position.y},
-		"facing": player.facing,
+		"facing": Player.facing_name(player.facing),
 		"inventory": inv,
 		# which pickups THIS character has already taken, per map (ROADMAP "Items and pickups" -> where
 		# collected state lives: the MAP always keeps its pickups, a saved game remembers what was taken)
@@ -65,7 +65,7 @@ func apply(data: Dictionary) -> void:
 	player.position = p
 	player.target_position = p
 	player.is_moving = false
-	player.facing = String(data.get("facing", player.facing))
+	player.facing = Player.facing_from(String(data.get("facing", Player.facing_name(player.facing))))
 	if "inventory" in player:
 		# v2 is {stacks, uniques}. A v1 save stored a flat Array, which was always empty (nothing could
 		# add to it before the item system), so it migrates to an empty v2 inventory.

@@ -37,3 +37,17 @@ static func cell_rect(c: Vector2i) -> Rect2:
 
 static func quad_rect(q: Vector2i) -> Rect2:
 	return Rect2(q.x * HALF, q.y * HALF, HALF, HALF)
+
+# the axis a door or bridge lies along. NONE is only an answer ("no wall run here"), never stored. A save
+# file spells it "horizontal" / "vertical" (orient_name / orient_from convert at that boundary).
+enum Orient { NONE, HORIZONTAL, VERTICAL }
+
+static func orient_name(o: Orient) -> String:
+	return "vertical" if o == Orient.VERTICAL else ("horizontal" if o == Orient.HORIZONTAL else "")
+
+# anything but "vertical" reads as horizontal, as the renderers always treated it
+static func orient_from(name: String) -> Orient:
+	return Orient.VERTICAL if name == "vertical" else Orient.HORIZONTAL
+
+static func flip(o: Orient) -> Orient:
+	return Orient.HORIZONTAL if o == Orient.VERTICAL else Orient.VERTICAL

@@ -30,7 +30,7 @@ func _ready() -> void:
 	_check("wall inspector has a 'Convert to Door' button", to_door != null)
 	to_door.pressed.emit()
 	_check("wall -> door: now a door, not blocked", _is_door(obs, cell) and not obs.is_blocked(cell))
-	_check("wall -> door: door follows the run orientation (horizontal)", obs.door_at(cell).get("orientation", "") == "horizontal")
+	_check("wall -> door: door follows the run orientation (horizontal)", obs.door_at(cell).get("orientation", "") == Grid.Orient.HORIZONTAL)
 
 	# the panel re-inspected as a door; press Convert to Wall
 	var to_wall := _find(insp._box, "Convert to Wall")

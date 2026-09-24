@@ -21,7 +21,7 @@ func _ready() -> void:
 	# --- place the character, face them, give them an inventory item, then save ---
 	player.position = Vector2(272, 368)
 	player.target_position = player.position
-	player.facing = "left"
+	player.facing = Player.Facing.LEFT
 	# v2 inventory: a stack entry and a unique entry, the two kinds the item system introduced
 	player.add_to_stack("coin", 3)
 	player.add_unique("key", "abc123")
@@ -40,14 +40,14 @@ func _ready() -> void:
 	# --- mutate the live character, then load: it must be restored from disk ---
 	player.position = Vector2(16, 16)
 	player.target_position = player.position
-	player.facing = "up"
+	player.facing = Player.Facing.UP
 	player.inventory = {"stacks": {}, "uniques": []}
 	player.is_moving = true
 
 	_check("load returns true", CharacterIO.load_character())
 	_check("load restores position", player.position.is_equal_approx(Vector2(272, 368)))
 	_check("load restores target_position", player.target_position.is_equal_approx(Vector2(272, 368)))
-	_check("load restores facing", player.facing == "left")
+	_check("load restores facing", player.facing == Player.Facing.LEFT)
 	_check("load clears in-progress step", player.is_moving == false)
 	_check("load restores the stack count", player.stack_count("coin") == 3)
 	_check("load restores the unique entry", player.has_unique("abc123"))

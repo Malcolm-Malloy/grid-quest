@@ -159,10 +159,10 @@ func _remap(c: Dictionary, nw: int, nh: int, cell_fn: Callable, quad_fn: Callabl
 func _reorient(rec: Dictionary, kind: String) -> void:
 	if not rec.has("orientation"):
 		return # a non-directional record (a placed item): position moves, nothing to re-face
-	var vertical: bool = String(rec["orientation"]) == "vertical"
+	var vertical: bool = Grid.orient_from(String(rec["orientation"])) == Grid.Orient.VERTICAL
 	match kind:
 		"rotate":
-			rec["orientation"] = "horizontal" if vertical else "vertical"
+			rec["orientation"] = Grid.orient_name(Grid.Orient.HORIZONTAL if vertical else Grid.Orient.VERTICAL)
 			if rec.has("swing") and vertical:
 				rec["swing"] = not bool(rec["swing"])
 		"flip_h":

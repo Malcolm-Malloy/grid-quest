@@ -11,11 +11,11 @@ const SHADOW_CAST := 12.0 # 45-degree down-right smear length for the whole-stru
 #   -----------+------------
 #   C(bot-left) | D(bot-right)
 var gate_cells: Array[Dictionary] = [
-	{"cell": Vector2i(10, 5), "orientation": "vertical"},   # A <-> B
-	{"cell": Vector2i(10, 9), "orientation": "vertical"},   # C <-> D
-	{"cell": Vector2i(8, 7), "orientation": "horizontal"},  # A <-> C
-	{"cell": Vector2i(12, 7), "orientation": "horizontal"}, # B <-> D
-	{"cell": Vector2i(8, 11), "orientation": "horizontal"}, # C -> outside
+	{"cell": Vector2i(10, 5), "orientation": Grid.Orient.VERTICAL},   # A <-> B
+	{"cell": Vector2i(10, 9), "orientation": Grid.Orient.VERTICAL},   # C <-> D
+	{"cell": Vector2i(8, 7), "orientation": Grid.Orient.HORIZONTAL},  # A <-> C
+	{"cell": Vector2i(12, 7), "orientation": Grid.Orient.HORIZONTAL}, # B <-> D
+	{"cell": Vector2i(8, 11), "orientation": Grid.Orient.HORIZONTAL}, # C -> outside
 ]
 
 # outer frame (6,3)-(14,11) with a central cross (column 10, row 7) dividing it
@@ -42,7 +42,7 @@ var bridge_script: Script
 # Bridges: crossable decks placed over water. Plain cell+orientation records, mirroring gate_cells
 # (a placed-object layer per Architecture review Q1). They re-enable crossing on the water cells they
 # cover (see is_bridge / player.gd). MapIO persists them; nodes are respawned in build_world.
-var bridge_cells: Array[Dictionary] = [] # [{cell: Vector2i, orientation: "horizontal"/"vertical"}]
+var bridge_cells: Array[Dictionary] = [] # [{cell: Vector2i, orientation: Grid.Orient}]
 
 # per-cell wall colour (tint over the stone). Only non-white cells are stored; MapIO persists it.
 var wall_colors := {} # Vector2i cell -> Color
@@ -135,7 +135,7 @@ func build_world() -> void:
 		gate.authored_open = gate_data.get("open", false)
 		gate.authored_swing = gate_data.get("swing", false)
 		gate.is_open = gate.authored_open
-		if gate.orientation == "vertical":
+		if gate.orientation == Grid.Orient.VERTICAL:
 			gate.swing_right = gate.authored_swing
 		else:
 			gate.swing_up = gate.authored_swing
@@ -327,7 +327,7 @@ func _is_fence(cell: Vector2i) -> bool:
 func _in_wall_line(cell: Vector2i, horizontal: bool) -> bool:
 	if _walls.has(cell):
 		return true
-	return _doors.has(cell) and _doors[cell]["orientation"] == ("horizontal" if horizontal else "vertical")
+	return _doors.has(cell) and _doors[cell]["orientation"] == (Grid.Orient.HORIZONTAL if horizontal else Grid.Orient.VERTICAL)
 
 # The wall PIECE(S) a cell WOULD get if a wall were placed there, using the SAME per-cell shaping as
 # build_world (the horizontal + vertical passes + corner trimming) against the CURRENT walls/doors, so a
@@ -396,7 +396,7 @@ func add_wall(cell: Vector2i) -> bool:
 # add a door on `cell` with `orientation` ("horizontal"/"vertical"). A wall already there becomes a
 # doorway (the wall is replaced, so a door and wall never share a cell). No-op if a door is already
 # on the cell. Returns whether anything changed.
-func add_door(cell: Vector2i, orientation: String) -> bool:
+func add_door(cell: Vector2i, orientation: Grid.Orient) -> bool:
 	if _doors.has(cell):
 		return false
 	blocked_cells.erase(cell) # a wall under the new door becomes a doorway
@@ -411,11 +411,11 @@ func add_door(cell: Vector2i, orientation: String) -> bool:
 func is_bridge(cell: Vector2i) -> bool:
 	return _bridges.has(cell)
 
-func bridge_orientation(cell: Vector2i) -> String:
-	return _bridges[cell]["orientation"] if _bridges.has(cell) else ""
+func bridge_orientation(cell: Vector2i) -> Grid.Orient:
+	return _bridges[cell]["orientation"] if _bridges.has(cell) else Grid.Orient.NONE
 
 # place a bridge on `cell` (no-op if one is already there). Returns whether it changed anything.
-func add_bridge(cell: Vector2i, orientation: String) -> bool:
+func add_bridge(cell: Vector2i, orientation: Grid.Orient) -> bool:
 	if is_bridge(cell):
 		return false
 	bridge_cells.append({"cell": cell, "orientation": orientation})
@@ -539,21 +539,21 @@ func door_id_at(cell: Vector2i) -> String:
 
 # flip the door's orientation between "horizontal" and "vertical". Structural, so only the dict is
 # mutated here; the caller rebuilds via MapIO to respawn the gate with the right textures/layers.
-func set_door_orientation(cell: Vector2i, orientation: String) -> void:
+func set_door_orientation(cell: Vector2i, orientation: Grid.Orient) -> void:
 	var d := door_at(cell)
 	if not d.is_empty():
 		d["orientation"] = orientation
 
 # orientation of the wall run through `cell`: "horizontal" if it has a horizontal wall/door
-# neighbour, "vertical" if a vertical one, "" if isolated (the caller falls back to its armed
+# neighbour, "vertical" if a vertical one, NONE if isolated (the caller falls back to its armed
 # default). A door embeds in the run it bridges, mirroring how walls auto-orient from neighbours
 # (see build_world): a door in a left-right wall line is "horizontal" (walked top-to-bottom).
-func wall_run_orientation(cell: Vector2i) -> String:
+func wall_run_orientation(cell: Vector2i) -> Grid.Orient:
 	if has_structure(Vector2i(cell.x - 1, cell.y)) or has_structure(Vector2i(cell.x + 1, cell.y)):
-		return "horizontal"
+		return Grid.Orient.HORIZONTAL
 	if has_structure(Vector2i(cell.x, cell.y - 1)) or has_structure(Vector2i(cell.x, cell.y + 1)):
-		return "vertical"
-	return ""
+		return Grid.Orient.VERTICAL
+	return Grid.Orient.NONE
 
 # --- per-cell wall properties: colour (a tint over the material; white = natural) and material (the
 # face/cap texture pair; "stone" = the default). Both stores are sparse -- the default is never stored --
@@ -681,7 +681,7 @@ func to_data() -> Dictionary:
 	var doors: Array = []
 	for d in gate_cells:
 		# v12: a door carries a durable id (a Unique key binds to it) and its authored lock
-		var rec := {"cell": [d["cell"].x, d["cell"].y], "orientation": d["orientation"],
+		var rec := {"cell": [d["cell"].x, d["cell"].y], "orientation": Grid.orient_name(d["orientation"]),
 			"open": d.get("open", false), "swing": d.get("swing", false), "id": d.get("id", "")}
 		if String(d.get("lock", "")) != "":
 			rec["lock"] = d["lock"]
@@ -691,7 +691,7 @@ func to_data() -> Dictionary:
 		doors.append(rec)
 	var bridges: Array = []
 	for b in bridge_cells:
-		bridges.append({"cell": [b["cell"].x, b["cell"].y], "orientation": b["orientation"]})
+		bridges.append({"cell": [b["cell"].x, b["cell"].y], "orientation": Grid.orient_name(b["orientation"])})
 	# sparse: only non-white colours and non-stone materials are stored
 	var colors: Array = []
 	for c in wall_colors:
@@ -710,7 +710,7 @@ func load_data(data: Dictionary) -> void:
 		walls.append(Vector2i(int(a[0]), int(a[1])))
 	var doors: Array = []
 	for d in data.get("doors", []):
-		var rec := {"cell": Vector2i(int(d["cell"][0]), int(d["cell"][1])), "orientation": d["orientation"],
+		var rec := {"cell": Vector2i(int(d["cell"][0]), int(d["cell"][1])), "orientation": Grid.orient_from(String(d["orientation"])),
 			"open": bool(d.get("open", false)), "swing": bool(d.get("swing", false)),
 			"id": String(d.get("id", ""))}
 		if String(d.get("lock", "")) != "":
@@ -720,7 +720,7 @@ func load_data(data: Dictionary) -> void:
 		doors.append(rec)
 	var bridges: Array = []
 	for b in data.get("bridges", []):
-		bridges.append({"cell": Vector2i(int(b["cell"][0]), int(b["cell"][1])), "orientation": String(b["orientation"])})
+		bridges.append({"cell": Vector2i(int(b["cell"][0]), int(b["cell"][1])), "orientation": Grid.orient_from(String(b["orientation"]))})
 	apply_map(walls, doors, bridges)
 	# colours/materials land on the segments once build_world's deferred spawns are in the tree
 	apply_wall_colors(data.get("wall_colors", []))

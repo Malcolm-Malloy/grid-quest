@@ -15,7 +15,7 @@ func _ready() -> void:
 	add_to_group("gate_backlayers") # freed with the gates on a map reload
 
 func _draw() -> void:
-	if gate == null or gate.orientation != "vertical" or not gate.is_open:
+	if gate == null or gate.orientation != Grid.Orient.VERTICAL or not gate.is_open:
 		return
 	var texture: Texture2D = gate.open_texture_right if gate.swing_right else gate.open_texture_left
 	if texture == null:

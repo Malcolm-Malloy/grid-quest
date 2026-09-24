@@ -26,7 +26,7 @@ func _ready() -> void:
 
 	# a wall whose ONLY neighbour is a perpendicular door must also spawn a node (a vertical wall above a
 	# HORIZONTAL door: the door does not continue the vertical line, so the wall is otherwise orphaned)
-	obs.apply_map([Vector2i(25, 25)], [{"cell": Vector2i(25, 26), "orientation": "horizontal", "open": false, "swing": false}])
+	obs.apply_map([Vector2i(25, 25)], [{"cell": Vector2i(25, 26), "orientation": Grid.Orient.HORIZONTAL, "open": false, "swing": false}])
 	await get_tree().process_frame
 	await get_tree().process_frame
 	_check("wall with only a perpendicular door spawns a node", _covered(Vector2i(25, 25)))

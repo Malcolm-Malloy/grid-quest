@@ -111,7 +111,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	# rotating (x,y) -> (h-1-y, x) puts the run in the box's right column, so it lands one cell east
 	_check("a rotated paste lands as a vertical run", _has_wall(obs, Vector2i(7, 6)) and _has_wall(obs, Vector2i(7, 7)))
-	_check("the rotated door is vertical on the map", _door(obs, Vector2i(7, 8)).get("orientation", "") == "vertical")
+	_check("the rotated door is vertical on the map", _door(obs, Vector2i(7, 8)).get("orientation", "") == Grid.Orient.VERTICAL)
 
 	# --- 7. move: the region leaves its source and arrives whole, in ONE undo entry ---
 	await _setup(fm)

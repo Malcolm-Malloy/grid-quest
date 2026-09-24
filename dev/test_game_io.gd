@@ -23,7 +23,7 @@ func _ready() -> void:
 	var map_name := "zz_game_test"
 	MapIO.save_map(map_name)
 	player.position = Vector2(21 * 32 + 16, 13 * 32 + 16)
-	player.facing = "left"
+	player.facing = Player.Facing.LEFT
 	CharacterIO.mark_collected(map_name, "abc123")
 	_check("saving a game in a named map works", GameIO.save_game())
 	_check("...and there is now a save", GameIO.has_save())
@@ -50,7 +50,7 @@ func _ready() -> void:
 	_check("loading the game works", GameIO.load_game())
 	_check("...it loaded the map the save named", MapIO.current() == map_name)
 	_check("...and put the character back where they were", int(player.position.x) == 21 * 32 + 16)
-	_check("...facing as they were", player.facing == "left")
+	_check("...facing as they were", player.facing == Player.Facing.LEFT)
 	_check("...remembering what they had collected", CharacterIO.is_collected(map_name, "abc123"))
 
 	# --- a save whose map has been deleted cannot be loaded, and says so rather than half-loading ---

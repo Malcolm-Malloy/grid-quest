@@ -44,7 +44,7 @@ func _ready() -> void:
 
 	# --- Door edits on the A<->B door (10,5): flip / open / swing ---
 	var door := Vector2i(10, 5)
-	var orient0: String = obs.door_at(door)["orientation"]
+	var orient0: Grid.Orient = obs.door_at(door)["orientation"]
 	_click(fm, door, ContextMenu.DOOR_FLIP_ID)
 	_check("Door flip: orientation changed", obs.door_at(door)["orientation"] != orient0)
 	_check("Door open default false initially", not bool(obs.door_at(door).get("open", false)))

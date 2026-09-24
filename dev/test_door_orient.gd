@@ -18,8 +18,8 @@ func _ready() -> void:
 	var wall := Vector2i(6, 3)    # a wall
 	var empty := Vector2i(2, 2)   # open ground
 
-	_check("setup: (10,5) is a vertical door", obs.door_at(v_door).get("orientation", "") == "vertical")
-	_check("setup: (8,7) is a horizontal door", obs.door_at(h_door).get("orientation", "") == "horizontal")
+	_check("setup: (10,5) is a vertical door", obs.door_at(v_door).get("orientation", "") == Grid.Orient.VERTICAL)
+	_check("setup: (8,7) is a horizontal door", obs.door_at(h_door).get("orientation", "") == Grid.Orient.HORIZONTAL)
 
 	# a VERTICAL door continues a vertical line, NOT a horizontal one
 	_check("vertical door: in a VERTICAL line", obs._in_wall_line(v_door, false))

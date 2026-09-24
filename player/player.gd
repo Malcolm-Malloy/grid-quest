@@ -23,7 +23,11 @@ const SIDE_FRAMES := [
 
 var is_moving := false
 var target_position := Vector2.ZERO
-var facing := "down"
+# which way the character faces (picks the sprite, and which way a door swings). The character save spells
+# it "down" / "up" / "left" / "right" (facing_name / facing_from convert at that boundary).
+enum Facing { DOWN, UP, LEFT, RIGHT }
+const _FACING_NAMES := ["down", "up", "left", "right"] # indexed by Facing
+var facing: Facing = Facing.DOWN
 # What the character carries, persisted by CharacterIO. TWO entry kinds, because keys force both
 # (ROADMAP "Items and pickups" -> inventory model): `stacks` holds stackable items as {item id: count}
 # (coins and the like, carry many, later consume one per use), and `uniques` holds one entry per
@@ -118,7 +122,7 @@ func update_shadow_shape() -> void:
 	# stays welded to the character, so it shortens toward the feet without detaching at
 	# the corners. The shape builders take the cast factor directly.
 	match facing:
-		"left", "right":
+		Facing.LEFT, Facing.RIGHT:
 			# the shadow's cast direction is a fixed world-space property (the
 			# sun doesn't move when the character turns), so unlike the sprite
 			# this never mirrors, both directions use the same shape
@@ -208,51 +212,51 @@ func update_gate_state() -> void:
 		# now facing away. Standing in the doorway itself keeps it open so the
 		# closed door never draws through the player mid-crossing.
 		var should_open := on_gate_cell
-		if gate.orientation == "vertical":
+		if gate.orientation == Grid.Orient.VERTICAL:
 			# walked through left-to-right: same row, adjacent column
 			var dx: int = occupied_cell.x - gate.cell.x
-			if occupied_cell.y == gate.cell.y and ((dx == -1 and facing == "right") or (dx == 1 and facing == "left")):
+			if occupied_cell.y == gate.cell.y and ((dx == -1 and facing == Facing.RIGHT) or (dx == 1 and facing == Facing.LEFT)):
 				should_open = true
 			# the door always swings the way the player is facing. Set it whenever
 			# the door is open (adjacent OR standing in the doorway), so it never
 			# keeps a stale swing from an earlier approach. A perpendicular facing
 			# isn't on this gate's axis, so it leaves the swing as-is.
 			if should_open:
-				if facing == "right":
+				if facing == Facing.RIGHT:
 					gate.set_swing_right(true)
-				elif facing == "left":
+				elif facing == Facing.LEFT:
 					gate.set_swing_right(false)
 		else:
 			# walked through top-to-bottom: same column, adjacent row
 			var dy: int = occupied_cell.y - gate.cell.y
-			if occupied_cell.x == gate.cell.x and ((dy == -1 and facing == "down") or (dy == 1 and facing == "up")):
+			if occupied_cell.x == gate.cell.x and ((dy == -1 and facing == Facing.DOWN) or (dy == 1 and facing == Facing.UP)):
 				should_open = true
 			if should_open:
-				if facing == "down":
+				if facing == Facing.DOWN:
 					gate.set_swing_up(false)
-				elif facing == "up":
+				elif facing == Facing.UP:
 					gate.set_swing_up(true)
 		gate.set_open(should_open)
 		gate.set_player_here(on_gate_cell)
 
-func direction_to_facing(dir: Vector2) -> String:
+func direction_to_facing(dir: Vector2) -> Facing:
 	if dir == Vector2.RIGHT:
-		return "right"
+		return Facing.RIGHT
 	elif dir == Vector2.LEFT:
-		return "left"
+		return Facing.LEFT
 	elif dir == Vector2.UP:
-		return "up"
+		return Facing.UP
 	else:
-		return "down"
+		return Facing.DOWN
 
 func update_sprite() -> void:
-	sprite.flip_h = facing == "right"
+	sprite.flip_h = facing == Facing.RIGHT
 	match facing:
-		"down":
+		Facing.DOWN:
 			sprite.texture = DOWN_FRAMES[frame_index]
-		"up":
+		Facing.UP:
 			sprite.texture = UP_FRAMES[frame_index]
-		"left", "right":
+		Facing.LEFT, Facing.RIGHT:
 			sprite.texture = SIDE_FRAMES[frame_index]
 	update_shadow_shape()
 
@@ -305,3 +309,11 @@ func uniques_of(item: String) -> Array:
 		if String(u.get("item", "")) == item:
 			out.append(u)
 	return out
+
+static func facing_name(f: Facing) -> String:
+	return _FACING_NAMES[f]
+
+# an unknown name (a hand-edited or future save) falls back to facing down
+static func facing_from(name: String) -> Facing:
+	var i := _FACING_NAMES.find(name)
+	return Facing.DOWN if i == -1 else i as Facing

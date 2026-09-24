@@ -264,11 +264,11 @@ func _build_door() -> void:
 	_title("Door  (%d, %d)" % [_cell.x, _cell.y])
 
 	# orientation flip (structural: rebuild through MapIO so the gate respawns)
-	var orient: String = d["orientation"]
+	var orient: Grid.Orient = d["orientation"]
 	var ob := Button.new()
-	ob.text = "Orientation: %s" % orient.capitalize()
+	ob.text = "Orientation: %s" % Grid.orient_name(orient).capitalize()
 	ob.pressed.connect(func():
-		var flipped := "vertical" if orient == "horizontal" else "horizontal"
+		var flipped := Grid.flip(orient)
 		obs.set_door_orientation(_cell, flipped)
 		MapIO.rebuild_live(MapIO.REBUILD_STRUCTURES)
 		EditHistory.commit("door orientation")

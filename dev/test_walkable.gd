@@ -26,7 +26,7 @@ func _ready() -> void:
 	_check("a hole is not", not fm.is_walkable(hole))
 	_check("off the map is not", not fm.is_walkable(Vector2i(-1, 0)))
 	_check("water is not", not fm.is_walkable(water))
-	obs.add_bridge(water, "vertical")
+	obs.add_bridge(water, Grid.Orient.VERTICAL)
 	_check("bridged water is", fm.is_walkable(water))
 	obs.remove_bridge(water)
 

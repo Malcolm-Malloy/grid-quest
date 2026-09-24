@@ -453,11 +453,11 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		_erase_selection()
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_R and EditorState.mode == EditorState.Mode.DOOR:
-		EditorState.door_orient = "vertical" if EditorState.door_orient == "horizontal" else "horizontal"
+		EditorState.door_orient = Grid.flip(EditorState.door_orient)
 		call_deferred("_update_hover")
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_R and EditorState.mode == EditorState.Mode.BRIDGE:
-		EditorState.bridge_orient = "vertical" if EditorState.bridge_orient == "horizontal" else "horizontal"
+		EditorState.bridge_orient = Grid.flip(EditorState.bridge_orient)
 		call_deferred("_update_hover")
 		get_viewport().set_input_as_handled()
 
@@ -1281,8 +1281,8 @@ func _place_door_at(local: Vector2) -> void:
 		return
 	if _obs == null:
 		return
-	var orient: String = _obs.wall_run_orientation(cell)
-	if orient == "":
+	var orient: Grid.Orient = _obs.wall_run_orientation(cell)
+	if orient == Grid.Orient.NONE:
 		orient = EditorState.door_orient
 	if not _obs.add_door(cell, orient):
 		return
@@ -1302,7 +1302,7 @@ func _place_bridge_at(local: Vector2) -> void:
 	if _cell_liquid(cell) == "lava":
 		return # wooden bridges burn: they can only be built over WATER, not lava
 	var orient := _bridge_river_orientation(cell)
-	if orient == "":
+	if orient == Grid.Orient.NONE:
 		orient = EditorState.bridge_orient
 	if not _obs.add_bridge(cell, orient):
 		return
@@ -1328,14 +1328,14 @@ func _cell_liquid(cell: Vector2i) -> String:
 # the bridge orientation the WATER around `cell` implies, or "" if ambiguous. A horizontal river
 # (water left/right) -> "vertical" bridge; a vertical river (water above/below) -> "horizontal". Lava is
 # NOT counted here, so a bridge never orients to (or bridges) lava.
-func _bridge_river_orientation(cell: Vector2i) -> String:
+func _bridge_river_orientation(cell: Vector2i) -> Grid.Orient:
 	var horiz_river := _cell_liquid(cell + Vector2i(1, 0)) == "water" or _cell_liquid(cell + Vector2i(-1, 0)) == "water"
 	var vert_river := _cell_liquid(cell + Vector2i(0, 1)) == "water" or _cell_liquid(cell + Vector2i(0, -1)) == "water"
 	if horiz_river and not vert_river:
-		return "vertical"
+		return Grid.Orient.VERTICAL
 	if vert_river and not horiz_river:
-		return "horizontal"
-	return ""
+		return Grid.Orient.HORIZONTAL
+	return Grid.Orient.NONE
 
 # Select tool: load the door or wall on the clicked cell into the properties inspector (a door wins
 # if somehow both are present, matching the topmost-structure model). An empty cell clears it.
@@ -1452,7 +1452,7 @@ func edit_door(cell: Vector2i, edit: DoorEdit) -> void:
 		return
 	match edit:
 		DoorEdit.FLIP:
-			var flipped := "vertical" if d["orientation"] == "horizontal" else "horizontal"
+			var flipped := Grid.flip(d["orientation"])
 			_obs.set_door_orientation(cell, flipped)
 			_rebuild_world(MapIO.REBUILD_STRUCTURES) # structural: respawn the gate
 			EditHistory.commit("door orientation")
@@ -1653,7 +1653,7 @@ func _update_bridge_hover(cell: Vector2i) -> void:
 	_cursor.set_role(PaintCursor.Role.ADD)
 	_cursor.show_rect(Grid.cell_rect(cell))
 	var orient := _bridge_river_orientation(cell)
-	if orient == "":
+	if orient == Grid.Orient.NONE:
 		orient = EditorState.bridge_orient
 	_ghosts.show_bridge(cell, orient)
 

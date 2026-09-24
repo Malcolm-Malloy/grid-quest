@@ -14,10 +14,10 @@ const POST_W := 5.0 # horizontal-gate post thickness for its shadow
 const CLOSED_H := preload("res://world/gate_closed.png")
 const CLOSED_V := preload("res://world/gate_vertical_closed.png")
 
-# "horizontal": embedded in a horizontal fence, walked through top-to-bottom.
-# "vertical": embedded in a vertical fence, walked through left-to-right.
+# HORIZONTAL: embedded in a horizontal fence, walked through top-to-bottom.
+# VERTICAL: embedded in a vertical fence, walked through left-to-right.
 # more orientations/styles can be added the same way as the gate roster grows.
-var orientation := "horizontal"
+var orientation: Grid.Orient = Grid.Orient.HORIZONTAL
 
 # preview mode: a lifted, translucent GHOST of the closed door a DOOR-mode click would place, auto-oriented
 # to the wall run under the cursor (see FloorManager). Draws only the CLOSED door (no back layer, no
@@ -64,8 +64,8 @@ func _ready() -> void:
 	# above and below, so they overlap no wall and stay at z_index 0, y-sorted with the
 	# player: anything a row behind the player (north) then draws behind it, so a
 	# horizontal gate no longer clips the player standing one row in front of it.
-	z_index = 1 if orientation == "vertical" else 0
-	if orientation == "vertical":
+	z_index = 1 if orientation == Grid.Orient.VERTICAL else 0
+	if orientation == Grid.Orient.VERTICAL:
 		closed_texture = preload("res://world/gate_vertical_closed.png")
 		open_texture_right = preload("res://world/gate_vertical_open_right.png")
 		open_texture_left = preload("res://world/gate_vertical_open_left.png")
@@ -79,9 +79,9 @@ func _ready() -> void:
 
 # ghost only: point the preview door at orientation `o`, loading the matching CLOSED texture, then redraw.
 # Called by FloorManager as the door auto-orients to the wall run under the cursor.
-func set_preview_orientation(o: String) -> void:
+func set_preview_orientation(o: Grid.Orient) -> void:
 	orientation = o
-	closed_texture = CLOSED_V if o == "vertical" else CLOSED_H
+	closed_texture = CLOSED_V if o == Grid.Orient.VERTICAL else CLOSED_H
 	queue_redraw()
 
 func spawn_back_layer() -> void:
@@ -140,7 +140,7 @@ func _shadow_rects() -> Array:
 	var thin_l := center_x - VERTICAL_WIDTH / 2.0
 	var thin_r := center_x + VERTICAL_WIDTH / 2.0
 	var out: Array = []
-	if orientation == "vertical":
+	if orientation == Grid.Orient.VERTICAL:
 		if not is_open:
 			out.append([thin_l, thin_r, cell_top, base]) # closed: thin strip
 		else:
@@ -167,7 +167,7 @@ func _shadow_rects() -> Array:
 # return the door to its authored default (open/closed + swing). Called when entering EDIT, so a
 # door the player left open/swung in PLAY snaps back to what the map author set.
 func reset_to_authored() -> void:
-	if orientation == "vertical":
+	if orientation == Grid.Orient.VERTICAL:
 		set_swing_right(authored_swing)
 	else:
 		set_swing_up(authored_swing)
@@ -205,7 +205,7 @@ func set_player_here(value: bool) -> void:
 	# would drop the gate below the neighboring walls too, since both are
 	# z_index 0, making the posts disappear wherever they overlap wall
 	# territory) so they always stay at their normal priority.
-	if orientation == "vertical":
+	if orientation == Grid.Orient.VERTICAL:
 		z_index = 1
 	else:
 		# on the cell: sit behind the player (doorway). Otherwise z_index 0 so y-sort
@@ -245,7 +245,7 @@ func _draw_lock(centre: Vector2) -> void:
 	draw_rect(Rect2(centre + Vector2(-0.7, 0.8), Vector2(1.4, 2.2)), LOCK_DARK, true) # keyhole
 
 func _draw() -> void:
-	if orientation == "vertical":
+	if orientation == Grid.Orient.VERTICAL:
 		var plain_bottom := CELL_SIZE / 2.0
 		var bottom := plain_bottom - WALL_HEIGHT
 		var top := vertical_top()

@@ -72,7 +72,7 @@ func _ready() -> void:
 	_fill(fm, Vector2i(41, 10), "lava")
 	_fill(fm, Vector2i(43, 10), "lava") # lava left+right of (42,10)
 	fm._rebuild()
-	_check("lava does not orient a bridge (treated as no river)", fm._bridge_river_orientation(Vector2i(42, 10)) == "")
+	_check("lava does not orient a bridge (treated as no river)", fm._bridge_river_orientation(Vector2i(42, 10)) == Grid.Orient.NONE)
 
 	# --- river-bank switch: OFF suppresses the bank, ON keeps it ---
 	fm._quad_mat.clear()
