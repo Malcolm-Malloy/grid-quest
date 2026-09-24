@@ -39,15 +39,15 @@ func _ready() -> void:
 		not FloorMaterials.TERRAIN_RANK.has("wood") and not FloorMaterials.TERRAIN_RANK.has("tile"))
 
 	# --- edge mask: a 2x2-cell sand block on grass = 4x4 quarters (60..63, 20..23) ---
-	fm._quad_mat = {}
+	fm._quad_mat.clear()
 	for cy in [10, 11]:
 		for cx in [30, 31]:
 			for qq in _quads(Vector2i(cx, cy)):
 				fm._quad_mat[qq] = "sand"
 	fm._rebuild()
-	_check("sand NW-corner quarter feathers N|W (mask 9)", fm._terrain_edge_mask(Vector2i(60, 20), "sand") == 9)
-	_check("sand interior quarter feathers nothing (mask 0)", fm._terrain_edge_mask(Vector2i(61, 21), "sand") == 0)
-	_check("sand over grass needs no underlay (grass is the base)", fm._edge_underlay_mat(Vector2i(60, 20), "sand") == "")
+	_check("sand NW-corner quarter feathers N|W (mask 9)", fm._render.terrain_edge_mask(Vector2i(60, 20), "sand") == 9)
+	_check("sand interior quarter feathers nothing (mask 0)", fm._render.terrain_edge_mask(Vector2i(61, 21), "sand") == 0)
+	_check("sand over grass needs no underlay (grass is the base)", fm._render.edge_underlay_mat(Vector2i(60, 20), "sand") == "")
 	_check("sand cell is passable", not fm.is_cell_impassable(Vector2i(30, 10)))
 	# _rebuild emits a shore tile for each of the 12 edge quarters; the 4 interior quarters stay flat
 	var sand_shore := 0
@@ -62,33 +62,33 @@ func _ready() -> void:
 	_check("interior sand quarter stays flat (no autotile)", interior_flat)
 
 	# --- sand never feathers toward WATER (water outranks it) ---
-	fm._quad_mat = {}
+	fm._quad_mat.clear()
 	fm._quad_mat[Vector2i(60, 20)] = "sand"
 	fm._quad_mat[Vector2i(61, 20)] = "water" # east neighbour is water
 	fm._rebuild()
-	var sm = fm._terrain_edge_mask(Vector2i(60, 20), "sand")
+	var sm = fm._render.terrain_edge_mask(Vector2i(60, 20), "sand")
 	_check("sand feathers over grass N/S/W but NOT toward water (E bit clear)", (sm & 2) == 0 and (sm & 1) != 0)
 
 	# --- snow feathers over sand and reveals it via an underlay ---
-	fm._quad_mat = {}
+	fm._quad_mat.clear()
 	fm._quad_mat[Vector2i(60, 20)] = "snow"
 	fm._quad_mat[Vector2i(61, 20)] = "sand" # east neighbour is lower (sand); the rest are grass base
 	fm._rebuild()
-	_check("snow feathers on every side over sand+grass (mask 15)", fm._terrain_edge_mask(Vector2i(60, 20), "snow") == 15)
-	_check("snow-over-sand underlay is sand (reveals it, not grass)", fm._edge_underlay_mat(Vector2i(60, 20), "snow") == "sand")
+	_check("snow feathers on every side over sand+grass (mask 15)", fm._render.terrain_edge_mask(Vector2i(60, 20), "snow") == 15)
+	_check("snow-over-sand underlay is sand (reveals it, not grass)", fm._render.edge_underlay_mat(Vector2i(60, 20), "snow") == "sand")
 	# a snow quarter bordered only by grass needs no underlay
-	fm._quad_mat = {}
+	fm._quad_mat.clear()
 	fm._quad_mat[Vector2i(60, 20)] = "snow"
 	fm._rebuild()
-	_check("snow over grass only needs no underlay", fm._edge_underlay_mat(Vector2i(60, 20), "snow") == "")
+	_check("snow over grass only needs no underlay", fm._render.edge_underlay_mat(Vector2i(60, 20), "snow") == "")
 	# sand does NOT feather over snow (snow outranks sand): reverse of the pair above
-	fm._quad_mat = {}
+	fm._quad_mat.clear()
 	fm._quad_mat[Vector2i(60, 20)] = "sand"
 	fm._quad_mat[Vector2i(61, 20)] = "snow"
-	_check("sand does not feather toward higher snow (E bit clear)", (fm._terrain_edge_mask(Vector2i(60, 20), "sand") & 2) == 0)
+	_check("sand does not feather toward higher snow (E bit clear)", (fm._render.terrain_edge_mask(Vector2i(60, 20), "sand") & 2) == 0)
 
 	# --- the snow-over-sand emission lays a sand underlay BEFORE the snow shore tile at that quarter ---
-	fm._quad_mat = {}
+	fm._quad_mat.clear()
 	fm._quad_mat[Vector2i(60, 20)] = "snow"
 	fm._quad_mat[Vector2i(61, 20)] = "sand"
 	fm._rebuild()

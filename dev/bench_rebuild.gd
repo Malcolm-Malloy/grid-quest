@@ -62,7 +62,7 @@ func _ready() -> void:
 	for qx in range(0, 40):
 		for qy in range(52, 64):
 			fm._quad_mat[Vector2i(qx, qy)] = "water"
-	print("floor _rebuild (%d quarters, lake): %.2f ms each" % [fm._quad_mat.size(), _time(func(): fm._build_fills(), reps)])
+	print("floor _rebuild (%d quarters, lake): %.2f ms each" % [fm._quad_mat.size(), _time(func(): fm._render.build(), reps)])
 	print("MapIO.serialize:          %.2f ms each" % _time(func(): MapIO.serialize(), reps))
 	print("wall-drag frame:          %.2f ms each" % _time(func(): fm._rebuild_world(MapIO.REBUILD_STRUCTURES), reps))
 

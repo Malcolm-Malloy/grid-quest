@@ -30,10 +30,10 @@ func _ready() -> void:
 		fm._quad_mat[q] = "water"
 	fm._rebuild()
 	var banked := false
-	for q in fm._bank_quads():
+	for q in fm._render.bank_quads():
 		banked = banked or Grid.cell_of_quad(q) == hole
 	_check("no river bank grows into a hole", not banked)
-	_check("water does not feather toward a hole", fm._liquid_edge_mask(Vector2i(wet.x * 2 + 1, wet.y * 2), "water") & 2 == 0)
+	_check("water does not feather toward a hole", fm._render.liquid_edge_mask(Vector2i(wet.x * 2 + 1, wet.y * 2), "water") & 2 == 0)
 
 	fm.set_mode(fm.Mode.WALL)
 	fm._place_wall_at(Grid.cell_center(hole))

@@ -27,9 +27,9 @@ func _ready() -> void:
 	_check("grass does NOT auto-match (no edge atlas; it is the base)", not FloorMaterials.EDGE_ATLAS.has("grass"))
 
 	# --- render branch: Plain untinted = nothing; Plain tinted = tinted base; Wild = overlay ---
-	fm._quad_mat = {}
-	fm._quad_tint = {}
-	fm._quad_pattern = {}
+	fm._quad_mat.clear()
+	fm._quad_tint.clear()
+	fm._quad_pattern.clear()
 	var q_plain := Vector2i(40, 40)
 	var q_tint := Vector2i(42, 40)
 	var q_wild := Vector2i(44, 40)
@@ -54,7 +54,7 @@ func _ready() -> void:
 	_check("Wild grass draws the blade overlay (with a tiled src override)", wild_ok)
 
 	# grass painted anywhere is walkable (base terrain)
-	fm._quad_mat = {}
+	fm._quad_mat.clear()
 	for dx in 2:
 		for dy in 2:
 			fm._quad_mat[Vector2i(20 * 2 + dx, 20 * 2 + dy)] = "grass"

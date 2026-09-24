@@ -36,7 +36,7 @@ func _ready() -> void:
 	_check("remove_bridge clears it", obs.remove_bridge(Vector2i(5, 5)) and not obs.is_bridge(Vector2i(5, 5)))
 
 	# --- auto-orient to the water run (a horizontal river gets a north-south bridge) ---
-	fm._quad_mat = {}
+	fm._quad_mat.clear()
 	_fill_water(fm, Vector2i(24, 15))
 	_fill_water(fm, Vector2i(26, 15)) # water left+right of (25,15) => horizontal river
 	fm._rebuild()
@@ -44,7 +44,7 @@ func _ready() -> void:
 	fm._place_bridge_at(Vector2(25 * 32 + 16, 15 * 32 + 16))
 	_check("horizontal river -> vertical bridge", obs.bridge_orientation(Vector2i(25, 15)) == "vertical")
 
-	fm._quad_mat = {}
+	fm._quad_mat.clear()
 	_fill_water(fm, Vector2i(25, 19))
 	_fill_water(fm, Vector2i(25, 21)) # water above+below (25,20) => vertical river
 	fm._rebuild()
@@ -52,7 +52,7 @@ func _ready() -> void:
 	_check("vertical river -> horizontal bridge", obs.bridge_orientation(Vector2i(25, 20)) == "horizontal")
 
 	# --- passable-over-impassable: a bridge re-enables crossing on a water cell ---
-	fm._quad_mat = {}
+	fm._quad_mat.clear()
 	var wcell := Vector2i(30, 15)
 	_fill_water(fm, wcell)
 	fm._rebuild()
@@ -87,7 +87,7 @@ func _ready() -> void:
 	_check("apply restores the bridge", obs.is_bridge(Vector2i(30, 15)))
 
 	# --- erase removes a bridge (Erase tool path) before the water beneath it ---
-	fm._quad_mat = {}
+	fm._quad_mat.clear()
 	var ecell := Vector2i(28, 12)
 	_fill_water(fm, ecell) # bridge sits over water; erasing the bridge must leave the water intact
 	fm._rebuild()
