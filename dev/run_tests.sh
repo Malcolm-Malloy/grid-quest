@@ -7,6 +7,21 @@
 GODOT="${GODOT:-/Applications/Godot.app/Contents/MacOS/Godot}"
 TIMEOUT="${TIMEOUT:-60}" # seconds per suite
 cd "$(dirname "$0")/.." || exit 99
+# Suites save and load real maps, characters, games and the clipboard under user://, which is the SAME
+# folder the editor and game use. Snapshot it and put it back afterwards (even on Ctrl-C), so a test run
+# never clobbers your maps, your last-opened map, the clipboard or a recovery slot.
+PROJECT_NAME=$(sed -n 's/^config\/name="\(.*\)"$/\1/p' project.godot)
+USER_DIR="$HOME/Library/Application Support/Godot/app_userdata/$PROJECT_NAME"
+USER_BACKUP=$(mktemp -d)
+[ -d "$USER_DIR" ] && rsync -a "$USER_DIR/" "$USER_BACKUP/"
+restore_user_data() {
+	[ -d "$USER_DIR" ] && rsync -a --delete --exclude logs --exclude shader_cache --exclude objectdb_snapshots \
+		"$USER_BACKUP/" "$USER_DIR/"
+	rm -rf "$USER_BACKUP"
+}
+trap restore_user_data EXIT
+trap 'exit 130' INT TERM
+
 # refresh the global class cache first, so a newly added class_name resolves in the suites
 "$GODOT" --headless --path . --import >/dev/null 2>&1
 
