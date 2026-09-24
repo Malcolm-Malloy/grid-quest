@@ -24,11 +24,11 @@ func _ready() -> void:
 	# --- lay a wall and a door on empty cells (the Place tool path) ---
 	var wcell := Vector2i(20, 20)
 	_check("setup: (20,20) is empty", not obs.has_structure(wcell))
-	fm._place_wall_at(_center(wcell))
+	fm.place_wall_at(_center(wcell))
 	fm._process(0.0) # flush the coalesced wall rebuild
 	_check("setup: the cell is now a wall", obs.is_blocked(wcell))
 	var dcell := Vector2i(22, 20)
-	fm._place_door_at(_center(dcell))
+	fm.place_door_at(_center(dcell))
 	_check("setup: the cell now holds a door", not obs.door_at(dcell).is_empty())
 
 	# --- Erase a single structure (no selection) ---
@@ -38,9 +38,9 @@ func _ready() -> void:
 	# --- Erase a single floor cell (no selection) -> grass ---
 	var fcell := Vector2i(9, 9) # wood room A
 	var fq: Vector2i = Grid.quads_of(fcell)[0]
-	_check("setup: (9,9) has a floor material", fm._quad_mat.has(fq))
+	_check("setup: (9,9) has a floor material", (fm.material_at(fq) != ""))
 	_click(fm, fcell, ContextMenu.ERASE_ID)
-	_check("Erase (floor cell): the ground is cleared to grass", not fm._quad_mat.has(fq))
+	_check("Erase (floor cell): the ground is cleared to grass", not (fm.material_at(fq) != ""))
 
 	# --- Door edits on the A<->B door (10,5): flip / open / swing ---
 	var door := Vector2i(10, 5)
@@ -59,7 +59,7 @@ func _ready() -> void:
 	_check("setup: a floor selection exists", fm.selection.overlay.has_selection() and EditorState.sel_kind == EditorState.SelKind.FLOOR)
 	var sel_q = EditorState.sel_quads.keys()[0]
 	_click(fm, Vector2i(12, 9), ContextMenu.ERASE_ID)
-	_check("Erase (floor selection): a selected quarter is cleared", not fm._quad_mat.has(sel_q))
+	_check("Erase (floor selection): a selected quarter is cleared", not (fm.material_at(sel_q) != ""))
 	_check("Erase (floor selection): selection cleared afterwards", not fm.selection.overlay.has_selection())
 
 	# --- Delete key erases the selection ---
@@ -70,7 +70,7 @@ func _ready() -> void:
 	ev.keycode = KEY_DELETE
 	ev.pressed = true
 	fm._unhandled_key_input(ev)
-	_check("Delete key: the selected quarter is cleared", not fm._quad_mat.has(del_q))
+	_check("Delete key: the selected quarter is cleared", not (fm.material_at(del_q) != ""))
 	_check("Delete key: selection cleared afterwards", not fm.selection.overlay.has_selection())
 
 	# --- Erase a WALL selection (Wand on a wall), then it clears ---
@@ -111,7 +111,7 @@ func _ready() -> void:
 	# --- Floor submenu: pattern and colour on a clicked cell (Cell grain) ---
 	var pcell := Vector2i(30, 25)
 	for q in Grid.quads_of(pcell):
-		fm._quad_mat[q] = "wood"
+		fm.write_quad(q, "wood")
 	_click(fm, pcell, ContextMenu.PATTERN_BASE_ID + 1)
 	var patterned := true
 	for q in Grid.quads_of(pcell):
@@ -128,7 +128,7 @@ func _ready() -> void:
 	fm.arm_wall_color(WallSegment.COLORS[1][1])       # Red, via the panel path
 	fm.arm_wall_material(WallSegment.MATERIAL_NAMES[2][1]) # Slate, via the panel path
 	var pw := Vector2i(26, 20)
-	fm._place_wall_at(_center(pw))
+	fm.place_wall_at(_center(pw))
 	_check("panel brush: a wall built after a panel pick carries that colour", obs.get_wall_color(pw) == WallSegment.COLORS[1][1])
 	_check("panel brush: a wall built after a panel pick carries that material", obs.get_wall_material(pw) == WallSegment.MATERIAL_NAMES[2][1])
 

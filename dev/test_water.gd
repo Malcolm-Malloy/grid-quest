@@ -35,26 +35,26 @@ func _ready() -> void:
 	var q := _quads(cell)
 	_check("grass cell is passable", not fm.is_cell_impassable(cell))
 
-	fm._quad_mat[q[0]] = "water" # 1 of 4 quarters -> minority, still passable
+	fm.write_quad(q[0], "water") # 1 of 4 quarters -> minority, still passable
 	_check("1 water quarter: still passable (minority)", not fm.is_cell_impassable(cell))
 
-	fm._quad_mat[q[1]] = "water" # 2 of 4 -> majority, now blocks
+	fm.write_quad(q[1], "water") # 2 of 4 -> majority, now blocks
 	_check("2 water quarters: impassable (majority)", fm.is_cell_impassable(cell))
 
-	fm._quad_mat[q[2]] = "water"
-	fm._quad_mat[q[3]] = "water" # full water cell
+	fm.write_quad(q[2], "water")
+	fm.write_quad(q[3], "water") # full water cell
 	_check("4 water quarters: impassable", fm.is_cell_impassable(cell))
 
 	# a non-impassable material never blocks, even filling the cell
 	for qq in q:
-		fm._quad_mat[qq] = "wood"
+		fm.write_quad(qq, "wood")
 	_check("full wood cell is passable", not fm.is_cell_impassable(cell))
 
 	# --- player movement rejects a water cell ---
 	# stand the player on (19,20) facing right; (20,20) is full water -> the move must be refused.
 	for qq in q:
-		fm._quad_mat[qq] = "water"
-	fm._rebuild()
+		fm.write_quad(qq, "water")
+	fm.rebuild()
 	player.position = Vector2(19 * 32 + 16, 20 * 32 + 16)
 	player.target_position = player.position
 	player.is_moving = false
@@ -66,12 +66,12 @@ func _ready() -> void:
 	_check("river-bank texture registered (RIVER_BANK)", FloorMaterials.RIVER_BANK != null)
 	_check("water is a BANK_AROUND source", FloorMaterials.BANK_AROUND.has("water"))
 
-	fm._quad_mat.clear() # isolate: one full-water cell in open ground, well away from the map edge
+	fm.clear_floor() # isolate: one full-water cell in open ground, well away from the map edge
 	var wcell := Vector2i(30, 10)
 	for qq in _quads(wcell):
-		fm._quad_mat[qq] = "water"
-	fm._rebuild()
-	var bank: Dictionary = fm._render.bank_quads()
+		fm.write_quad(qq, "water")
+	fm.rebuild()
+	var bank: Dictionary = fm.render.bank_quads()
 
 	# a single 2x2 water block has a 12-quarter ring (its 4x4 8-neighbourhood minus the 4 water quarters)
 	_check("bank rings the water (12 quarters)", bank.size() == 12)
@@ -96,31 +96,31 @@ func _ready() -> void:
 	_check("base_fills carries a river-bank fill", bank_fill)
 
 	# bank stays inside the map grid: water in the corner never emits an out-of-bounds bank quarter
-	fm._quad_mat.clear()
+	fm.clear_floor()
 	for qq in _quads(Vector2i(0, 0)):
-		fm._quad_mat[qq] = "water"
-	fm._rebuild()
+		fm.write_quad(qq, "water")
+	fm.rebuild()
 	var all_in_bounds := true
-	for bq in fm._render.bank_quads():
-		if not fm._in_bounds(Vector2i(floori(bq.x / 2.0), floori(bq.y / 2.0))):
+	for bq in fm.render.bank_quads():
+		if not fm.in_bounds(Vector2i(floori(bq.x / 2.0), floori(bq.y / 2.0))):
 			all_in_bounds = false
 	_check("corner water emits no out-of-bounds bank", all_in_bounds)
 
 	# --- shoreline autotile (feathered beach): a 2x2-cell water block = 4x4 quarters (60..63, 20..23) ---
 	_check("shore atlas registered (WATER_SHORE)", FloorMaterials.WATER_SHORE != null)
-	fm._quad_mat.clear()
+	fm.clear_floor()
 	for cy in [10, 11]:
 		for cx in [30, 31]:
 			for qq in _quads(Vector2i(cx, cy)):
-				fm._quad_mat[qq] = "water"
-	fm._rebuild()
+				fm.write_quad(qq, "water")
+	fm.rebuild()
 	# neighbour LAND mask (N=1 E=2 S=4 W=8): the NW-corner quarter faces land N+W; a top-edge quarter
 	# faces land only N; a fully-surrounded interior quarter faces no land (mask 0 -> flat tiled tile).
-	_check("NW-corner water quarter mask = N|W (9)", fm._render.liquid_edge_mask(Vector2i(60, 20), "water") == 9)
-	_check("top-edge water quarter mask = N (1)", fm._render.liquid_edge_mask(Vector2i(61, 20), "water") == 1)
-	_check("interior water quarter mask = 0 (open water)", fm._render.liquid_edge_mask(Vector2i(61, 21), "water") == 0)
+	_check("NW-corner water quarter mask = N|W (9)", fm.render.liquid_edge_mask(Vector2i(60, 20), "water") == 9)
+	_check("top-edge water quarter mask = N (1)", fm.render.liquid_edge_mask(Vector2i(61, 20), "water") == 1)
+	_check("interior water quarter mask = 0 (open water)", fm.render.liquid_edge_mask(Vector2i(61, 21), "water") == 0)
 	# atlas src rect for a mask indexes the 4x4 grid of 32px cells (m%4 across, m/4 down)
-	_check("shore src for mask 9 = cell (1,2)", fm._render.shore_src(9) == Rect2(32, 64, 32, 32))
+	_check("shore src for mask 9 = cell (1,2)", fm.render.shore_src(9) == Rect2(32, 64, 32, 32))
 	# _rebuild emits, for the 12 edge quarters, a feathered shore tile (atlas src override) over a bank
 	# underlay; the 4 interior quarters keep the flat, seamless, world-tiled water tile (no shore).
 	var shore_fills := 0
@@ -149,14 +149,14 @@ func _ready() -> void:
 	_check("shored water cell is still impassable", fm.is_cell_impassable(Vector2i(30, 10)))
 
 	# --- water shimmer plumbing (grid_background animates flagged water fills; dry maps cost nothing) ---
-	fm._quad_mat.clear()
-	fm._rebuild()
+	fm.clear_floor()
+	fm.rebuild()
 	# a full-water cell plus a wood cell: water fills carry the animate flag (5th element), wood does not
 	for qq in _quads(Vector2i(30, 10)):
-		fm._quad_mat[qq] = "water"
+		fm.write_quad(qq, "water")
 	for qq in _quads(Vector2i(33, 10)):
-		fm._quad_mat[qq] = "wood"
-	fm._rebuild()
+		fm.write_quad(qq, "wood")
+	fm.rebuild()
 	var water_animated := false
 	var wood_animated := false
 	var wood_tex = FloorMaterials.texture("wood", 0)

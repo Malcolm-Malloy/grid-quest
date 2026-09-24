@@ -27,16 +27,14 @@ func _ready() -> void:
 	_check("grass does NOT auto-match (no edge atlas; it is the base)", not FloorMaterials.EDGE_ATLAS.has("grass"))
 
 	# --- render branch: Plain untinted = nothing; Plain tinted = tinted base; Wild = overlay ---
-	fm._quad_mat.clear()
-	fm._quad_tint.clear()
-	fm._quad_pattern.clear()
+	fm.clear_floor()
 	var q_plain := Vector2i(40, 40)
 	var q_tint := Vector2i(42, 40)
 	var q_wild := Vector2i(44, 40)
-	fm._quad_mat[q_plain] = "grass"                       # Plain, untinted
-	fm._quad_mat[q_tint] = "grass"; fm._quad_tint[q_tint] = Color(0.5, 0.8, 0.4)  # Plain, tinted
-	fm._quad_mat[q_wild] = "grass"; fm._quad_pattern[q_wild] = 1                   # Wild overlay
-	fm._rebuild()
+	fm.write_quad(q_plain, "grass")                       # Plain, untinted
+	fm.write_quad(q_tint, "grass"); fm.write_tint(q_tint, Color(0.5, 0.8, 0.4))  # Plain, tinted
+	fm.write_quad(q_wild, "grass"); fm.write_pattern(q_wild, 1)                   # Wild overlay
+	fm.rebuild()
 
 	var plain_drawn := false
 	var tint_ok := false
@@ -54,10 +52,10 @@ func _ready() -> void:
 	_check("Wild grass draws the blade overlay (with a tiled src override)", wild_ok)
 
 	# grass painted anywhere is walkable (base terrain)
-	fm._quad_mat.clear()
+	fm.clear_floor()
 	for dx in 2:
 		for dy in 2:
-			fm._quad_mat[Vector2i(20 * 2 + dx, 20 * 2 + dy)] = "grass"
+			fm.write_quad(Vector2i(20 * 2 + dx, 20 * 2 + dy), "grass")
 	_check("a grass cell is passable", not fm.is_cell_impassable(Vector2i(20, 20)))
 
 	finish()

@@ -28,7 +28,7 @@ func _ready() -> void:
 		mask._mat.get_shader_parameter("hl_color") == mask.DOORS)
 
 	# --- square paint cursor roles map to the palette ---
-	var cur = fm._cursor
+	var cur = fm.cursor
 	cur.set_role(PaintCursor.Role.GROUND)
 	_check("cursor GROUND role is orange", cur._line == PaintCursor.GROUND_LINE)
 	cur.set_role(PaintCursor.Role.ADD)

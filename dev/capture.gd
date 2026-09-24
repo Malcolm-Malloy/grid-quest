@@ -125,8 +125,8 @@ func _ready() -> void:
 					var c := Vector2i(int(wc[0]), int(wc[1]))
 					for dx in 2:
 						for dy in 2:
-							fmwa._write_quad(Vector2i(c.x * 2 + dx, c.y * 2 + dy), "water")
-			fmwa._rebuild()
+							fmwa.write_quad(Vector2i(c.x * 2 + dx, c.y * 2 + dy), "water")
+			fmwa.rebuild()
 			await get_tree().process_frame
 			if OS.get_environment("GQ_WATER_NOFIT") != "1":
 				var camwa := main.get_node_or_null("Camera2D")
@@ -149,8 +149,8 @@ func _ready() -> void:
 					var mat: String = "" if tc[2] == "base" else tc[2]
 					for dx in 2:
 						for dy in 2:
-							fmt._write_quad(Vector2i(c.x * 2 + dx, c.y * 2 + dy), mat)
-			fmt._rebuild()
+							fmt.write_quad(Vector2i(c.x * 2 + dx, c.y * 2 + dy), mat)
+			fmt.rebuild()
 			await get_tree().process_frame
 			if OS.get_environment("GQ_TERRAIN_NOFIT") != "1":
 				var camt := main.get_node_or_null("Camera2D")
@@ -185,8 +185,8 @@ func _ready() -> void:
 			for op in tint.split(";", false):
 				var f := op.split(",")
 				if f.size() == 3:
-					fmt._tint_cell(Vector2i(int(f[0]), int(f[1])), Color.html(f[2]))
-			fmt._rebuild()
+					fmt.tint_cell(Vector2i(int(f[0]), int(f[1])), Color.html(f[2]))
+			fmt.rebuild()
 			await get_tree().process_frame
 
 	# GQ_GRID="1" turns the reference grid on (normally toggled via the right-click menu)
@@ -266,10 +266,10 @@ func _ready() -> void:
 						var wc := Vector2(int(xy[0]) * 32 + 16, int(xy[1]) * 32 + 16)
 						if sp[0] == "wall":
 							fms.set_mode(4) # Mode.WALL
-							fms._place_wall_at(wc)
+							fms.place_wall_at(wc)
 						elif sp[0] == "door":
 							fms.set_mode(5) # Mode.DOOR
-							fms._place_door_at(wc)
+							fms.place_door_at(wc)
 			await get_tree().process_frame
 			if OS.get_environment("GQ_STRUCT_NOFIT") != "1":
 				var cams := main.get_node_or_null("Camera2D")
@@ -335,7 +335,7 @@ func _ready() -> void:
 			for op in bridge.split(";", false):
 				var bp := op.split(",")
 				if bp.size() == 2:
-					fmb2._place_bridge_at(Vector2(int(bp[0]) * 32 + 16, int(bp[1]) * 32 + 16))
+					fmb2.place_bridge_at(Vector2(int(bp[0]) * 32 + 16, int(bp[1]) * 32 + 16))
 			await get_tree().process_frame
 			if OS.get_environment("GQ_BRIDGE_NOFIT") != "1":
 				var camb := main.get_node_or_null("Camera2D")
@@ -386,7 +386,7 @@ func _ready() -> void:
 			var fmsel := main.get_node_or_null("World/FloorManager")
 			if fmsel:
 				fmsel.set_mode(6) # Mode.SELECT
-				fmsel._select_at(Vector2(int(sp[0]) * 32 + 16, int(sp[1]) * 32 + 16))
+				fmsel.select_at(Vector2(int(sp[0]) * 32 + 16, int(sp[1]) * 32 + 16))
 
 	# GQ_PATTERN="x,y,idx;..." sets a floor cell's pattern index (0=default) via the same grain helper
 	# the Pattern menu uses, so the pattern variants can be verified headlessly. Pair with GQ_FLOOR/
@@ -399,8 +399,8 @@ func _ready() -> void:
 			for op in fpat.split(";", false):
 				var f := op.split(",")
 				if f.size() == 3:
-					fmpt._pattern_cell(Vector2i(int(f[0]), int(f[1])), int(f[2]))
-			fmpt._rebuild()
+					fmpt.pattern_cell(Vector2i(int(f[0]), int(f[1])), int(f[2]))
+			fmpt.rebuild()
 			await get_tree().process_frame
 
 	# GQ_WALLMAT="x,y,material;..." sets a wall cell's material (stone/wood/slate) via the same
@@ -436,7 +436,7 @@ func _ready() -> void:
 				for cx in range(int(r[2])):
 					cells[Vector2i(int(r[0]) + cx, int(r[1]) + cy)] = true
 			fmc.selection.select_cells(cells)
-			fmc._copy_selection()
+			fmc.copy_selection()
 			var cl: Dictionary = MapClipboard.clip()
 			for _t in turns:
 				cl = MapClipboard.rotate_cw(cl)
@@ -451,8 +451,8 @@ func _ready() -> void:
 			else:
 				# the ghost normally follows the CURSOR (a paste centres the block on it); a capture run
 				# cannot place the OS cursor, so pin the origin and let the real hover path draw it
-				fmc._ghost_origin_pin = origin
-				fmc._arm_paste(cl)
+				fmc.ghost_origin_pin = origin
+				fmc.arm_paste(cl)
 				await get_tree().process_frame
 				await get_tree().process_frame
 			print("GQ_CLIP cells=", cells.size(), " box=", cl.get("w", 0), "x", cl.get("h", 0),
@@ -469,7 +469,7 @@ func _ready() -> void:
 		if fmsp and sp2.size() == 2:
 			var scell := Vector2i(int(sp2[0]), int(sp2[1]))
 			fmsp.set_mode(11) # Mode.SPAWN
-			print("GQ_SPAWN set=", fmsp._set_spawn_at(Vector2(scell.x * 32 + 16, scell.y * 32 + 16)),
+			print("GQ_SPAWN set=", fmsp.set_spawn_at(Vector2(scell.x * 32 + 16, scell.y * 32 + 16)),
 				" cell=", scell)
 			var camsp := main.get_node_or_null("Camera2D")
 			if OS.get_environment("GQ_SPAWN_NOFIT") != "1" and camsp and camsp.has_method("fit_map"):
@@ -488,7 +488,7 @@ func _ready() -> void:
 				var f := op.split(",")
 				if f.size() == 3:
 					fmit.arm_item(f[2])
-					fmit._place_item_at(Vector2(int(f[0]) * 32 + 16, int(f[1]) * 32 + 16))
+					fmit.place_item_at(Vector2(int(f[0]) * 32 + 16, int(f[1]) * 32 + 16))
 			await get_tree().process_frame
 			var camit := main.get_node_or_null("Camera2D")
 			if OS.get_environment("GQ_ITEMS_NOFIT") != "1" and camit and camit.has_method("fit_map"):
@@ -509,7 +509,7 @@ func _ready() -> void:
 				if f.size() >= 3:
 					fmcr.arm_creature(f[2])
 					fmcr.arm_creature_kind(f[3] if f.size() > 3 else Bestiary.SPAWN_POINT)
-					fmcr._place_creature_at(Vector2(int(f[0]) * 32 + 16, int(f[1]) * 32 + 16))
+					fmcr.place_creature_at(Vector2(int(f[0]) * 32 + 16, int(f[1]) * 32 + 16))
 			await get_tree().process_frame
 			var camcr := main.get_node_or_null("Camera2D")
 			if OS.get_environment("GQ_CREATURES_NOFIT") != "1" and camcr and camcr.has_method("fit_map"):
@@ -532,7 +532,7 @@ func _ready() -> void:
 					fmz._zone_active = true
 					fmz._zone_start = Vector2i(int(f[0]), int(f[1]))
 					fmz._zone_active = false
-					fmz._commit_zone(Vector2i(int(f[0]) + int(f[2]) - 1, int(f[1]) + int(f[3]) - 1))
+					fmz.commit_zone(Vector2i(int(f[0]) + int(f[2]) - 1, int(f[1]) + int(f[3]) - 1))
 			await get_tree().process_frame
 			var camz := main.get_node_or_null("Camera2D")
 			if OS.get_environment("GQ_ZONES_NOFIT") != "1" and camz and camz.has_method("fit_map"):

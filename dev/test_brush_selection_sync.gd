@@ -17,10 +17,10 @@ func _ready() -> void:
 
 	# make the room "red tiles"
 	fm.set_room_style(roomCell, "tile")
-	fm._tint_room(roomCell, Color.RED)
-	fm._rebuild()
-	_check("setup: room is tile", fm._quad_mat.get(q0, "") == "tile")
-	_check("setup: room is red", fm._quad_tint.get(q0, Color.WHITE).is_equal_approx(Color.RED))
+	fm.tint_room(roomCell, Color.RED)
+	fm.rebuild()
+	_check("setup: room is tile", fm.material_at(q0) == "tile")
+	_check("setup: room is red", fm.floor_tint_at_quad(q0).is_equal_approx(Color.RED))
 
 	# wand-select the room: the panel must reflect Tile + Red
 	fm.set_mode(0) # Mode.WAND
@@ -31,14 +31,14 @@ func _ready() -> void:
 
 	# pick a colour in the panel -> re-tints the SELECTION in place, texture + selection kept
 	fm.arm_floor_color(Color.GREEN)
-	_check("panel colour re-tints the selection", fm._quad_tint.get(q0, Color.WHITE).is_equal_approx(Color.GREEN))
-	_check("re-tint keeps the material", fm._quad_mat.get(q0, "") == "tile")
+	_check("panel colour re-tints the selection", fm.floor_tint_at_quad(q0).is_equal_approx(Color.GREEN))
+	_check("re-tint keeps the material", fm.material_at(q0) == "tile")
 	_check("re-tint keeps the selection", fm.selection.has_floor())
 
 	# pick a material in the panel -> re-textures the SELECTION in place, colour + selection kept
 	fm.arm_floor_material("wood")
-	_check("panel material re-textures the selection", fm._quad_mat.get(q0, "") == "wood")
-	_check("re-texture keeps the colour", fm._quad_tint.get(q0, Color.WHITE).is_equal_approx(Color.GREEN))
+	_check("panel material re-textures the selection", fm.material_at(q0) == "wood")
+	_check("re-texture keeps the colour", fm.floor_tint_at_quad(q0).is_equal_approx(Color.GREEN))
 	_check("re-texture keeps the selection", fm.selection.has_floor())
 
 	finish()

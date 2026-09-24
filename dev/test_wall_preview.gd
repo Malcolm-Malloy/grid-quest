@@ -25,8 +25,8 @@ func _ready() -> void:
 	var cap: float = obs.CAP_HEIGHT
 
 	# ghost pool present on FloorManager (2 reusable preview wall_segments)
-	_check("FloorManager has a 2-node wall ghost pool", fm._ghosts.walls.size() == 2)
-	_check("ghost nodes are in preview mode", fm._ghosts.walls[0].preview and fm._ghosts.walls[1].preview)
+	_check("FloorManager has a 2-node wall ghost pool", fm.ghosts.walls.size() == 2)
+	_check("ghost nodes are in preview mode", fm.ghosts.walls[0].preview and fm.ghosts.walls[1].preview)
 
 	obs.apply_map([], [], []) # clear all walls
 	await get_tree().process_frame

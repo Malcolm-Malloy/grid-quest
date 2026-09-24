@@ -9,7 +9,7 @@ func _w(main: Node) -> int:
 	return int(main.get_node("World/GridBackground").grid_width)
 
 func _has_quad(main: Node, q: Vector2i) -> bool:
-	return main.get_node("World/FloorManager")._quad_mat.has(q)
+	return main.get_node("World/FloorManager").material_at(q) != ""
 
 func _ready() -> void:
 	var main: Node = await boot_main()
@@ -22,8 +22,8 @@ func _ready() -> void:
 	_check("baseline: quad (0,0) empty", not _has_quad(main, Vector2i(0, 0)))
 
 	# action 1: paint one quarter wood, then commit (one step)
-	fm._quad_mat[Vector2i(0, 0)] = "wood"
-	fm._rebuild()
+	fm.write_quad(Vector2i(0, 0), "wood")
+	fm.rebuild()
 	EditHistory.commit("paint")
 	_check("after paint: quad (0,0) present", _has_quad(main, Vector2i(0, 0)))
 	_check("after paint: can undo", EditHistory.can_undo())
@@ -62,8 +62,8 @@ func _ready() -> void:
 
 	# a fresh edit after undo must clear the redo trail
 	EditHistory.undo() # back before the grow
-	fm._quad_mat[Vector2i(5, 5)] = "wood"
-	fm._rebuild()
+	fm.write_quad(Vector2i(5, 5), "wood")
+	fm.rebuild()
 	EditHistory.commit("paint")
 	_check("fresh edit clears redo", not EditHistory.can_redo())
 

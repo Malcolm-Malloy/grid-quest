@@ -10,8 +10,8 @@ func _ready() -> void:
 	var obs = main.get_node("World/Obstacles")
 	var fm = main.get_node("World/FloorManager")
 
-	_check("FloorManager has a door preview node", fm._ghosts.door != null)
-	_check("the door preview is in preview mode", fm._ghosts.door.preview)
+	_check("FloorManager has a door preview node", fm.ghosts.door != null)
+	_check("the door preview is in preview mode", fm.ghosts.door.preview)
 
 	obs.apply_map([], [], []) # clear all walls
 	await get_tree().process_frame
@@ -20,27 +20,27 @@ func _ready() -> void:
 	# horizontal run (walls left + right) -> a horizontal door
 	obs.add_wall(Vector2i(19, 20))
 	obs.add_wall(Vector2i(21, 20))
-	fm._ghosts.show_door(c)
-	_check("door between L/R walls is horizontal", fm._ghosts.door.orientation == Grid.Orient.HORIZONTAL)
-	_check("door ghost is visible", fm._ghosts.door.visible)
+	fm.ghosts.show_door(c)
+	_check("door between L/R walls is horizontal", fm.ghosts.door.orientation == Grid.Orient.HORIZONTAL)
+	_check("door ghost is visible", fm.ghosts.door.visible)
 
 	# vertical run (walls above + below) -> a vertical door
 	obs.apply_map([], [], [])
 	await get_tree().process_frame
 	obs.add_wall(Vector2i(20, 19))
 	obs.add_wall(Vector2i(20, 21))
-	fm._ghosts.show_door(c)
-	_check("door between up/down walls is vertical", fm._ghosts.door.orientation == Grid.Orient.VERTICAL)
+	fm.ghosts.show_door(c)
+	_check("door between up/down walls is vertical", fm.ghosts.door.orientation == Grid.Orient.VERTICAL)
 
 	# open space (no adjacent structure) -> the R-flippable default (_door_orient)
 	obs.apply_map([], [], [])
 	await get_tree().process_frame
 	EditorState.door_orient = Grid.Orient.VERTICAL
-	fm._ghosts.show_door(c)
-	_check("door in open space uses the default orientation", fm._ghosts.door.orientation == Grid.Orient.VERTICAL)
+	fm.ghosts.show_door(c)
+	_check("door in open space uses the default orientation", fm.ghosts.door.orientation == Grid.Orient.VERTICAL)
 
 	# hiding clears it
-	fm._ghosts.hide_door()
-	_check("hide clears the door ghost", not fm._ghosts.door.visible)
+	fm.ghosts.hide_door()
+	_check("hide clears the door ghost", not fm.ghosts.door.visible)
 
 	finish()

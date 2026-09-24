@@ -26,8 +26,8 @@ func _ready() -> void:
 	_check("box size unchanged by a hole", gb.grid_width == w0 and gb.grid_height == h0)
 
 	# --- removing contents with the cell: paint then remove strips the quads ---
-	fm._write_quad(Vector2i(10 * 2, 10 * 2), "wood")
-	fm._rebuild()
+	fm.write_quad(Vector2i(10 * 2, 10 * 2), "wood")
+	fm.rebuild()
 	MapEdit.remove_cell(Vector2i(10, 10))
 	var snap: Dictionary = MapIO.serialize()
 	var has_quad_on_10 := false
@@ -78,8 +78,8 @@ func _ready() -> void:
 	EditHistory.reset()
 	var ew: int = gb.grid_width
 	for q in Grid.quads_of(Vector2i(ew - 1, 6)):
-		fm._quad_mat[q] = "wood"
-	fm._rebuild()
+		fm.write_quad(q, "wood")
+	fm.rebuild()
 	MapEdit.add_cell(Vector2i(ew, 6)) # spur beyond right, should copy the wood neighbour
 	var snap2: Dictionary = MapIO.serialize()
 	var spur_is_wood := false

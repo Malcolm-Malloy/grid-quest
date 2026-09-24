@@ -15,7 +15,7 @@ func _quads(cell: Vector2i) -> Array:
 
 func _fill_water(fm, cell: Vector2i) -> void:
 	for q in _quads(cell):
-		fm._quad_mat[q] = "water"
+		fm.write_quad(q, "water")
 
 func _ready() -> void:
 	var main: Node = await boot_main()
@@ -36,26 +36,26 @@ func _ready() -> void:
 	_check("remove_bridge clears it", obs.remove_bridge(Vector2i(5, 5)) and not obs.is_bridge(Vector2i(5, 5)))
 
 	# --- auto-orient to the water run (a horizontal river gets a north-south bridge) ---
-	fm._quad_mat.clear()
+	fm.clear_floor()
 	_fill_water(fm, Vector2i(24, 15))
 	_fill_water(fm, Vector2i(26, 15)) # water left+right of (25,15) => horizontal river
-	fm._rebuild()
+	fm.rebuild()
 	fm.set_mode(8) # Mode.BRIDGE
-	fm._place_bridge_at(Vector2(25 * 32 + 16, 15 * 32 + 16))
+	fm.place_bridge_at(Vector2(25 * 32 + 16, 15 * 32 + 16))
 	_check("horizontal river -> vertical bridge", obs.bridge_orientation(Vector2i(25, 15)) == Grid.Orient.VERTICAL)
 
-	fm._quad_mat.clear()
+	fm.clear_floor()
 	_fill_water(fm, Vector2i(25, 19))
 	_fill_water(fm, Vector2i(25, 21)) # water above+below (25,20) => vertical river
-	fm._rebuild()
-	fm._place_bridge_at(Vector2(25 * 32 + 16, 20 * 32 + 16))
+	fm.rebuild()
+	fm.place_bridge_at(Vector2(25 * 32 + 16, 20 * 32 + 16))
 	_check("vertical river -> horizontal bridge", obs.bridge_orientation(Vector2i(25, 20)) == Grid.Orient.HORIZONTAL)
 
 	# --- passable-over-impassable: a bridge re-enables crossing on a water cell ---
-	fm._quad_mat.clear()
+	fm.clear_floor()
 	var wcell := Vector2i(30, 15)
 	_fill_water(fm, wcell)
-	fm._rebuild()
+	fm.rebuild()
 	_check("full water cell is impassable", fm.is_cell_impassable(wcell))
 	# the exact rule player.gd applies: a water cell blocks UNLESS a bridge covers it
 	var blocks_before: bool = fm.is_cell_impassable(wcell) and not obs.is_bridge(wcell)
@@ -87,20 +87,20 @@ func _ready() -> void:
 	_check("apply restores the bridge", obs.is_bridge(Vector2i(30, 15)))
 
 	# --- erase removes a bridge (Erase tool path) before the water beneath it ---
-	fm._quad_mat.clear()
+	fm.clear_floor()
 	var ecell := Vector2i(28, 12)
 	_fill_water(fm, ecell) # bridge sits over water; erasing the bridge must leave the water intact
-	fm._rebuild()
+	fm.rebuild()
 	obs.add_bridge(ecell, Grid.Orient.VERTICAL)
 	fm.set_mode(4) # Mode.ERASE
-	var erased: bool = fm._erase_structure_at(Vector2(ecell.x * 32 + 16, ecell.y * 32 + 16))
+	var erased: bool = fm.erase_structure_at(Vector2(ecell.x * 32 + 16, ecell.y * 32 + 16))
 	_check("Erase tool removes the bridge", erased and not obs.is_bridge(ecell))
 	_check("erasing the bridge leaves the water floor", fm.is_cell_impassable(ecell))
-	_check("Erase over an empty (bridgeless) cell reports nothing", not fm._erase_structure_at(Vector2(2 * 32 + 16, 2 * 32 + 16)))
+	_check("Erase over an empty (bridgeless) cell reports nothing", not fm.erase_structure_at(Vector2(2 * 32 + 16, 2 * 32 + 16)))
 
 	# --- right-click Erase (single target) also removes a bridge ---
 	obs.add_bridge(ecell, Grid.Orient.VERTICAL)
-	fm._erase_single(ecell)
+	fm.erase_single(ecell)
 	await get_tree().process_frame
 	_check("right-click Erase removes the bridge", not obs.is_bridge(ecell))
 

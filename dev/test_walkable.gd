@@ -20,7 +20,7 @@ func _ready() -> void:
 	MapIO.rebuild_live(MapIO.REBUILD_STRUCTURES)
 	gb.set_absent_cells({hole: true})
 	for q in Grid.quads_of(water):
-		fm._quad_mat[q] = "water"
+		fm.write_quad(q, "water")
 	_check("open ground is walkable", fm.is_walkable(here))
 	_check("a wall is not", not fm.is_walkable(wall))
 	_check("a hole is not", not fm.is_walkable(hole))

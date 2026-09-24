@@ -34,15 +34,15 @@ func _ready() -> void:
 	var key_cell := Vector2i(21, 12)
 	fm.set_mode(EditorState.Mode.ITEM)
 	fm.arm_item("coin")
-	_check("placed a coin", fm._place_item_at(_mid(coin_cell)))
+	_check("placed a coin", fm.place_item_at(_mid(coin_cell)))
 	fm.arm_item("key")
-	_check("placed a key", fm._place_item_at(_mid(key_cell)))
+	_check("placed a key", fm.place_item_at(_mid(key_cell)))
 	await get_tree().process_frame
 	_check("both instances exist in the model", pk.pickups.size() == 2)
 	_check("both spawned a node", _nodes() == 2)
-	_check("a second item on the same cell is refused", not fm._place_item_at(_mid(coin_cell)))
-	_check("an item on a wall cell is refused", not fm._place_item_at(_mid(Vector2i(8, 3))))
-	_check("an item off the map is refused", not fm._place_item_at(Vector2(-40, -40)))
+	_check("a second item on the same cell is refused", not fm.place_item_at(_mid(coin_cell)))
+	_check("an item on a wall cell is refused", not fm.place_item_at(_mid(Vector2i(8, 3))))
+	_check("an item off the map is refused", not fm.place_item_at(Vector2(-40, -40)))
 	_check("each placement was one undo entry", EditHistory.can_undo())
 
 	# --- 3. the map stores pickups; a save/load round-trip keeps them, ids included ---
@@ -111,7 +111,7 @@ func _ready() -> void:
 
 	# --- 9. Erase takes the item before the ground under it ---
 	fm.set_mode(EditorState.Mode.ERASE)
-	fm._erase_single(moved_coin)
+	fm.erase_single(moved_coin)
 	await get_tree().process_frame
 	_check("erase removed the item", not pk.has_pickup(moved_coin))
 

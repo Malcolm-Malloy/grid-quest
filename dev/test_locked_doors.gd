@@ -79,7 +79,7 @@ func _ready() -> void:
 	obs.set_door_lock(door, "unique", "red", "Malcolm's Door Key")
 	fm.arm_bound_key(obs.door_id_at(door), "Malcolm's Door Key")
 	_check("the Item tool armed the bound key", fm.armed_item() == "key" and fm.armed_item_binding()["door_id"] == door_id)
-	_check("placed the key", fm._place_item_at(_mid(Vector2i(20, 14))))
+	_check("placed the key", fm.place_item_at(_mid(Vector2i(20, 14))))
 	await get_tree().process_frame
 	var placed: Dictionary = pk.pickup_at(Vector2i(20, 14))
 	_check("the placed key is bound to the door", String(placed["data"]["door_id"]) == door_id)
@@ -87,8 +87,8 @@ func _ready() -> void:
 	_check("the binding is spent: the next key is unbound", fm.armed_item_binding().is_empty())
 	_check("the door can find its keys", pk.keys_for_door(door_id).size() == 1)
 	_check("erasing that door WARNS first (it would take the key with it)",
-		fm._warn_bound_keys([door], func(): pass))
-	fm._delete_structure_with_keys(door)
+		fm.warn_bound_keys([door], func(): pass))
+	fm.delete_structure_with_keys(door)
 	await get_tree().process_frame
 	_check("confirming removed the door", obs.door_at(door).is_empty())
 	_check("...and its now-useless key", not pk.has_pickup(Vector2i(20, 14)))

@@ -33,12 +33,12 @@ func _ready() -> void:
 
 	# and a paint with the combined brush writes BOTH the material and the tint into the same quarter
 	var q := Vector2i(3, 3)
-	fm._write_quad(q, "wood")
+	fm.write_quad(q, "wood")
 	fm.arm_floor_material("tile")
 	fm.arm_floor_color(FloorMaterials.COLORS[4][1]) # Green
-	fm._paint(Vector2(q.x * 16 + 4, q.y * 16 + 4)) # Fine grain lands in quarter q (HALF = 16)
-	_check("combined paint writes material", fm._quad_mat.get(q, "") == "tile")
-	_check("combined paint writes tint", fm._quad_tint.get(q, Color.WHITE).is_equal_approx(FloorMaterials.COLORS[4][1]))
+	fm.paint(Vector2(q.x * 16 + 4, q.y * 16 + 4)) # Fine grain lands in quarter q (HALF = 16)
+	_check("combined paint writes material", fm.material_at(q) == "tile")
+	_check("combined paint writes tint", fm.floor_tint_at_quad(q).is_equal_approx(FloorMaterials.COLORS[4][1]))
 
 	# the preview swatch shows the armed texture tinted by the armed colour
 	fm.arm_floor_material("tile")

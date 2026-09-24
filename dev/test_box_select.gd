@@ -53,7 +53,7 @@ func _ready() -> void:
 	_check("box subtract all: selection kind resets to none", EditorState.sel_kind == EditorState.SelKind.NONE)
 
 	# --- _clamp_cell keeps a box inside the map ---
-	_check("_clamp_cell clamps off-map to the edge", fm._clamp_cell(Vector2i(-5, 999)) == Vector2i(0, gb.grid_height - 1))
+	_check("clamp_cell clamps off-map to the edge", fm.clamp_cell(Vector2i(-5, 999)) == Vector2i(0, gb.grid_height - 1))
 
 	# --- _sel_op reads the modifier ---
 	var e := InputEventMouseButton.new()

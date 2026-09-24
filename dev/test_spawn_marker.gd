@@ -22,7 +22,7 @@ func _ready() -> void:
 	# --- 1. the Set Spawn tool moves the marker, one click = one undo entry ---
 	var target := Vector2i(30, 20)
 	fm.set_mode(EditorState.Mode.SPAWN)
-	_check("set spawn on an open cell", fm._set_spawn_at(_mid(target)))
+	_check("set spawn on an open cell", fm.set_spawn_at(_mid(target)))
 	_check("the marker moved to that cell", marker.spawn_cell() == target)
 	_check("serialize now stores the MARKER's position", MapIO.serialize()["spawn"]["x"] == 30 * 32 + 16)
 	_check("it committed one undo entry", EditHistory.can_undo())
@@ -35,17 +35,17 @@ func _ready() -> void:
 
 	# --- 2. setting the spawn does NOT move the character (that is the whole point) ---
 	var was: Vector2 = player.position
-	fm._set_spawn_at(_mid(Vector2i(28, 18)))
+	fm.set_spawn_at(_mid(Vector2i(28, 18)))
 	_check("the character stayed put while the spawn moved", player.position == was)
 	_check("the marker is where the click was", marker.spawn_cell() == Vector2i(28, 18))
 
 	# --- 3. refusals: walls, off-map, and a no-op re-click ---
-	_check("a repeat click on the same cell commits nothing", not fm._set_spawn_at(_mid(Vector2i(28, 18))))
+	_check("a repeat click on the same cell commits nothing", not fm.set_spawn_at(_mid(Vector2i(28, 18))))
 	var wall := Vector2i(8, 3) # a cell on the seeded room's top wall run
 	_check("setup: that cell is a wall", obs.is_blocked(wall))
-	_check("the spawn refuses a wall cell (the player would start stuck)", not fm._set_spawn_at(_mid(wall)))
+	_check("the spawn refuses a wall cell (the player would start stuck)", not fm.set_spawn_at(_mid(wall)))
 	_check("the marker did not move", marker.spawn_cell() == Vector2i(28, 18))
-	_check("the spawn refuses a cell off the map", not fm._set_spawn_at(Vector2(-40, -40)))
+	_check("the spawn refuses a cell off the map", not fm.set_spawn_at(Vector2(-40, -40)))
 
 	# --- 4. walking the character no longer moves the map's start point (the bug this fixes) ---
 	MapIO.save_map("__spawn_test")

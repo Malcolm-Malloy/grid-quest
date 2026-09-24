@@ -25,7 +25,7 @@ const _N4 := [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]
 const _N8 := [Vector2i(-1, -1), Vector2i(0, -1), Vector2i(1, -1), Vector2i(-1, 0),
 		Vector2i(1, 0), Vector2i(-1, 1), Vector2i(0, 1), Vector2i(1, 1)]
 
-# is quarter `q` on an existing cell? The same answer as FloorManager._in_bounds(Grid.cell_of_quad(q)), inlined for the
+# is quarter `q` on an existing cell? The same answer as FloorManager.in_bounds(Grid.cell_of_quad(q)), inlined for the
 # neighbour tests in build' hot loops (up to 12 per liquid quarter), where that call chain dominated
 func quad_in_map(q: Vector2i) -> bool:
 	if _grid_bg == null:
