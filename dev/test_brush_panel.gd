@@ -28,7 +28,7 @@ func _ready() -> void:
 	# paint lays both. carpet was armed above; clicking Red must leave the material carpet and the tool
 	# "floor" (not switch to the tint-only "floor_color" tool), with both lit in the panel.
 	ts._col_swatches[1]["button"].pressed.emit() # index 1 = Red
-	_check("panel colour keeps combined floor brush", fm.active_tool_kind() == "floor" and fm.active_floor_color().is_equal_approx(FloorMaterials.COLORS[1][1]))
+	_check("panel colour keeps combined floor brush", fm.active_tool_kind() == FloorManager.Brush.FLOOR and fm.active_floor_color().is_equal_approx(FloorMaterials.COLORS[1][1]))
 	_check("panel colour keeps the armed material (carpet)", fm.armed_material() == "carpet" and ts._mat_buttons["carpet"].button_pressed)
 
 	# and a paint with the combined brush writes BOTH the material and the tint into the same quarter

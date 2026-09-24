@@ -1,3 +1,4 @@
+class_name SpawnMarker
 extends Node2D
 
 # The map's AUTHORED player spawn, as a placeable marker (ROADMAP "Player spawn marker").

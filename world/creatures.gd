@@ -40,6 +40,9 @@ var _timers := {}   # zone id -> seconds accumulated toward its next spawn attem
 var marker_script: Script
 var zone_script: Script
 var _preview_zone: Node2D # the live drag rectangle, before the zone is committed
+@onready var _fm: FloorManager = get_node_or_null("../FloorManager")
+@onready var _obs: Obstacles = get_node_or_null("../Obstacles")
+@onready var _pickups: Pickups = get_node_or_null("../Pickups")
 
 func _ready() -> void:
 	marker_script = load("res://world/creature_marker.gd")
@@ -239,24 +242,17 @@ func _spawn_one(z: Dictionary) -> void:
 # a cell a zone may put a creature on: it must exist, be free of walls/doors, of impassable floor,
 # and of anything already occupying the object layer (an item, an authored creature, or one of ours)
 func _spawnable(cell: Vector2i) -> bool:
-	var w := get_parent()
-	var gb = w.get_node_or_null("GridBackground")
-	if gb == null or not gb.cell_present(cell.x, cell.y):
+	if _fm == null or not _fm.is_walkable(cell): # exists, no wall, passable (or bridged) floor
 		return false
-	var obs = w.get_node_or_null("Obstacles")
-	if obs != null and (obs.is_blocked(cell) or not obs.door_at(cell).is_empty()):
+	if _obs != null and not _obs.door_at(cell).is_empty():
 		return false
-	var fm = w.get_node_or_null("FloorManager")
-	if fm != null and fm.is_cell_impassable(cell) and (obs == null or not obs.is_bridge(cell)):
-		return false
-	var pk = w.get_node_or_null("Pickups")
-	if pk != null and pk.has_pickup(cell):
+	if _pickups != null and _pickups.has_pickup(cell):
 		return false
 	return not has_creature(cell) and not _spawned_by_cell.has(cell)
 
 func _despawn_all() -> void:
 	for sp in _spawned:
-		var n = sp["node"]
+		var n: Node = sp["node"]
 		if is_instance_valid(n):
 			n.queue_free()
 	_spawned.clear()

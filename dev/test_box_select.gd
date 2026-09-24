@@ -18,17 +18,17 @@ func _ready() -> void:
 	# --- box-select replace: a 3x3-cell box selects 36 quarters ---
 	fm.set_mode(7) # Mode.BOX
 	fm._box_start = Vector2i(5, 5)
-	fm._box_op = "replace"
+	fm._box_op = FloorManager.SelOp.REPLACE
 	fm._box_base = {}
 	fm._update_box(Vector2i(7, 7)) # cells (5..7)x(5..7) = 9 cells x 4 quarters
 	_check("box replace: 3x3 box selects 36 quarters", fm._sel_quads.size() == 36)
-	_check("box replace: selection kind is floor", fm._sel_kind == "floor")
+	_check("box replace: selection kind is floor", fm._sel_kind == FloorManager.SelKind.FLOOR)
 	var probe: Vector2i = Grid.quads_of(Vector2i(6, 6))[0]
 	_check("box replace: an interior quarter is selected", fm._sel_quads.has(probe))
 
 	# --- box add: a second box UNIONs onto the first ---
 	fm._box_base = fm._sel_quads.duplicate()
-	fm._box_op = "add"
+	fm._box_op = FloorManager.SelOp.ADD
 	fm._box_start = Vector2i(8, 5)
 	fm._update_box(Vector2i(8, 7)) # adds cells (8,5),(8,6),(8,7) = 3 cells x 4 = 12 quarters
 	_check("box add: union grows the selection to 48", fm._sel_quads.size() == 48)
@@ -37,7 +37,7 @@ func _ready() -> void:
 
 	# --- box subtract: a box removes an overlapping region ---
 	fm._box_base = fm._sel_quads.duplicate()
-	fm._box_op = "subtract"
+	fm._box_op = FloorManager.SelOp.SUBTRACT
 	fm._box_start = Vector2i(5, 5)
 	fm._update_box(Vector2i(5, 7)) # removes cells (5,5),(5,6),(5,7) = 12 quarters
 	_check("box subtract: removed 12 quarters (48 -> 36)", fm._sel_quads.size() == 36)
@@ -50,24 +50,24 @@ func _ready() -> void:
 	# --- _sel_op reads the modifier ---
 	var e := InputEventMouseButton.new()
 	e.shift_pressed = true
-	_check("_sel_op: Shift = add", fm._sel_op(e) == "add")
+	_check("_sel_op: Shift = add", fm._sel_op(e) == FloorManager.SelOp.ADD)
 	e.shift_pressed = false
 	e.alt_pressed = true
-	_check("_sel_op: Alt = subtract", fm._sel_op(e) == "subtract")
+	_check("_sel_op: Alt = subtract", fm._sel_op(e) == FloorManager.SelOp.SUBTRACT)
 	e.alt_pressed = false
-	_check("_sel_op: plain = replace", fm._sel_op(e) == "replace")
+	_check("_sel_op: plain = replace", fm._sel_op(e) == FloorManager.SelOp.REPLACE)
 
 	# --- Magic Wand add / subtract (outdoor cells have single-cell patches, 4 quarters each) ---
 	fm.set_mode(0) # Mode.WAND
 	fm._clear_selection()
-	fm._wand_click(_center(Vector2i(2, 2)), "replace")
+	fm._wand_click(_center(Vector2i(2, 2)), FloorManager.SelOp.REPLACE)
 	var s0: int = fm._sel_quads.size()
-	_check("wand replace: a single outdoor cell selects its quarters", s0 == 4 and fm._sel_kind == "floor")
-	fm._wand_click(_center(Vector2i(4, 2)), "add")
+	_check("wand replace: a single outdoor cell selects its quarters", s0 == 4 and fm._sel_kind == FloorManager.SelKind.FLOOR)
+	fm._wand_click(_center(Vector2i(4, 2)), FloorManager.SelOp.ADD)
 	_check("wand add: a second cell unions in", fm._sel_quads.size() == 8)
 	_check("wand add: both cells present", fm._sel_quads.has(Grid.quads_of(Vector2i(2, 2))[0]) and fm._sel_quads.has(Grid.quads_of(Vector2i(4, 2))[0]))
-	fm._wand_click(_center(Vector2i(2, 2)), "subtract")
+	fm._wand_click(_center(Vector2i(2, 2)), FloorManager.SelOp.SUBTRACT)
 	_check("wand subtract: the first cell is removed", not fm._sel_quads.has(Grid.quads_of(Vector2i(2, 2))[0]))
-	_check("wand subtract: selection still floor with the other cell", fm._sel_kind == "floor" and fm._sel_quads.size() == 4)
+	_check("wand subtract: selection still floor with the other cell", fm._sel_kind == FloorManager.SelKind.FLOOR and fm._sel_quads.size() == 4)
 
 	finish()

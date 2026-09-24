@@ -28,6 +28,14 @@ CharacterIO="*res://systems/character_io.gd"
 GameIO="*res://systems/game_io.gd"
 Hotkeys="*res://systems/hotkeys.gd"
 
+[debug]
+
+gdscript/warnings/untyped_declaration=1
+gdscript/warnings/directory_rules={
+"res://addons": 0,
+"res://dev": 0
+}
+
 [display]
 
 window/size/viewport_width=800

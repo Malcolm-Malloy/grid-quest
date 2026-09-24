@@ -57,7 +57,7 @@ func _ready() -> void:
 	# --- Erase a FLOOR selection (Wand), then it clears ---
 	fm.set_mode(0) # WAND
 	fm._wand_click(_center(Vector2i(12, 9)))
-	_check("setup: a floor selection exists", fm._selection.has_selection() and fm._sel_kind == "floor")
+	_check("setup: a floor selection exists", fm._selection.has_selection() and fm._sel_kind == FloorManager.SelKind.FLOOR)
 	var sel_q = fm._sel_quads.keys()[0]
 	_click(fm, Vector2i(12, 9), fm.ERASE_ID)
 	_check("Erase (floor selection): a selected quarter is cleared", not fm._quad_mat.has(sel_q))
@@ -76,7 +76,7 @@ func _ready() -> void:
 
 	# --- Erase a WALL selection (Wand on a wall), then it clears ---
 	fm._wand_click(_center(Vector2i(6, 3)))
-	_check("setup: a wall selection exists", fm._selection.has_selection() and fm._sel_kind == "wall")
+	_check("setup: a wall selection exists", fm._selection.has_selection() and fm._sel_kind == FloorManager.SelKind.WALL)
 	var sel_wall = fm._sel_cells.keys()[0]
 	_click(fm, Vector2i(6, 3), fm.ERASE_ID)
 	_check("Erase (wall selection): a selected wall is removed", not obs.is_blocked(sel_wall))

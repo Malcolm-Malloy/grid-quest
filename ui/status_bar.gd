@@ -1,3 +1,4 @@
+class_name StatusBar
 extends CanvasLayer
 
 # The editor status bar (ROADMAP "Editor layout" -> "A thin status bar"): a strip along the bottom
@@ -86,13 +87,13 @@ func _ready() -> void:
 	_right.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	row.add_child(_right)
 
-	var fm = _floor_manager()
+	var fm := _floor_manager()
 	if fm != null:
 		fm.selection_changed.connect(_on_selection_changed)
 	_refresh()
 
 func _on_selection_changed() -> void:
-	var fm = _floor_manager()
+	var fm := _floor_manager()
 	_sel_text = fm.selection_summary() if fm != null else ""
 
 # How much room the bar actually takes along the bottom, for whoever has to stay clear of it (the
@@ -126,7 +127,7 @@ func _refresh() -> void:
 # hovered cell + active tool + selection size. The selection field is omitted entirely when nothing
 # is selected, so the common case stays short rather than reading "Sel: none".
 func _compose_left() -> String:
-	var fm = _floor_manager()
+	var fm := _floor_manager()
 	if fm == null:
 		return ""
 	var parts := []
@@ -144,7 +145,7 @@ func _compose_left() -> String:
 # the box overstates it, so the true cell count is appended in that case and only that case.
 func _compose_right() -> String:
 	var parts := []
-	var gb = get_node_or_null("../World/GridBackground")
+	var gb := get_node_or_null("../World/GridBackground") as GridBackground
 	if gb != null:
 		var dims := "%d × %d" % [gb.grid_width, gb.grid_height]
 		if not gb.absent_cells.is_empty():
@@ -155,5 +156,5 @@ func _compose_right() -> String:
 		parts.append("%d%%" % roundi(cam.zoom.x * 100.0))
 	return SEP.join(parts)
 
-func _floor_manager():
+func _floor_manager() -> FloorManager:
 	return get_node_or_null("../World/FloorManager")

@@ -42,7 +42,7 @@ func serialize() -> Dictionary:
 			"unlocked": unlocked.duplicate(true)}
 	# inventory is stored as-is; it must stay JSON-safe (the item system keeps it so). duplicate()
 	# so a later mutation of the live structure can't retroactively change a dict we already handed out.
-	var inv = player.inventory.duplicate(true) if "inventory" in player else {"stacks": {}, "uniques": []}
+	var inv: Dictionary = player.inventory.duplicate(true) if "inventory" in player else {"stacks": {}, "uniques": []}
 	return {
 		"version": VERSION,
 		"position": {"x": player.position.x, "y": player.position.y},
@@ -69,7 +69,7 @@ func apply(data: Dictionary) -> void:
 	if "inventory" in player:
 		# v2 is {stacks, uniques}. A v1 save stored a flat Array, which was always empty (nothing could
 		# add to it before the item system), so it migrates to an empty v2 inventory.
-		var inv = data.get("inventory", {})
+		var inv: Variant = data.get("inventory", {})
 		if inv is Dictionary:
 			player.inventory = {
 				"stacks": (inv.get("stacks", {}) as Dictionary).duplicate(true),
@@ -77,9 +77,9 @@ func apply(data: Dictionary) -> void:
 			}
 		else:
 			player.inventory = {"stacks": {}, "uniques": []}
-	var col = data.get("collected", {})
+	var col: Variant = data.get("collected", {})
 	collected = (col as Dictionary).duplicate(true) if col is Dictionary else {}
-	var unl = data.get("unlocked", {})
+	var unl: Variant = data.get("unlocked", {})
 	unlocked = (unl as Dictionary).duplicate(true) if unl is Dictionary else {}
 	if player.has_method("update_sprite"):
 		player.update_sprite() # redraw with the restored facing (also refreshes the shadow shape)
@@ -146,7 +146,7 @@ func save_character() -> bool:
 func load_character() -> bool:
 	if not FileAccess.file_exists(PATH):
 		return false
-	var data = JSON.parse_string(FileAccess.get_file_as_string(PATH))
+	var data: Variant = JSON.parse_string(FileAccess.get_file_as_string(PATH))
 	if typeof(data) != TYPE_DICTIONARY:
 		push_error("CharacterIO: %s is not valid character JSON" % PATH)
 		return false

@@ -1,3 +1,4 @@
+class_name EdgeHighlight
 extends Node2D
 
 # The Map Size tool's edge band. Draws one row or column to show what a grow/shrink will do:
@@ -24,7 +25,7 @@ var _add := false # this band is an add-band, so it gets the "+" glyph
 var _on := false
 
 func show_band(edge: String, mode: String) -> void:
-	var gb = get_node_or_null("../GridBackground")
+	var gb := get_node_or_null("../GridBackground") as GridBackground
 	if gb == null:
 		return
 	var w: int = gb.grid_width

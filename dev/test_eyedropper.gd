@@ -32,7 +32,7 @@ func _ready() -> void:
 	_check("picked the material", fm.armed_material() == "sand")
 	_check("picked the colour", fm.active_floor_color().is_equal_approx(Color(0.8, 0.2, 0.2)))
 	_check("the pick armed the brush (next click paints it)", fm.is_armed())
-	_check("the pick is a floor-brush pick", fm.active_tool_kind() == "floor")
+	_check("the pick is a floor-brush pick", fm.active_tool_kind() == FloorManager.Brush.FLOOR)
 	_check("picking edited nothing", JSON.stringify(MapIO.serialize()) == before)
 	_check("picking committed no undo entry", not EditHistory.can_undo())
 
@@ -66,7 +66,7 @@ func _ready() -> void:
 	fm._eyedrop_at(_mid(wall))
 	_check("picked the wall material", fm.armed_wall_material() == "slate")
 	_check("picked the wall colour", fm.active_wall_color().is_equal_approx(Color(0.2, 0.4, 0.9)))
-	_check("the pick is a wall-brush pick", fm.active_tool_kind() == "wall_mat")
+	_check("the pick is a wall-brush pick", fm.active_tool_kind() == FloorManager.Brush.WALL_MATERIAL)
 
 	# --- 6. off-map picks nothing ---
 	_check("a pick off the map does nothing", not fm._eyedrop_at(Vector2(-40, -40)))

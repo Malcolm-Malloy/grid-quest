@@ -1,3 +1,4 @@
+class_name ShadowManager
 extends Node2D
 
 # Draws the wall + gate shadows as one merged union at a single opacity. Two rules keep
@@ -19,7 +20,7 @@ var ground_texture := preload("res://world/ground_grass.png") # to stamp interio
 var static_union: Array = [] # pre-merged static wall regions, in World/grid space
 var merged_regions: Array = [] # the pieces actually drawn, for the in-shadow test
 
-@onready var _room_light = get_node_or_null("../RoomLight")
+@onready var _room_light: RoomLight = get_node_or_null("../RoomLight")
 @onready var _fm: FloorManager = get_node_or_null("../FloorManager")
 
 func _ready() -> void:
@@ -83,7 +84,7 @@ func _draw() -> void:
 # fill, and null falls back to the grass base.
 func _stamp_floor(fm, q: Vector2i) -> void:
 	var r := Grid.quad_rect(q)
-	var tex = fm.floor_tex_at_quad(q) if fm else null
+	var tex: Texture2D = fm.floor_tex_at_quad(q) if fm else null
 	# a floor tint (white = none) multiplies the restamp too, so a coloured floor stays coloured
 	# where a lit room's wall shadows are wiped and under an open door (matches base_fills).
 	var tint: Color = fm.floor_tint_at_quad(q) if fm else Color.WHITE

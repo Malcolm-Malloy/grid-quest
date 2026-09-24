@@ -50,7 +50,7 @@ func _ready() -> void:
 	# Each change goes through _refresh_selection_overlay, the real path that emits selection_changed --
 	# the bar CACHES the selection off that signal (recounting every selected quarter each frame would
 	# be the one expensive thing on a per-frame readout), so the signal is part of what is under test.
-	fm._sel_kind = "floor"
+	fm._sel_kind = FloorManager.SelKind.FLOOR
 	fm._sel_quads = {Vector2i(4, 4): true, Vector2i(5, 4): true, Vector2i(4, 5): true, Vector2i(5, 5): true}
 	fm._refresh_selection_overlay()
 	_check("four quarters of one cell report 1 cell", fm.selection_summary() == "1 cell")
@@ -62,7 +62,7 @@ func _ready() -> void:
 	fm._clear_selection()
 	fm._refresh_selection_overlay()
 	# a wall selection counts walls
-	fm._sel_kind = "wall"
+	fm._sel_kind = FloorManager.SelKind.WALL
 	fm._sel_cells = {Vector2i(1, 1): true, Vector2i(2, 1): true}
 	fm._refresh_selection_overlay()
 	_check("a wall selection counts walls", fm.selection_summary() == "2 walls")

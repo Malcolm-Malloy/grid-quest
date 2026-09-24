@@ -236,7 +236,7 @@ func spawn_shadows() -> void:
 		var run := 1
 		while structure.has(Vector2i(c.x + run, c.y)):
 			run += 1
-		var last_x = c.x + run - 1
+		var last_x: int = c.x + run - 1
 		var inset := (CELL_SIZE - CAP_HEIGHT) / 2.0
 		var hleft: float = c.x * CELL_SIZE
 		var hright: float = (last_x + 1) * CELL_SIZE
@@ -438,7 +438,7 @@ func remove_bridge(cell: Vector2i) -> bool:
 func door_at(cell: Vector2i) -> Dictionary:
 	return _doors.get(cell, {})
 
-func gate_node_at(cell: Vector2i):
+func gate_node_at(cell: Vector2i) -> Gate:
 	for g in get_tree().get_nodes_in_group("gates"):
 		if g.cell == cell:
 			return g
@@ -449,7 +449,7 @@ func set_door_open(cell: Vector2i, value: bool) -> void:
 	if d.is_empty():
 		return
 	d["open"] = value
-	var g = gate_node_at(cell)
+	var g := gate_node_at(cell)
 	if g:
 		g.authored_open = value
 		g.reset_to_authored()
@@ -459,7 +459,7 @@ func set_door_swing(cell: Vector2i, value: bool) -> void:
 	if d.is_empty():
 		return
 	d["swing"] = value
-	var g = gate_node_at(cell)
+	var g := gate_node_at(cell)
 	if g:
 		g.authored_swing = value
 		g.reset_to_authored()
@@ -505,7 +505,7 @@ func try_unlock(cell: Vector2i, player) -> bool:
 		if not player.take_from_stack(key, 1):
 			return false
 		CharacterIO.mark_unlocked(MapIO.current(), id)
-		var g = gate_node_at(cell)
+		var g := gate_node_at(cell)
 		if g:
 			g.unlocked = true # the lock is removed from the door, so it needs no open-state art
 			g.queue_redraw()
@@ -527,7 +527,7 @@ func set_door_lock(cell: Vector2i, kind: String, color := "red", key_name := "")
 		d["lock_color"] = color
 		if key_name != "":
 			d["lock_name"] = key_name
-	var g = gate_node_at(cell)
+	var g := gate_node_at(cell)
 	if g:
 		g.lock = kind
 		g.lock_color = color

@@ -1,3 +1,4 @@
+class_name MapSizeTool
 extends Node2D
 
 # Map Size tool (hover-add, rectangular row/column grain). When active, hovering just outside a
@@ -27,7 +28,7 @@ var _drag_changed := false
 
 @onready var _fm: FloorManager = get_node_or_null("../FloorManager")
 @onready var _grid_bg: GridBackground = get_node_or_null("../GridBackground")
-@onready var _edge_highlight = get_node_or_null("../EdgeHighlight")
+@onready var _edge_highlight: EdgeHighlight = get_node_or_null("../EdgeHighlight")
 
 func _process(_delta: float) -> void:
 	# EDIT-only, like every other map tool: this one uses _input (which runs before the GUI), so without

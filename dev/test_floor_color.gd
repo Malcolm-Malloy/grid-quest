@@ -118,7 +118,7 @@ func _ready() -> void:
 	fm._quad_tint.clear(); fm._rebuild()
 	fm._mode = 1 # Mode.CELL
 	fm._pending = Vector2(cell.x * 32 + 16, cell.y * 32 + 16)
-	fm._sel_kind = "" # no active selection
+	fm._sel_kind = FloorManager.SelKind.NONE # no active selection
 	var applied: bool = fm._apply_floor_tint(red)
 	_check("apply-helper (Cell): reports a change", applied)
 	var cell_all_red := true

@@ -1,3 +1,4 @@
+class_name ToolStrip
 extends CanvasLayer
 
 # The persistent editor tool strip (left side). Laid out as collapsible ACCORDION sections (ROADMAP
@@ -10,7 +11,6 @@ extends CanvasLayer
 const EDGES := ["top", "bottom", "left", "right"]
 
 # only for its HEIGHT: the strip stops short of the status bar rather than overlapping it
-const StatusBarScript := preload("res://ui/status_bar.gd")
 
 # the authoring modes are FloorManager's own enum (no local mirror to keep in step)
 const Mode := FloorManager.Mode
@@ -88,8 +88,8 @@ var _creature_buttons := {}       # creature id -> Button (radio-ish); the armed
 var _kind_buttons := {}           # Bestiary kind -> Button: spawn point vs fixed instance
 
 @onready var _fm: FloorManager = get_node_or_null("../World/FloorManager")
-@onready var _edge_highlight = get_node_or_null("../World/EdgeHighlight")
-@onready var _map_size_tool = get_node_or_null("../World/MapSizeTool")
+@onready var _edge_highlight: EdgeHighlight = get_node_or_null("../World/EdgeHighlight")
+@onready var _map_size_tool: MapSizeTool = get_node_or_null("../World/MapSizeTool")
 
 func _ready() -> void:
 	# the tool strip is editor-only chrome: show it in EDIT, hide it in PLAY (see EditorMode)
@@ -344,8 +344,8 @@ func _relayout() -> void:
 	# reserve the status bar's strip along the bottom, so a strip tall enough to fill the window stops
 	# above it instead of running underneath the readout (both are EDIT-only, so they always coexist).
 	# Asked of the bar itself, since its height comes from the theme, not from a number either of us picks.
-	var sb = get_tree().get_first_node_in_group("status_bar")
-	var bar: float = sb.height() if sb != null else float(StatusBarScript.HEIGHT)
+	var sb := get_tree().get_first_node_in_group("status_bar") as StatusBar
+	var bar: float = sb.height() if sb != null else float(StatusBar.HEIGHT)
 	var avail: float = maxf(get_viewport().get_visible_rect().size.y - 16.0 - bar, 80.0)
 	var want: float = _content.get_combined_minimum_size().y
 	_scroll.custom_minimum_size.y = minf(want, avail)

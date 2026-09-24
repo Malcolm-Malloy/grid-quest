@@ -1,3 +1,4 @@
+class_name Inspector
 extends CanvasLayer
 
 # The properties inspector: a right-side panel that shows the selected object's authored settings and
@@ -58,13 +59,13 @@ func clear() -> void:
 
 # --- panel construction ---
 
-func _obs():
+func _obs() -> Obstacles:
 	return get_tree().get_first_node_in_group("obstacles")
 
 # the Unique keys already placed for the inspected door, so the button can say so
 func _keys_bound_here() -> Array:
-	var obs = _obs()
-	var pk = obs.get_parent().get_node_or_null("Pickups") if obs else null
+	var obs := _obs()
+	var pk: Pickups = obs.get_parent().get_node_or_null("Pickups") if obs else null
 	return pk.keys_for_door(obs.door_id_at(_cell)) if pk else []
 
 func _refresh_visibility() -> void:
@@ -90,8 +91,8 @@ func _title(text: String) -> void:
 	_box.add_child(l)
 
 # the placed-creature layer (world/creatures.gd), a sibling of Obstacles under World
-func _creature_layer():
-	var obs = _obs()
+func _creature_layer() -> Creatures:
+	var obs := _obs()
 	return obs.get_parent().get_node_or_null("Creatures") if obs else null
 
 # A placed creature: its TYPE, which KIND of placement it is, and the per-object passability override
@@ -99,7 +100,7 @@ func _creature_layer():
 # Retyping and re-kinding both keep the record's durable id, so this edits the creature that is here
 # rather than replacing it with a new one.
 func _build_creature() -> void:
-	var cr = _creature_layer()
+	var cr := _creature_layer()
 	var rec: Dictionary = cr.creature_at(_cell) if cr else {}
 	if rec.is_empty():
 		clear()
@@ -174,7 +175,7 @@ func _build_creature() -> void:
 # gets. Rate and cap are SPINBOXES rather than buttons because they are continuous quantities with a
 # sensible range, not a small fixed roster like a creature type.
 func _build_zone() -> void:
-	var cr = _creature_layer()
+	var cr := _creature_layer()
 	var rec: Dictionary = cr.zone_at(_cell) if cr else {}
 	if rec.is_empty():
 		clear()
@@ -255,7 +256,7 @@ func _reapply() -> void:
 	EditHistory.commit("creature")
 
 func _build_door() -> void:
-	var obs = _obs()
+	var obs := _obs()
 	var d: Dictionary = obs.door_at(_cell) if obs else {}
 	if d.is_empty():
 		clear()
@@ -350,7 +351,7 @@ func _build_door() -> void:
 		var bound: int = _keys_bound_here().size()
 		place.text = "Place its key" if bound == 0 else "Place another key (%d placed)" % bound
 		place.pressed.connect(func():
-			var fm = get_node_or_null("../World/FloorManager")
+			var fm := get_node_or_null("../World/FloorManager") as FloorManager
 			if fm != null:
 				fm.arm_bound_key(obs.door_id_at(_cell), name_edit.text))
 		_box.add_child(place)
@@ -368,7 +369,7 @@ func _build_door() -> void:
 	_box.add_child(to_wall)
 
 func _build_wall() -> void:
-	var obs = _obs()
+	var obs := _obs()
 	if obs == null or not obs.is_blocked(_cell):
 		clear()
 		return

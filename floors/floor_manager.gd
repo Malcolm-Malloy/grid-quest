@@ -61,6 +61,12 @@ const GRID_COLOR := Color(0.38, 0.64, 0.95, 0.4)
 # ROADMAP "Authoring surface" (mode rename), "Applying edits to a selection" and "Wall editing".
 # NOTE: BRIDGE is appended LAST so existing Mode indices stay stable (tool_strip.M_* mirrors this).
 enum Mode { WAND, CELL, FINE, ERASE, WALL, DOOR, SELECT, BOX, BRIDGE, MOVE, EYEDROP, SPAWN, ITEM, CREATURE }
+# what the armed brush applies on a paint click/drag: a floor material (+ colour), a wall colour, a wall
+# material, a floor colour alone, or a floor pattern
+enum Brush { FLOOR, WALL_COLOR, WALL_MATERIAL, FLOOR_COLOR, PATTERN }
+enum SelKind { NONE, FLOOR, WALL }        # what the current selection holds
+enum Pending { NONE, PASTE, MOVE }        # a clip waiting to be dropped, and how it got there
+enum SelOp { REPLACE, ADD, SUBTRACT }     # how a new selection combines with the current one
 
 # floor patterns: a per-quarter pattern index into the material's `FloorMaterials.TEXTURES` variant array, separate
 # from the colour tint. Menu id is PATTERN_BASE_ID + index. Base is 700 so it sits above every other
@@ -88,7 +94,7 @@ signal brush_changed
 # when the reflected brush values did not change, unlike brush_changed.
 signal selection_changed
 
-@onready var room_light = get_node("../RoomLight")
+@onready var room_light: RoomLight = get_node("../RoomLight")
 
 # Storage is per 16px quarter: _quad_mat is the SOURCE OF TRUTH (what MapIO saves). Everything
 # else is derived in _rebuild. A room fill (set_room_style) just writes all four quarters of every
@@ -110,8 +116,7 @@ var _has_water := false # any water fill emitted this _rebuild, so grid_backgrou
 var _fills_dirty := false # the floor stores changed since _base_fills was built (rebuilt lazily on read)
 var _menu: PopupMenu
 var _pending := Vector2.ZERO # local (World-space) position of the last right-click, for the menu
-var _tool_kind := "floor"    # "floor" (paint _brush), "wall" (colour _wall_color), "wall_mat" (material
-							 # _wall_mat) or "floor_color" (tint _floor_color)
+var _tool_kind: Brush = Brush.FLOOR # what a paint click/drag applies (see the Brush enum)
 var _brush := "wood"         # active floor material ("" = grass eraser)
 var _armed := false          # Cell/Fine only: is a material armed to drop? Cleared on entering Cell/
 							 # Fine so the mode never starts placeable; set true when a material is picked
@@ -135,6 +140,7 @@ var _color_picker: ColorPicker  # its ColorPicker (live-previews the tint as you
 var _picker_applied := false    # a preview was applied during the current picker session (commit on close)
 var _suppress_picker := false   # guard so setting the picker's start colour doesn't count as an edit
 var _mode: Mode = Mode.WAND  # active authoring mode (set by the tool strip)
+var _click_tools := {} # single-click modes -> the method a press calls at the mouse (see _on_left_button)
 var _door_orient := "horizontal" # DOOR mode: orientation used when the cell has no wall run (R flips)
 var _bridge_orient := "horizontal" # BRIDGE mode: orientation used when the water run is ambiguous (R flips)
 var _painting := false       # true while the left button is held, for drag painting
@@ -149,7 +155,7 @@ const DRAG_SLOP := 6.0        # px of movement that turns a press into a box dra
 var _box_press := Vector2.ZERO # where the press landed, to measure the slop
 var _box_active := false      # true while a box drag is in progress
 var _box_start := Vector2i.ZERO # the cell the drag began on
-var _box_op := "replace"      # "replace" / "add" / "subtract", captured from the modifier at press
+var _box_op: SelOp = SelOp.REPLACE # captured from the modifier at press
 var _box_base := {}           # selection quads snapshot at drag start (the base add/subtract build on)
 var _cursor: Node2D          # the Cell/Fine square paint cursor (see paint_cursor.gd)
 var _preview: Node2D         # the lifted terrain drop-preview sprite (see terrain_preview.gd)
@@ -165,7 +171,7 @@ var _clip_ghost: Node2D      # hover ghost for an armed paste / an in-flight mov
 # and duplicate" + "Move tool"). One pending-clip state serves both, so the ghost, the rotate/flip
 # keys and the drop all have a single code path; only how the origin is computed differs.
 var _pending_clip := {}          # the clip about to land ({} = nothing armed)
-var _pending_kind := ""          # "paste" (armed by Ctrl+V, drops on click) or "move" (drag in MOVE mode)
+var _pending_kind: Pending = Pending.NONE # an armed paste (Ctrl+V, drops on click) or a move (MOVE drag)
 var _pending_id := 0             # bumped on every arm/rotate/flip so the ghost knows to redraw
 var _pending_changed := false    # the pending clip was rotated/flipped (so a zero-delta move still acts)
 var _move_src := {}              # MOVE: the source footprint cells, cleared when the move lands
@@ -185,7 +191,7 @@ var _ghost_origin_pin := INVALID_CELL # dev hook (dev/capture.gd): pin the ghost
 var _mouse_inside := true    # false while the OS cursor is off the game window; hides all highlights
 var _ui_hid := false         # true while the cursor is over the editor menu/panels, so hover is cleared
 # Magic Wand selection state, so a repeat click on the same selection grows its scope:
-var _sel_kind := ""          # "" none, "floor" (quarters) or "wall" (cells)
+var _sel_kind: SelKind = SelKind.NONE # floor selections hold quarters, wall selections hold cells
 var _sel_quads := {}         # floor selection FILL set: quarter Vector2i (16px grid) -> true (incl. the
 							 # under-wall ring for fills; the overlay subtracts wall sprites for display)
 var _sel_cells := {}         # wall selection: cell Vector2i (32px grid) -> true
@@ -202,14 +208,14 @@ var _whole_hover_key := ""        # descriptor of the current Whole highlight ta
 # the hover highlight is drawn by the mask system (FloorHighlightMask): we just detect which
 # room the mouse is over and hand it that room's floor shape; it renders the pixel-exact fill
 # and outline of the visible floor.
-@onready var _mask = get_node("../FloorHighlightMask")
+@onready var _mask: FloorHighlightMask = get_node("../FloorHighlightMask")
 # sibling World nodes, looked up once (World is the parent in main.tscn; each may be absent in a stripped scene)
 @onready var _grid_bg: GridBackground = get_node_or_null("../GridBackground")
 @onready var _obs: Obstacles = get_node_or_null("../Obstacles")
 @onready var _pickups: Pickups = get_node_or_null("../Pickups")
 @onready var _creatures: Creatures = get_node_or_null("../Creatures")
-@onready var _shadows = get_node_or_null("../ShadowGroup")
-@onready var _spawn_marker = get_node_or_null("../SpawnMarker")
+@onready var _shadows: ShadowManager = get_node_or_null("../ShadowGroup")
+@onready var _spawn_marker: SpawnMarker = get_node_or_null("../SpawnMarker")
 # derives the fills from the stores below (see floor_render.gd)
 @onready var _render := FloorRender.new(_quad_mat, _quad_tint, _quad_pattern, _quad_no_bank, _grid_bg)
 
@@ -365,6 +371,11 @@ func _ready() -> void:
 	EditorMode.changed.connect(func(_m):
 		if EditorMode.is_play():
 			_exit_edit_state())
+	_click_tools = {
+		Mode.ITEM: _place_item_at, Mode.CREATURE: _place_creature_at, Mode.SPAWN: _set_spawn_at,
+		Mode.EYEDROP: _eyedrop_at, Mode.SELECT: _select_at, Mode.DOOR: _place_door_at,
+		Mode.BRIDGE: _place_bridge_at,
+	}
 	call_deferred("_seed") # keep the existing wooden room once RoomLight has built
 
 # clear everything the editor was holding: the marching-ants selection, an armed paste or half-finished
@@ -380,7 +391,7 @@ func _exit_edit_state() -> void:
 	_cancel_zone_drag() # a half-dragged zone rectangle is live editor state like any other
 	_reset_highlight()
 	_restore_faded()
-	var inspector = get_tree().get_first_node_in_group("inspector")
+	var inspector := get_tree().get_first_node_in_group("inspector") as Inspector
 	if inspector != null:
 		inspector.clear() # it hides itself in PLAY, but it should not come back holding an old target
 	brush_changed.emit()
@@ -438,217 +449,201 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and _pointer_over_ui():
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
-		var local := get_local_mouse_position()
-		var cell := Grid.cell_of(local)
-		# a right-click cancels an armed paste (the standard "drop the loaded brush" gesture, matching
-		# the Cell/Fine right-click-disarms rule); the clipboard keeps the clip for the next Ctrl+V.
-		if _pending_kind == "paste":
-			_cancel_pending()
-			get_viewport().set_input_as_handled()
-			return
-		# Cell/Fine: a right-click while a material is armed just cancels the brush (removes the floating
-		# drop-preview graphic), no menu. A second right-click (now un-armed) opens the menu as usual.
-		# See ROADMAP "Editor UX revisions" -> right-click disarms in Cell/Fine.
-		if (_mode == Mode.CELL or _mode == Mode.FINE) and _armed:
-			_armed = false
-			brush_changed.emit()
-			_preview.hide_preview() # drop the lifted tile immediately (the square cursor stays)
-			get_viewport().set_input_as_handled()
-			return
-		# a right-click off the map, or off the current selection, deselects (rather than opening the
-		# menu). A right-click INSIDE the selection falls through to open the menu, so it can still act
-		# on the selection. See ROADMAP "Editor UX revisions" -> deselect a Wand selection.
-		if _selection.has_selection() and (not _in_bounds(cell) or not _click_in_selection(local)):
-			_clear_selection()
-			get_viewport().set_input_as_handled()
-			return
-		if not _in_bounds(cell):
-			return # right-clicked off the map
-		_pending = local
-		_apply_menu_context(cell) # rebuilds the top level for the clicked target + sets Grid's check
-		_menu.position = Vector2i(get_viewport().get_mouse_position())
-		_menu.reset_size() # re-fit after the rebuild so the popup isn't sized for a stale menu
-		_menu.popup()
-		get_viewport().set_input_as_handled()
+		_on_right_press()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		# an armed paste owns the next left click, in ANY mode: it stamps the clip where the ghost sits.
-		if _pending_kind == "paste":
-			if event.pressed:
-				_drop_pending()
-			get_viewport().set_input_as_handled()
-			return
-		# clicking off the map deselects the current selection (any mode), per "Editor UX revisions"
-		# -> deselect a Wand selection ("clicking off the map would logically deselect").
-		if event.pressed and _selection.has_selection():
-			var lc := get_local_mouse_position()
-			if not _in_bounds(Grid.cell_of(lc)):
-				_clear_selection()
-				get_viewport().set_input_as_handled()
-				return
-		if _mode == Mode.WAND:
-			# ONE Select tool, two gestures (2026-09-05: Magic Wand and Box Select merged): a CLICK grows
-			# a selection (patch -> room, run -> building), a DRAG boxes one. The press just arms both and
-			# waits to see which happened. Shift adds / Alt subtracts either way ("Editor UX revisions" ->
-			# additive/subtractive selection). Selecting never paints.
-			if event.pressed:
-				var local := get_local_mouse_position()
-				var pc := _clamp_cell(Grid.cell_of(local))
-				if _in_bounds(pc):
-					_box_maybe = true
-					_box_press = local
-					_box_start = pc
-					_box_op = _sel_op(event)
-					_box_base = _sel_quads.duplicate() if (_sel_kind == "floor" and _box_op != "replace") else {}
-					get_viewport().set_input_as_handled()
-			else:
-				if _box_active:
-					_box_active = false # the drag already committed its rectangle into _sel_quads
-				elif _box_maybe:
-					# released without dragging: a wand click, and it also loads whatever was clicked into
-					# the properties inspector (the old separate Select tool, now folded in)
-					var lc := get_local_mouse_position()
-					if _in_bounds(Grid.cell_of(lc)):
-						_wand_click(lc, _box_op)
-						_select_at(lc)
-				_box_maybe = false
-				get_viewport().set_input_as_handled()
-			return
-		if _mode == Mode.BOX:
-			# drag a rectangle: press starts it, motion (below) grows it, release finalizes. The modifier
-			# at press decides replace / add / subtract against the current selection.
-			if event.pressed:
-				var local := get_local_mouse_position()
-				var cell := _clamp_cell(Grid.cell_of(local))
-				if _in_bounds(cell):
-					_box_active = true
-					_box_start = cell
-					_box_op = _sel_op(event)
-					_box_base = _sel_quads.duplicate() if (_sel_kind == "floor" and _box_op != "replace") else {}
-					_update_box(cell)
-					get_viewport().set_input_as_handled()
-			elif _box_active:
-				_box_active = false # selection already committed into _sel_quads during the drag
-				get_viewport().set_input_as_handled()
-			return
-		if _mode == Mode.MOVE:
-			# drag the current selection to a new place: press INSIDE it to grab (the ghost then follows
-			# the grab point), release to drop. Pressing outside does nothing, so a stray click never
-			# moves a room by accident. Rotate/flip (R / H / Shift+H) work mid-drag like they do for paste.
-			if event.pressed:
-				var ml := get_local_mouse_position()
-				if _selection.has_selection() and _click_in_selection(ml):
-					_begin_move(Grid.cell_of(ml))
-					get_viewport().set_input_as_handled()
-			elif _pending_kind == "move":
-				_drop_pending()
-				get_viewport().set_input_as_handled()
-			return
-		if _mode == Mode.ITEM:
-			# one click = one placed item = one undo entry
-			if event.pressed:
-				_place_item_at(get_local_mouse_position())
-				get_viewport().set_input_as_handled()
-			return
-		if _mode == Mode.CREATURE:
-			# A ZONE is a REGION, so it is DRAGGED out (press, drag, release) rather than clicked --
-			# the same gesture box-select and wall-drawing already use. The two cell kinds stay a
-			# single click.
-			if _creature_kind == Bestiary.ZONE:
-				if event.pressed:
-					var zl := get_local_mouse_position()
-					var zc := _clamp_cell(Grid.cell_of(zl))
-					if _in_bounds(zc):
-						_zone_active = true
-						_zone_start = zc
-						_update_zone_drag(zc)
-				elif _zone_active:
-					_zone_active = false
-					var rl := get_local_mouse_position()
-					_commit_zone(_clamp_cell(Grid.cell_of(rl)))
-				get_viewport().set_input_as_handled()
-				return
-			# one click = one placed creature = one undo entry (same shape as the item tool)
-			if event.pressed:
-				_place_creature_at(get_local_mouse_position())
-				get_viewport().set_input_as_handled()
-			return
-		if _mode == Mode.SPAWN:
-			# one click = the map's authored start point moves here = one undo entry
-			if event.pressed:
-				_set_spawn_at(get_local_mouse_position())
-				get_viewport().set_input_as_handled()
-			return
-		if _mode == Mode.EYEDROP:
-			# picking never edits the map, it only loads the brush
-			if event.pressed:
-				_eyedrop_at(get_local_mouse_position())
-				get_viewport().set_input_as_handled()
-			return
-		if _mode == Mode.SELECT:
-			# selecting an object never edits the map; it loads the inspector. No drag.
-			if event.pressed:
-				_select_at(get_local_mouse_position())
-				get_viewport().set_input_as_handled()
-			return
-		if _mode == Mode.DOOR:
-			# one click = one door = one undo entry (no drag: a dragged door line is rarely wanted)
-			if event.pressed:
-				_place_door_at(get_local_mouse_position())
-				get_viewport().set_input_as_handled()
-			return
-		if _mode == Mode.BRIDGE:
-			# one click = one bridge = one undo entry (auto-oriented to the water run it spans)
-			if event.pressed:
-				_place_bridge_at(get_local_mouse_position())
-				get_viewport().set_input_as_handled()
-			return
-		if _mode == Mode.WALL:
-			# click-and-drag draws a wall line; the whole gesture is one undo entry
-			if event.pressed:
-				_painting = true
-				_place_wall_at(get_local_mouse_position())
-				get_viewport().set_input_as_handled()
-			elif _painting:
-				_painting = false
-				if _walls_dirty: # flush the final pending rebuild so the commit captures it
-					_walls_dirty = false
-					_rebuild_world(MapIO.REBUILD_STRUCTURES)
-				EditHistory.commit("wall")
-			return
-		# Cell / Fine / Erase: left-click and left-drag paint
+		_on_left_button(event)
+	elif event is InputEventMouseMotion:
+		_on_mouse_motion()
+
+func _handled() -> void:
+	get_viewport().set_input_as_handled()
+
+# the map cell under the mouse, clamped into the grid box (drag gestures keep tracking past the edge)
+func _mouse_cell_clamped() -> Vector2i:
+	return _clamp_cell(Grid.cell_of(get_local_mouse_position()))
+
+func _on_right_press() -> void:
+	var local := get_local_mouse_position()
+	var cell := Grid.cell_of(local)
+	# a right-click cancels an armed paste (the standard "drop the loaded brush" gesture, matching
+	# the Cell/Fine right-click-disarms rule); the clipboard keeps the clip for the next Ctrl+V.
+	if _pending_kind == Pending.PASTE:
+		_cancel_pending()
+		_handled()
+		return
+	# Cell/Fine: a right-click while a material is armed just cancels the brush (removes the floating
+	# drop-preview graphic), no menu. A second right-click (now un-armed) opens the menu as usual.
+	# See ROADMAP "Editor UX revisions" -> right-click disarms in Cell/Fine.
+	if (_mode == Mode.CELL or _mode == Mode.FINE) and _armed:
+		_armed = false
+		brush_changed.emit()
+		_preview.hide_preview() # drop the lifted tile immediately (the square cursor stays)
+		_handled()
+		return
+	# a right-click off the map, or off the current selection, deselects (rather than opening the
+	# menu). A right-click INSIDE the selection falls through to open the menu, so it can still act
+	# on the selection. See ROADMAP "Editor UX revisions" -> deselect a Wand selection.
+	if _selection.has_selection() and (not _in_bounds(cell) or not _click_in_selection(local)):
+		_clear_selection()
+		_handled()
+		return
+	if not _in_bounds(cell):
+		return # right-clicked off the map
+	_pending = local
+	_apply_menu_context(cell) # rebuilds the top level for the clicked target + sets Grid's check
+	_menu.position = Vector2i(get_viewport().get_mouse_position())
+	_menu.reset_size() # re-fit after the rebuild so the popup isn't sized for a stale menu
+	_menu.popup()
+	_handled()
+
+func _on_left_button(event: InputEventMouseButton) -> void:
+	# an armed paste owns the next left click, in ANY mode: it stamps the clip where the ghost sits.
+	if _pending_kind == Pending.PASTE:
 		if event.pressed:
-			# Alt+click is the eyedropper while a PAINT brush is active (ROADMAP "Eyedropper"). No clash
-			# with Alt = subtract-from-selection: that only applies while a SELECTION tool (Wand/Box) is
-			# active, and the two sets of modes are disjoint, so the active tool disambiguates.
-			if event.alt_pressed and (_mode == Mode.CELL or _mode == Mode.FINE):
-				_eyedrop_at(get_local_mouse_position())
-				get_viewport().set_input_as_handled()
-				return
-			# Erase removes the topmost structure (wall/door) first, as a single click; only once
-			# no structure remains does a further click erase the terrain beneath it (cell-occupancy
-			# model, ROADMAP "Erase mode"). Structure removal consumes the click (no paint drag).
-			if _mode == Mode.ERASE and _erase_structure_at(get_local_mouse_position()):
-				get_viewport().set_input_as_handled()
-				return
-			_painting = true
-			_paint(get_local_mouse_position(), true) # fresh click: play the drop animation
-			get_viewport().set_input_as_handled()
-		elif _painting:
-			# stroke ended: the whole drag (or single click) is one undo step
+			_drop_pending()
+		_handled()
+		return
+	# clicking off the map deselects the current selection (any mode), per "Editor UX revisions"
+	# -> deselect a Wand selection ("clicking off the map would logically deselect").
+	if event.pressed and _selection.has_selection() and not _in_bounds(Grid.cell_of(get_local_mouse_position())):
+		_clear_selection()
+		_handled()
+		return
+	# single-click tools: one press = one action at the mouse (= one undo entry where it edits). None drags:
+	# a dragged door line or a smeared row of items is rarely wanted.
+	if _click_tools.has(_mode) and not (_mode == Mode.CREATURE and _creature_kind == Bestiary.ZONE):
+		if event.pressed:
+			_click_tools[_mode].call(get_local_mouse_position())
+			_handled()
+		return
+	match _mode:
+		Mode.WAND: _left_wand(event)
+		Mode.BOX: _left_box(event)
+		Mode.MOVE: _left_move(event)
+		Mode.CREATURE: _left_zone(event) # a zone kind (the single-click kinds are handled above)
+		Mode.WALL: _left_wall(event)
+		_: _left_paint(event) # Cell / Fine / Erase
+
+# start a (possible) box selection at `cell`. The modifier at press decides replace / add / subtract
+# against the current selection, whose floor quarters are snapshotted as the base to build on.
+func _begin_box(cell: Vector2i, event: InputEventMouseButton) -> void:
+	_box_start = cell
+	_box_op = _sel_op(event)
+	_box_base = _sel_quads.duplicate() if (_sel_kind == SelKind.FLOOR and _box_op != SelOp.REPLACE) else {}
+
+# ONE Select tool, two gestures (2026-09-05: Magic Wand and Box Select merged): a CLICK grows a
+# selection (patch -> room, run -> building), a DRAG boxes one. The press just arms both and waits to
+# see which happened. Shift adds / Alt subtracts either way ("Editor UX revisions" -> additive/
+# subtractive selection). Selecting never paints.
+func _left_wand(event: InputEventMouseButton) -> void:
+	if event.pressed:
+		var local := get_local_mouse_position()
+		var pc := _clamp_cell(Grid.cell_of(local))
+		if _in_bounds(pc):
+			_box_maybe = true
+			_box_press = local
+			_begin_box(pc, event)
+			_handled()
+		return
+	if _box_active:
+		_box_active = false # the drag already committed its rectangle into _sel_quads
+	elif _box_maybe:
+		# released without dragging: a wand click, and it also loads whatever was clicked into the
+		# properties inspector (the old separate Select tool, now folded in)
+		var lc := get_local_mouse_position()
+		if _in_bounds(Grid.cell_of(lc)):
+			_wand_click(lc, _box_op)
+			_select_at(lc)
+	_box_maybe = false
+	_handled()
+
+# drag a rectangle: press starts it, motion grows it (_on_mouse_motion), release finalizes
+func _left_box(event: InputEventMouseButton) -> void:
+	if event.pressed:
+		var cell := _mouse_cell_clamped()
+		if _in_bounds(cell):
+			_box_active = true
+			_begin_box(cell, event)
+			_update_box(cell)
+			_handled()
+	elif _box_active:
+		_box_active = false # selection already committed into _sel_quads during the drag
+		_handled()
+
+# drag the current selection to a new place: press INSIDE it to grab (the ghost then follows the grab
+# point), release to drop. Pressing outside does nothing, so a stray click never moves a room by
+# accident. Rotate/flip (R / H / Shift+H) work mid-drag like they do for paste.
+func _left_move(event: InputEventMouseButton) -> void:
+	if event.pressed:
+		var ml := get_local_mouse_position()
+		if _selection.has_selection() and _click_in_selection(ml):
+			_begin_move(Grid.cell_of(ml))
+			_handled()
+	elif _pending_kind == Pending.MOVE:
+		_drop_pending()
+		_handled()
+
+# a creature ZONE is a REGION, so it is DRAGGED out (press, drag, release) rather than clicked -- the
+# same gesture box-select and wall-drawing already use
+func _left_zone(event: InputEventMouseButton) -> void:
+	if event.pressed:
+		var zc := _mouse_cell_clamped()
+		if _in_bounds(zc):
+			_zone_active = true
+			_zone_start = zc
+			_update_zone_drag(zc)
+	elif _zone_active:
+		_zone_active = false
+		_commit_zone(_mouse_cell_clamped())
+	_handled()
+
+# click-and-drag draws a wall line; the whole gesture is one undo entry
+func _left_wall(event: InputEventMouseButton) -> void:
+	if event.pressed:
+		_painting = true
+		_place_wall_at(get_local_mouse_position())
+		_handled()
+	elif _painting:
+		_painting = false
+		if _walls_dirty: # flush the final pending rebuild so the commit captures it
+			_walls_dirty = false
+			_rebuild_world(MapIO.REBUILD_STRUCTURES)
+		EditHistory.commit("wall")
+
+# Cell / Fine / Erase: left-click and left-drag paint; the whole stroke is one undo entry
+func _left_paint(event: InputEventMouseButton) -> void:
+	if not event.pressed:
+		if _painting:
 			_painting = false
 			EditHistory.commit("paint")
-	elif event is InputEventMouseMotion:
-		if _box_maybe and not _box_active and get_local_mouse_position().distance_to(_box_press) > DRAG_SLOP:
-			_box_active = true # far enough to mean "drag a box", not "click that thing"
-		if _zone_active:
-			var zl2 := get_local_mouse_position()
-			_update_zone_drag(_clamp_cell(Grid.cell_of(zl2)))
-		if _painting:
-			_paint(get_local_mouse_position())
-		elif _box_active:
-			var l := get_local_mouse_position()
-			_update_box(_clamp_cell(Grid.cell_of(l)))
-		_update_hover()
+		return
+	# Alt+click is the eyedropper while a PAINT brush is active (ROADMAP "Eyedropper"). No clash with
+	# Alt = subtract-from-selection: that only applies while a SELECTION tool is active, and the two
+	# sets of modes are disjoint, so the active tool disambiguates.
+	if event.alt_pressed and (_mode == Mode.CELL or _mode == Mode.FINE):
+		_eyedrop_at(get_local_mouse_position())
+		_handled()
+		return
+	# Erase removes the topmost structure (wall/door) first, as a single click; only once no structure
+	# remains does a further click erase the terrain beneath it (cell-occupancy model, ROADMAP "Erase
+	# mode"). Structure removal consumes the click (no paint drag).
+	if _mode == Mode.ERASE and _erase_structure_at(get_local_mouse_position()):
+		_handled()
+		return
+	_painting = true
+	_paint(get_local_mouse_position(), true) # fresh click: play the drop animation
+	_handled()
+
+func _on_mouse_motion() -> void:
+	if _box_maybe and not _box_active and get_local_mouse_position().distance_to(_box_press) > DRAG_SLOP:
+		_box_active = true # far enough to mean "drag a box", not "click that thing"
+	if _zone_active:
+		_update_zone_drag(_mouse_cell_clamped())
+	if _painting:
+		_paint(get_local_mouse_position())
+	elif _box_active:
+		_update_box(_mouse_cell_clamped())
+	_update_hover()
 
 # Esc clears the current Magic Wand selection (also cleared by starting a new selection elsewhere).
 # R (in DOOR mode) flips the default door orientation used when placing in open space, so a door with
@@ -810,8 +805,8 @@ func _on_menu_id(id: int) -> void:
 	if id >= PATTERN_BASE_ID:
 		# a floor pattern. Mirrors the floor-tint branch: apply to the active floor selection, else the
 		# clicked target at the current grain (Wand -> room, Cell -> cell, Fine -> quarter). Arms
-		# _tool_kind = "pattern" so a left-drag keeps applying it (see _paint -> _paint_floor_pattern).
-		_tool_kind = "pattern"
+		# _tool_kind = Brush.PATTERN so a left-drag keeps applying it (see _paint -> _paint_floor_pattern).
+		_tool_kind = Brush.PATTERN
 		_pattern = id - PATTERN_BASE_ID
 		if _apply_floor_pattern(_pattern):
 			_rebuild()
@@ -821,11 +816,11 @@ func _on_menu_id(id: int) -> void:
 	if id >= WALL_MAT_BASE_ID:
 		# a wall material. Mirrors the wall-colour branch below: fill the active wall selection if one
 		# exists; otherwise material the wall under the click (whole building in Wand, single segment in
-		# Cell/Fine). Arms _tool_kind = "wall_mat" so a left-drag keeps applying it (see _paint).
-		_tool_kind = "wall_mat"
+		# Cell/Fine). Arms _tool_kind = Brush.WALL_MATERIAL so a left-drag keeps applying it (see _paint).
+		_tool_kind = Brush.WALL_MATERIAL
 		_wall_mat = WallSegment.MATERIAL_NAMES[id - WALL_MAT_BASE_ID][1]
 		var did_mat := false
-		if _sel_kind == "wall" and _selection.has_selection():
+		if _sel_kind == SelKind.WALL and _selection.has_selection():
 			_fill_wall_material_selection(_wall_mat)
 			did_mat = true
 		else:
@@ -847,9 +842,9 @@ func _on_menu_id(id: int) -> void:
 	if id >= FLOOR_COLOR_BASE_ID:
 		# a floor tint. Fill the active floor selection if one exists; otherwise tint what was
 		# clicked at the current grain (Wand -> whole room, Cell -> the cell, Fine -> the quarter).
-		# Mirrors the wall-colour branch below. Leaves _tool_kind = "floor_color" armed so a
+		# Mirrors the wall-colour branch below. Leaves _tool_kind = Brush.FLOOR_COLOR armed so a
 		# left-drag keeps tinting (see _paint) with the orange ground cursor (see _update_hover).
-		_tool_kind = "floor_color"
+		_tool_kind = Brush.FLOOR_COLOR
 		_floor_color = FloorMaterials.COLORS[id - FLOOR_COLOR_BASE_ID][1]
 		brush_changed.emit()
 		if _apply_floor_tint(_floor_color):
@@ -860,10 +855,10 @@ func _on_menu_id(id: int) -> void:
 	if id >= WALL_BASE_ID:
 		# a wall colour. Fill the active wall selection if one exists; otherwise colour the wall
 		# under the click (the whole building in Wand mode, a single segment in Cell/Fine).
-		_tool_kind = "wall"
+		_tool_kind = Brush.WALL_COLOR
 		_wall_color = WallSegment.COLORS[id - WALL_BASE_ID][1]
 		var did_edit := false
-		if _sel_kind == "wall" and _selection.has_selection():
+		if _sel_kind == SelKind.WALL and _selection.has_selection():
 			_fill_wall_selection(_wall_color)
 			did_edit = true
 		else:
@@ -882,11 +877,11 @@ func _on_menu_id(id: int) -> void:
 	# a floor material. Fill the active floor selection if one exists; otherwise, in Wand mode fill
 	# the clicked room. In Cell/Fine, selecting a terrain no longer auto-places: it just arms the
 	# brush and the user clicks the target to drop it (ROADMAP "Terrain placement UX").
-	_tool_kind = "floor"
+	_tool_kind = Brush.FLOOR
 	_brush = FloorMaterials.MATERIAL_NAMES[id][1]
 	_armed = true # a material was explicitly chosen: Cell/Fine may now drop it
 	brush_changed.emit()
-	if _sel_kind == "floor" and _selection.has_selection():
+	if _sel_kind == SelKind.FLOOR and _selection.has_selection():
 		var drop_rects := _selection_drop_rects() # capture the shape before the highlight resets
 		_fill_floor_selection(_brush)
 		EditHistory.commit("paint") # one menu fill = one undo step
@@ -912,7 +907,7 @@ func _apply_floor_tint(color: Color) -> bool:
 
 # open the colour picker seeded from the current tint (or a default), previewing live on the target
 func _open_floor_picker() -> void:
-	_tool_kind = "floor_color"
+	_tool_kind = Brush.FLOOR_COLOR
 	_picker_applied = false
 	_suppress_picker = true # setting .color must not count as a user edit
 	_color_picker.color = _floor_color if _floor_color != Color.WHITE else Color(0.85, 0.3, 0.28)
@@ -948,7 +943,7 @@ func set_mode(mode: int) -> void:
 	_box_maybe = false
 	_cancel_pending()   # nor an armed paste / half-finished move drag
 	if _mode != Mode.WAND:
-		_tool_kind = "floor"
+		_tool_kind = Brush.FLOOR
 	# Cell/Fine must not start with a material armed to drop: the user picks one from the menu first
 	# (ROADMAP "Editor UX revisions" -> Cell/Fine must not pre-arm a material).
 	if _mode == Mode.CELL or _mode == Mode.FINE:
@@ -994,7 +989,7 @@ func selection_summary() -> String:
 func is_armed() -> bool:
 	return _armed
 
-func active_tool_kind() -> String:
+func active_tool_kind() -> Brush:
 	return _tool_kind
 
 func armed_material() -> String:
@@ -1013,7 +1008,7 @@ func armed_brush_texture() -> Texture2D:
 # is there a committed FLOOR selection? Used by the panel to decide whether picking a material/colour
 # EDITS the selection (recolour/re-texture in place) rather than arming a brush to paint by hand.
 func has_floor_selection() -> bool:
-	return _sel_kind == "floor" and _selection != null and _selection.has_selection()
+	return _sel_kind == SelKind.FLOOR and _selection != null and _selection.has_selection()
 
 # mirror the current floor selection's material + colour into the armed brush, so the Brush panel
 # lights up the tile+colour the selection already has (e.g. red tiles -> Tile + Red). Uses the most
@@ -1024,9 +1019,9 @@ func _reflect_selection_brush() -> void:
 		return
 	var mat: String = _dominant(_sel_quads, _quad_mat, "")
 	var col: Color = _dominant(_sel_quads, _quad_tint, Color.WHITE)
-	if mat == _brush and col == _floor_color and _tool_kind == "floor":
+	if mat == _brush and col == _floor_color and _tool_kind == Brush.FLOOR:
 		return
-	_tool_kind = "floor"
+	_tool_kind = Brush.FLOOR
 	_brush = mat
 	_floor_color = col
 	brush_changed.emit()
@@ -1044,10 +1039,10 @@ func armed_wall_texture() -> Texture2D:
 	return WallSegment.swatch_texture(_wall_mat)
 
 func has_wall_selection() -> bool:
-	return _sel_kind == "wall" and _selection != null and _selection.has_selection()
+	return _sel_kind == SelKind.WALL and _selection != null and _selection.has_selection()
 
 func arm_wall_material(mat: String) -> void:
-	_tool_kind = "wall_mat"
+	_tool_kind = Brush.WALL_MATERIAL
 	_wall_mat = mat
 	if has_wall_selection():
 		_fill_wall_material_selection(mat)
@@ -1055,7 +1050,7 @@ func arm_wall_material(mat: String) -> void:
 	brush_changed.emit()
 
 func arm_wall_color(color: Color) -> void:
-	_tool_kind = "wall"
+	_tool_kind = Brush.WALL_COLOR
 	_wall_color = color
 	if has_wall_selection():
 		_fill_wall_selection(color)
@@ -1085,14 +1080,14 @@ func _reflect_wall_selection_brush() -> void:
 
 # the most common value in `store` (a quarter -> value map) across the quarters in `quads`, ignoring
 # quarters with no entry; `default_val` when none of them carry a value.
-func _dominant(quads: Dictionary, store: Dictionary, default_val):
+func _dominant(quads: Dictionary, store: Dictionary, default_val: Variant) -> Variant:
 	var counts := {}
-	var best = default_val
+	var best: Variant = default_val
 	var best_n := 0
 	for q in quads:
 		if not store.has(q):
 			continue
-		var v = store[q]
+		var v: Variant = store[q]
 		var n: int = int(counts.get(v, 0)) + 1
 		counts[v] = n
 		if n > best_n:
@@ -1103,7 +1098,7 @@ func _dominant(quads: Dictionary, store: Dictionary, default_val):
 # arm a floor material from the panel (same as picking it in the Floor Textures menu in Cell/Fine: it
 # arms the brush; the user then paints/drops it). No selection-fill here (that stays a menu convenience).
 func arm_floor_material(mat: String) -> void:
-	_tool_kind = "floor"
+	_tool_kind = Brush.FLOOR
 	_brush = mat
 	_armed = true
 	# with a floor selection active, picking a material RE-TEXTURES the selection in place (the two-way
@@ -1119,7 +1114,7 @@ func arm_floor_material(mat: String) -> void:
 # brush, so setting the colour keeps the armed material and a paint lays both together (see _paint).
 # White = Natural = lays the plain (untinted) material. The material stays armed and lit in the panel.
 func arm_floor_color(color: Color) -> void:
-	_tool_kind = "floor"
+	_tool_kind = Brush.FLOOR
 	_floor_color = color
 	_armed = true
 	# with a floor selection active, picking a colour RE-TINTS the selection in place (the two-way panel
@@ -1135,11 +1130,11 @@ func arm_floor_color(color: Color) -> void:
 
 # a wand click either starts a new selection or grows the current one (patch -> whole room for a
 # floor, run -> whole building for a wall). See ROADMAP "Magic Wand".
-func _wand_click(local: Vector2, op := "replace") -> void:
+func _wand_click(local: Vector2, op := SelOp.REPLACE) -> void:
 	var cell := Grid.cell_of(local)
 	var q := Grid.quad_of(local)
 	var is_wall: bool = _obs != null and _obs.is_blocked(cell)
-	if op == "replace":
+	if op == SelOp.REPLACE:
 		# plain click: new selection, or grow-on-repeat (patch -> room, run -> building)
 		if is_wall:
 			_wand_wall(_obs, cell)
@@ -1153,12 +1148,12 @@ func _wand_click(local: Vector2, op := "replace") -> void:
 	_refresh_selection_overlay()
 
 # the selection compositing op for a mouse event: Alt subtracts, Shift adds, plain replaces.
-func _sel_op(event: InputEvent) -> String:
+func _sel_op(event: InputEvent) -> SelOp:
 	if event.alt_pressed:
-		return "subtract"
+		return SelOp.SUBTRACT
 	if event.shift_pressed:
-		return "add"
-	return "replace"
+		return SelOp.ADD
+	return SelOp.REPLACE
 
 # clamp a cell to the map so a box drag never runs off the edge
 func _clamp_cell(cell: Vector2i) -> Vector2i:
@@ -1168,35 +1163,35 @@ func _clamp_cell(cell: Vector2i) -> Vector2i:
 
 # union (add) or difference (subtract) a floor `region` (quarter set) into the current selection,
 # switching the selection kind to floor if it was a wall selection.
-func _modify_floor_selection(region: Dictionary, op: String) -> void:
-	if _sel_kind != "floor":
-		_sel_kind = "floor"
+func _modify_floor_selection(region: Dictionary, op: SelOp) -> void:
+	if _sel_kind != SelKind.FLOOR:
+		_sel_kind = SelKind.FLOOR
 		_sel_quads = {}
 		_sel_cells = {}
 	_sel_level = 0 # a composited selection has no single grow level
-	if op == "subtract":
+	if op == SelOp.SUBTRACT:
 		for k in region:
 			_sel_quads.erase(k)
 	else:
 		for k in region:
 			_sel_quads[k] = true
 	if _sel_quads.is_empty():
-		_sel_kind = ""
+		_sel_kind = SelKind.NONE
 
-func _modify_wall_selection(region: Dictionary, op: String) -> void:
-	if _sel_kind != "wall":
-		_sel_kind = "wall"
+func _modify_wall_selection(region: Dictionary, op: SelOp) -> void:
+	if _sel_kind != SelKind.WALL:
+		_sel_kind = SelKind.WALL
 		_sel_cells = {}
 		_sel_quads = {}
 	_sel_level = 0
-	if op == "subtract":
+	if op == SelOp.SUBTRACT:
 		for k in region:
 			_sel_cells.erase(k)
 	else:
 		for k in region:
 			_sel_cells[k] = true
 	if _sel_cells.is_empty():
-		_sel_kind = ""
+		_sel_kind = SelKind.NONE
 
 # box-select: set the selection to the rectangle from _box_start to `cur` (all quarters of every cell
 # inside), composited onto _box_base per _box_op. Called live during the drag.
@@ -1209,7 +1204,7 @@ func _update_box(cur: Vector2i) -> void:
 			for cq in Grid.quads_of(Vector2i(cx, cy)):
 				region[cq] = true
 	var result: Dictionary = _box_base.duplicate()
-	if _box_op == "subtract":
+	if _box_op == SelOp.SUBTRACT:
 		for k in region:
 			result.erase(k)
 	else: # add, or replace (whose base is empty)
@@ -1218,12 +1213,12 @@ func _update_box(cur: Vector2i) -> void:
 	_sel_cells = {}
 	_sel_level = 0
 	_sel_quads = result
-	_sel_kind = "floor" if not result.is_empty() else ""
+	_sel_kind = SelKind.FLOOR if not result.is_empty() else ""
 	_refresh_selection_overlay()
 
 func _wand_floor(cell: Vector2i, q: Vector2i) -> void:
 	# repeat click inside the patch grows it to the whole room floor (all materials, wall-bounded)
-	if _sel_kind == "floor" and _sel_quads.has(q) and _sel_level == 1:
+	if _sel_kind == SelKind.FLOOR and _sel_quads.has(q) and _sel_level == 1:
 		var cells: Dictionary = room_light.room_floor_cells(cell)
 		if not cells.is_empty():
 			_sel_quads = _room_quads(cells) # interior + under-wall ring (the overlay subtracts walls)
@@ -1232,7 +1227,7 @@ func _wand_floor(cell: Vector2i, q: Vector2i) -> void:
 	# otherwise start a new patch: the connected same-material quarters touching the click, PLUS the
 	# ring around them, so the patch also hugs the visible wood on the adjacent wall tiles (the overlay
 	# subtracts the wall sprites), consistent with the whole-room grow.
-	_sel_kind = "floor"
+	_sel_kind = SelKind.FLOOR
 	_sel_cells = {}
 	_sel_quads = _with_ring(_patch_quads(cell, q))
 	_sel_level = 1
@@ -1250,11 +1245,11 @@ func _with_ring(quads: Dictionary) -> Dictionary:
 
 func _wand_wall(obs, cell: Vector2i) -> void:
 	# repeat click on the run grows it to the whole building's connected walls
-	if _sel_kind == "wall" and _sel_cells.has(cell) and _sel_level == 1:
+	if _sel_kind == SelKind.WALL and _sel_cells.has(cell) and _sel_level == 1:
 		_sel_cells = obs.building_cells(cell)
 		_sel_level = 2
 		return
-	_sel_kind = "wall"
+	_sel_kind = SelKind.WALL
 	_sel_quads = {}
 	_sel_cells = obs.line_cells(cell)
 	_sel_level = 1
@@ -1273,7 +1268,7 @@ func _patch_quads(cell: Vector2i, q: Vector2i) -> Dictionary:
 	for c in room:
 		for cq in Grid.quads_of(c):
 			allowed[cq] = true
-	var seed_mat = _quad_mat.get(q, "")
+	var seed_mat: String = _quad_mat.get(q, "")
 	var sel := {q: true}
 	var stack: Array = [q]
 	while not stack.is_empty():
@@ -1302,7 +1297,7 @@ func _room_quads(cells: Dictionary) -> Dictionary:
 # dim overlay) while selected. Empty unless a floor selection is active. The marching ants still mark
 # the selection; lighting it just lets the true (lit) colour show while the user edits the colour.
 func selection_lit_cells() -> Dictionary:
-	if _sel_kind != "floor":
+	if _sel_kind != SelKind.FLOOR:
 		return {}
 	var out := {}
 	for q in _sel_quads:
@@ -1314,13 +1309,13 @@ func _refresh_selection_overlay() -> void:
 	# own; nudge it here so the "selection reads lit" overlay updates as the selection grows/clears.
 	if room_light != null:
 		room_light.queue_redraw()
-	if _sel_kind == "floor":
+	if _sel_kind == SelKind.FLOOR:
 		# trace the full fill set (interior + under-wall ring) MINUS the surrounding wall sprites, so
 		# the ants hug the VISIBLE wood exactly: interior plus the ring slivers that show on the wall
 		# tiles where the narrow cap doesn't cover them. Verified by rasterising the geometry.
 		_selection.set_floor(_sel_quads, _floor_occluders())
 		_reflect_selection_brush() # mirror the selection's material + colour into the Brush panel
-	elif _sel_kind == "wall":
+	elif _sel_kind == SelKind.WALL:
 		var rects: Array = _obs.wall_piece_rects(_sel_cells) if _obs != null else []
 		_selection.set_wall(_sel_cells, rects)
 		_reflect_wall_selection_brush() # mirror the wall selection's material + colour into the panel
@@ -1350,7 +1345,7 @@ func _floor_occluders() -> Array:
 	return _obs.wall_piece_rects(walls)
 
 func _clear_selection() -> void:
-	_sel_kind = ""
+	_sel_kind = SelKind.NONE
 	_sel_quads = {}
 	_sel_cells = {}
 	_sel_level = 0
@@ -1360,9 +1355,9 @@ func _clear_selection() -> void:
 # 16px quarter, wall selections by 32px cell. Used to decide whether a right-click acts on the
 # selection (inside) or deselects it (outside), per "Editor UX revisions" -> deselect a Wand selection.
 func _click_in_selection(local: Vector2) -> bool:
-	if _sel_kind == "floor":
+	if _sel_kind == SelKind.FLOOR:
 		return _sel_quads.has(Grid.quad_of(local))
-	elif _sel_kind == "wall":
+	elif _sel_kind == SelKind.WALL:
 		return _sel_cells.has(Grid.cell_of(local))
 	return false
 
@@ -1381,7 +1376,7 @@ func _eyedrop_at(local: Vector2) -> bool:
 	# now, they are a brush with the same two axes as the floor, and picking nothing on a wall would
 	# just read as broken.
 	if _obs != null and _obs.is_blocked(cell):
-		_tool_kind = "wall_mat"
+		_tool_kind = Brush.WALL_MATERIAL
 		_wall_mat = _obs.get_wall_material(cell)
 		_wall_color = _obs.get_wall_color(cell)
 		brush_changed.emit()
@@ -1390,7 +1385,7 @@ func _eyedrop_at(local: Vector2) -> bool:
 	# otherwise the FLOOR quarter under the cursor: material + tint, the two axes of the floor brush.
 	# Bare grass ("") is a real answer -- it arms the grass eraser, which is how you match plain ground.
 	var q := Grid.quad_of(local)
-	_tool_kind = "floor"
+	_tool_kind = Brush.FLOOR
 	_brush = _quad_mat.get(q, "")
 	_floor_color = _quad_tint.get(q, Color.WHITE)
 	_armed = true # picked = loaded and ready to lay, so the next click in Cell/Fine paints it
@@ -1543,10 +1538,10 @@ func _cancel_zone_drag() -> void:
 # copying takes the room's floor AND the walls/doors around it.
 func _selection_cells() -> Dictionary:
 	var out := {}
-	if _sel_kind == "floor":
+	if _sel_kind == SelKind.FLOOR:
 		for q in _sel_quads:
 			out[Grid.cell_of_quad(q)] = true
-	elif _sel_kind == "wall":
+	elif _sel_kind == SelKind.WALL:
 		for c in _sel_cells:
 			out[c] = true
 	return out
@@ -1564,7 +1559,7 @@ func _arm_paste(clip: Dictionary) -> void:
 	if clip.is_empty():
 		return
 	_pending_clip = clip
-	_pending_kind = "paste"
+	_pending_kind = Pending.PASTE
 	_pending_changed = false
 	_pending_id += 1
 	_reset_highlight()
@@ -1580,7 +1575,7 @@ func _begin_move(grab: Vector2i) -> void:
 		minc.x = mini(minc.x, c.x); minc.y = mini(minc.y, c.y)
 	# built from the live map, NOT from the clipboard: a move must never clobber what the user copied
 	_pending_clip = MapClipboard.build_clip(MapIO.serialize(), cells)
-	_pending_kind = "move"
+	_pending_kind = Pending.MOVE
 	_pending_changed = false
 	_pending_id += 1
 	_move_src = cells
@@ -1604,7 +1599,7 @@ func _pending_origin() -> Vector2i:
 		return _ghost_origin_pin # pinned by the capture harness; never set in normal play
 	var local := get_local_mouse_position()
 	var cell := Grid.cell_of(local)
-	if _pending_kind == "move":
+	if _pending_kind == Pending.MOVE:
 		return _move_origin + (cell - _move_grab)
 	return cell - Vector2i(int(_pending_clip.get("w", 1)) / 2, int(_pending_clip.get("h", 1)) / 2)
 
@@ -1613,7 +1608,7 @@ func _pending_origin() -> Vector2i:
 func _drop_pending() -> void:
 	var origin := _pending_origin()
 	var stamped := {}
-	if _pending_kind == "move":
+	if _pending_kind == Pending.MOVE:
 		if origin != _move_origin or _pending_changed:
 			stamped = MapEdit.move_clip(_move_src, _pending_clip, origin)
 		else:
@@ -1629,7 +1624,7 @@ func _drop_pending() -> void:
 # make `cells` the current selection (every quarter of each), used after a paste/move so the landed
 # region is immediately actionable.
 func _select_cells(cells: Dictionary) -> void:
-	_sel_kind = "floor"
+	_sel_kind = SelKind.FLOOR
 	_sel_cells = {}
 	_sel_level = 0
 	_sel_quads = {}
@@ -1641,7 +1636,7 @@ func _select_cells(cells: Dictionary) -> void:
 # drop the armed paste / abort the move drag without editing the map
 func _cancel_pending() -> void:
 	_pending_clip = {}
-	_pending_kind = ""
+	_pending_kind = Pending.NONE
 	_pending_changed = false
 	_move_src = {}
 	_clip_ghost.hide_clip()
@@ -1771,7 +1766,7 @@ func _update_hover() -> void:
 		_cursor.show_rect(Grid.quad_rect(eq))
 		return
 	# after a wall colour or material is picked, outline the single wall under the cursor
-	if _tool_kind == "wall" or _tool_kind == "wall_mat":
+	if _tool_kind == Brush.WALL_COLOR or _tool_kind == Brush.WALL_MATERIAL:
 		_update_wall_hover(cell)
 		return
 	# Cell / Fine / Erase: the square paint cursor over paintable ground, and any obstacle over that
@@ -1801,7 +1796,7 @@ func _show_preview(rect: Rect2) -> void:
 	# the floor-colour and pattern tools re-texture/tint an existing floor, so they show only the
 	# square cursor, no lifted tile (there is nothing being dropped). Same for Erase, the grass eraser,
 	# and an un-armed Cell/Fine (no material picked yet).
-	if _mode == Mode.ERASE or _tool_kind == "floor_color" or _tool_kind == "pattern" or not _armed or not FloorMaterials.TEXTURES.has(_brush):
+	if _mode == Mode.ERASE or _tool_kind == Brush.FLOOR_COLOR or _tool_kind == Brush.PATTERN or not _armed or not FloorMaterials.TEXTURES.has(_brush):
 		_preview.hide_preview()
 		return
 	_preview.arm(FloorMaterials.texture(_brush, 0), _floor_color)
@@ -1903,19 +1898,19 @@ func _paint(local: Vector2, drop := false) -> void:
 		_place_wall_at(local)
 		return
 	# after a wall colour was picked, a drag colours the walls it passes over
-	if _tool_kind == "wall":
+	if _tool_kind == Brush.WALL_COLOR:
 		_paint_wall(cell)
 		return
 	# after a wall material was picked, a drag applies it to the walls it passes over
-	if _tool_kind == "wall_mat":
+	if _tool_kind == Brush.WALL_MATERIAL:
 		_paint_wall_material(cell)
 		return
 	# after a floor colour was picked, a drag tints the cells/quarters it passes over
-	if _tool_kind == "floor_color":
+	if _tool_kind == Brush.FLOOR_COLOR:
 		_paint_floor_color(local)
 		return
 	# after a floor pattern was picked, a drag re-patterns the cells/quarters it passes over
-	if _tool_kind == "pattern":
+	if _tool_kind == Brush.PATTERN:
 		_paint_floor_pattern(local)
 		return
 	if not _in_bounds(cell):
@@ -2001,7 +1996,7 @@ func _room_scope(cell: Vector2i) -> Array:
 # what a right-click menu action targets at the current grain: the floor selection, else Wand -> the
 # clicked room, Fine -> the clicked quarter, Cell/Erase -> the clicked cell
 func _menu_scope() -> Array:
-	if _sel_kind == "floor" and _selection.has_selection():
+	if _sel_kind == SelKind.FLOOR and _selection.has_selection():
 		return _sel_quads.keys()
 	if _mode == Mode.WAND:
 		return _room_scope(Grid.cell_of(_pending))
@@ -2097,7 +2092,7 @@ func _on_build_wall_id(id: int) -> void:
 # light the strip's Wall radio to match, and close the menu so the user can drop tiles in place.
 func _arm_wall_build() -> void:
 	set_mode(Mode.WALL)
-	var ts = get_tree().get_first_node_in_group("tool_strip")
+	var ts := get_tree().get_first_node_in_group("tool_strip") as ToolStrip
 	if ts != null and ts.has_method("reflect_mode"):
 		ts.reflect_mode(Mode.WALL)
 	_menu.hide()
@@ -2170,7 +2165,7 @@ func _bridge_river_orientation(cell: Vector2i) -> String:
 # if somehow both are present, matching the topmost-structure model). An empty cell clears it.
 func _select_at(local: Vector2) -> void:
 	var cell := Grid.cell_of(local)
-	var inspector = get_tree().get_first_node_in_group("inspector")
+	var inspector := get_tree().get_first_node_in_group("inspector") as Inspector
 	if inspector == null:
 		return
 	# object layer first, then structure: a creature stands ON a cell, so clicking it should inspect
@@ -2226,14 +2221,14 @@ func _menu_erase(cell: Vector2i) -> void:
 # erase the whole active selection: floor quarters back to grass (clearing material/pattern/tint), or
 # every wall in a wall selection. One undo entry; the selection is cleared afterwards.
 func _erase_selection() -> void:
-	if _sel_kind == "floor":
+	if _sel_kind == SelKind.FLOOR:
 		for q in _sel_quads:
 			_quad_mat.erase(q)
 			_quad_pattern.erase(q)
 			_quad_tint.erase(q)
 		_rebuild()
 		EditHistory.commit("erase")
-	elif _sel_kind == "wall":
+	elif _sel_kind == SelKind.WALL:
 		# one warning for the whole selection if any door in it has a Unique key bound to it
 		if _warn_bound_keys(_sel_cells.keys(), _erase_wall_selection):
 			return
@@ -2420,7 +2415,7 @@ func _show_wall_ghost(cell: Vector2i) -> void:
 	_wall_ghost_key = key
 	var center := Grid.cell_center(cell)
 	for i in _wall_ghost.size():
-		var wp = _wall_ghost[i]
+		var wp: WallSegment = _wall_ghost[i]
 		if i < configs.size():
 			var cfg: Dictionary = configs[i]
 			wp.run_length = int(cfg["run_length"])
@@ -2659,13 +2654,21 @@ func has_animated_water() -> bool:
 # the floor texture that renders at 16px quarter `q`, or null for the grass base. The single
 # source of truth the door-open shadow pass restamps from, so it matches the indoor base_fills
 # exactly (every painted quarter, interior or under a wall/door).
-func floor_tex_at_quad(q: Vector2i):
+func floor_tex_at_quad(q: Vector2i) -> Texture2D:
 	return FloorMaterials.texture(_quad_mat[q], _quad_pattern.get(q, 0)) if _quad_mat.has(q) else null
 
 # the multiply tint at 16px quarter `q` (white = none), so the door-open shadow restamp tints the
 # floor the same way base_fills does (see shadow_manager._stamp_floor).
 func floor_tint_at_quad(q: Vector2i) -> Color:
 	return _quad_tint.get(q, Color.WHITE)
+
+# can something stand on `cell`? The TERRAIN rule the player's movement and zone spawning share: the cell
+# exists, holds no wall, and its floor is passable -- or bridged, a deck re-enabling crossing over water.
+# Doors, locks and occupants are layered on by each caller (is_blocked stays "is a wall" for the editor).
+func is_walkable(cell: Vector2i) -> bool:
+	if not _in_bounds(cell) or (_obs != null and _obs.is_blocked(cell)):
+		return false
+	return not is_cell_impassable(cell) or (_obs != null and _obs.is_bridge(cell))
 
 # does the FLOOR at 32px cell `cell` block movement? Cell-level granularity (matches the 32px move
 # grid): a cell holds 2x2 quarters, and it blocks when a MAJORITY (>=2 of 4) carry a FloorMaterials.IMPASSABLE

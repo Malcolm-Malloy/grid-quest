@@ -1,3 +1,4 @@
+class_name Gate
 extends Node2D
 
 const CELL_SIZE := Grid.CELL

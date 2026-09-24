@@ -28,7 +28,7 @@ func _ready() -> void:
 
 	# arming via the menu (Cell mode, no selection -> arm-only, nothing placed yet)
 	fm._pending = _center(cellA)
-	fm._sel_kind = ""
+	fm._sel_kind = FloorManager.SelKind.NONE
 	fm._on_menu_id(TILE_ID)
 	_check("pick material: now armed", fm._armed and fm._brush == "tile")
 	_check("pick material (Cell, no sel): nothing placed yet", fm._quad_mat.get(qA0, "") == "wood")
@@ -54,7 +54,7 @@ func _ready() -> void:
 	# --- right-click while armed in Cell/Fine disarms the brush (removes the hover graphic), no menu ---
 	fm.set_mode(1) # Mode.CELL
 	fm._pending = _center(cellA)
-	fm._sel_kind = ""
+	fm._sel_kind = FloorManager.SelKind.NONE
 	fm._on_menu_id(TILE_ID) # arm
 	_check("armed before right-click", fm._armed)
 	var rc := InputEventMouseButton.new()

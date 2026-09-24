@@ -256,7 +256,7 @@ func _apply_clip(d: Dictionary, clip: Dictionary, origin: Vector2i, fresh_ids :=
 # true if add_cell(cell) would succeed, without mutating (drives the hover highlight). A cell is
 # addable when it is a hole inside the box with a present neighbour, or one step beyond exactly one edge.
 func can_add_cell(cell: Vector2i) -> bool:
-	var gb = _grid_bg()
+	var gb := _grid_bg()
 	if gb == null:
 		return false
 	var w: int = gb.grid_width
@@ -269,7 +269,7 @@ func can_add_cell(cell: Vector2i) -> bool:
 
 # true if remove_cell(cell) would succeed, without mutating.
 func can_remove_cell(cell: Vector2i) -> bool:
-	var gb = _grid_bg()
+	var gb := _grid_bg()
 	if gb == null:
 		return false
 	var w: int = gb.grid_width
@@ -283,9 +283,9 @@ func can_remove_cell(cell: Vector2i) -> bool:
 const _NONE := Vector2i(-2147483648, -2147483648) # "no cell" sentinel for _copy_source
 
 # the live GridBackground (via the obstacles group, like MapIO finds the world), or null.
-func _grid_bg():
-	var obs = get_tree().get_first_node_in_group("obstacles")
-	var w = obs.get_parent() if obs else null
+func _grid_bg() -> GridBackground:
+	var obs := get_tree().get_first_node_in_group("obstacles")
+	var w: Node = obs.get_parent() if obs else null
 	return w.get_node_or_null("GridBackground") if w else null
 
 func _absent_from_grid(gb) -> Dictionary:

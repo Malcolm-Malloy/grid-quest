@@ -191,7 +191,7 @@ func _load_from_disk() -> void:
 	var f := FileAccess.open(FILE, FileAccess.READ)
 	if f == null:
 		return
-	var parsed = JSON.parse_string(f.get_as_text())
+	var parsed: Variant = JSON.parse_string(f.get_as_text())
 	f.close()
 	if parsed is Dictionary and parsed.has("cells"):
 		_clip = parsed

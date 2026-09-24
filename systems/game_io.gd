@@ -71,7 +71,7 @@ func load_game() -> bool:
 func read() -> Dictionary:
 	if not FileAccess.file_exists(PATH):
 		return {}
-	var raw = JSON.parse_string(FileAccess.get_file_as_string(PATH))
+	var raw: Variant = JSON.parse_string(FileAccess.get_file_as_string(PATH))
 	if typeof(raw) != TYPE_DICTIONARY:
 		return {}
 	return raw

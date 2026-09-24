@@ -85,7 +85,7 @@ func serialize() -> Dictionary:
 		out.merge(owner.to_data())
 	# the AUTHORED spawn is the SpawnMarker's position, not wherever the character happens to stand
 	# (ROADMAP "Player spawn marker"); older scenes without the marker fall back to the player.
-	var marker = w.get_node_or_null("SpawnMarker")
+	var marker := w.get_node_or_null("SpawnMarker") as SpawnMarker
 	var p: Vector2 = marker.position if marker else w.get_node("Player").position
 	out["spawn"] = {"x": p.x, "y": p.y}
 	return out
@@ -119,10 +119,10 @@ func rebuild_live(parts: int) -> void:
 		w.get_node("Obstacles").rebuild()
 		w.get_node("RoomLight").rebuild() # re-floods rooms and refreshes the shadow group
 	if parts & REBUILD_OBJECTS:
-		var pk = w.get_node_or_null("Pickups")
+		var pk := w.get_node_or_null("Pickups") as Pickups
 		if pk:
 			pk.rebuild()
-		var cr = w.get_node_or_null("Creatures")
+		var cr := w.get_node_or_null("Creatures") as Creatures
 		if cr:
 			cr.rebuild()
 
@@ -131,7 +131,7 @@ func rebuild_live(parts: int) -> void:
 # spawn. Undo/redo passes true so history never teleports the player (ROADMAP undo caveat).
 func _apply(data: Dictionary, keep_player := false) -> void:
 	var w := _world()
-	var player = w.get_node("Player")
+	var player: Player = w.get_node("Player")
 	# dependency order: the extent first (everything reads bounds), then walls/doors, then the lighting
 	# flood over them, then floors (a v1 map's per-room floors need those rooms), then the objects
 	w.get_node("GridBackground").load_data(data)
@@ -148,7 +148,7 @@ func _apply(data: Dictionary, keep_player := false) -> void:
 	# teleports the character mid-edit. A map load (keep_player false) starts the player on the marker.
 	var spawn: Dictionary = data.get("spawn", {"x": player.position.x, "y": player.position.y})
 	var p := Vector2(spawn["x"], spawn["y"])
-	var marker = w.get_node_or_null("SpawnMarker")
+	var marker := w.get_node_or_null("SpawnMarker") as SpawnMarker
 	if marker:
 		marker.set_spawn(p)
 	if not keep_player:
@@ -184,7 +184,7 @@ func write_recovery() -> bool:
 func _read_recovery() -> Dictionary:
 	if not FileAccess.file_exists(RECOVERY_FILE):
 		return {}
-	var raw = JSON.parse_string(FileAccess.get_file_as_string(RECOVERY_FILE))
+	var raw: Variant = JSON.parse_string(FileAccess.get_file_as_string(RECOVERY_FILE))
 	if typeof(raw) != TYPE_DICTIONARY or not (raw as Dictionary).has("data"):
 		return {} # an unreadable slot is not worth offering; it will be overwritten on the next edit
 	return raw
@@ -264,7 +264,7 @@ func load_map(map_name: String) -> bool:
 	var path := _path(map_name)
 	if not FileAccess.file_exists(path):
 		return false
-	var data = JSON.parse_string(FileAccess.get_file_as_string(path))
+	var data: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
 	if typeof(data) != TYPE_DICTIONARY:
 		push_error("MapIO: %s is not valid map JSON" % path)
 		return false

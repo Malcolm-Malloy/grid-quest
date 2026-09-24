@@ -1,10 +1,10 @@
+class_name Player
 extends CharacterBody2D
 
 const CELL_SIZE := Grid.CELL
 const MOVE_SPEED := 6.0 # cells per second
-# Movement bounds come from GridBackground (the single source of grid size), not local
-# consts, so the walkable range always matches the current map's edge even after a resize
-# or map load. See grid_bg.min_walkable_position() / max_walkable_position().
+# Where the player may step is FloorManager.is_walkable (the map's live extent, walls, floors),
+# so the range always matches the current map even after a resize or map load.
 
 const IN_SHADOW_TINT := Color(0.65, 0.65, 0.65, 1.0)
 
@@ -35,13 +35,12 @@ var shadow_scale := 1.0 # 1 outdoors; shrinks to a third indoors (softer indoor 
 
 @onready var obstacles: Obstacles = get_node("../Obstacles")
 @onready var floor_manager: FloorManager = get_node("../FloorManager") # for impassable floors (water)
-@onready var grid_bg: GridBackground = get_node("../GridBackground")
 @onready var room_light := get_node_or_null("../RoomLight")
 @onready var sprite := $Sprite2D
 @onready var shadow_sprite := $Shadow
 @onready var _creatures: Creatures = get_node_or_null("../Creatures")
 @onready var _pickups: Pickups = get_node_or_null("../Pickups")
-@onready var _shadows = get_node_or_null("../ShadowGroup")
+@onready var _shadows: ShadowManager = get_node_or_null("../ShadowGroup")
 
 func _ready() -> void:
 	target_position = position
@@ -170,17 +169,10 @@ func _physics_process(delta: float) -> void:
 				update_sprite()
 
 			var new_target := position + input_dir * CELL_SIZE
-			var min_pos: Vector2 = grid_bg.min_walkable_position()
-			var max_pos: Vector2 = grid_bg.max_walkable_position()
-			var in_bounds := new_target.x >= min_pos.x and new_target.x <= max_pos.x and new_target.y >= min_pos.y and new_target.y <= max_pos.y
 			var cell := Grid.cell_of(new_target)
-			# a jagged map has holes: the target cell must actually exist (in-box and not absent), else the
-			# coarse box clamp above would let the player step onto void where a single edge cell was removed.
-			if in_bounds and grid_bg.cell_present(cell.x, cell.y):
-				# blocked by a wall/gate (is_blocked) OR by an impassable floor (water). Kept as two
-				# separate checks so is_blocked stays "is a wall" for the editor; floors block here.
-				# A bridge re-enables crossing on the water cell it covers (passable-over-impassable).
-				var floor_blocks: bool = floor_manager.is_cell_impassable(cell) and not obstacles.is_bridge(cell)
+			# the terrain rule (the cell exists -- a jagged map has holes -- holds no wall, and its floor is
+			# passable or bridged) is shared with zone spawning; see FloorManager.is_walkable
+			if floor_manager.is_walkable(cell):
 				# a LOCKED door blocks like a wall until the right key opens it. Walking into it IS the
 				# attempt: a coloured lock spends one matching key and is gone for good, a unique lock
 				# just checks the bound key is in hand (ROADMAP "Locked doors and keys"). Kept out of
@@ -188,9 +180,9 @@ func _physics_process(delta: float) -> void:
 				var locked: bool = obstacles.is_locked(cell, self) and not obstacles.try_unlock(cell, self)
 				# a creature standing there stops you (ROADMAP "Passability": monster blocks while
 				# alive, with a per-object override the inspector exposes). Kept out of is_blocked for
-				# the same reason as the two checks above: that stays "is a wall" for the editor.
+				# the same reason as the lock check above: that stays "is a wall" for the editor.
 				var creature_blocks: bool = _creatures != null and _creatures.blocks_movement(cell)
-				if not obstacles.is_blocked(cell) and not floor_blocks and not locked and not creature_blocks:
+				if not locked and not creature_blocks:
 					target_position = new_target
 					is_moving = true
 					frame_index = 1 - frame_index

@@ -22,7 +22,7 @@ func _ready() -> void:
 	_check("setup: there is a selection", fm._selection.has_selection() and fm.has_floor_selection())
 	fm._copy_selection()
 	fm._arm_paste(MapClipboard.clip())
-	_check("setup: a paste is armed", fm._pending_kind == "paste")
+	_check("setup: a paste is armed", fm._pending_kind == FloorManager.Pending.PASTE)
 	fm.arm_floor_material("sand")
 	_check("setup: a brush is armed", fm.is_armed())
 	inspector.inspect_wall(Vector2i(8, 3))
@@ -33,8 +33,8 @@ func _ready() -> void:
 	await get_tree().process_frame
 
 	_check("the selection is cleared", not fm._selection.has_selection())
-	_check("...and its model with it", fm._sel_kind == "" and fm._sel_quads.is_empty() and fm._sel_cells.is_empty())
-	_check("the armed paste is dropped", fm._pending_clip.is_empty() and fm._pending_kind == "")
+	_check("...and its model with it", fm._sel_kind == FloorManager.SelKind.NONE and fm._sel_quads.is_empty() and fm._sel_cells.is_empty())
+	_check("the armed paste is dropped", fm._pending_clip.is_empty() and fm._pending_kind == FloorManager.Pending.NONE)
 	_check("the terrain brush is disarmed (no stray drop on the first click back)", not fm.is_armed())
 	_check("the inspector lets go of its target", inspector._kind == "")
 	_check("the inspector panel is hidden", not inspector._panel.visible)

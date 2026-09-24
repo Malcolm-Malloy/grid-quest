@@ -36,14 +36,6 @@ func cell_present(cx: int, cy: int) -> bool:
 	return cx >= 0 and cx < grid_width and cy >= 0 and cy < grid_height \
 		and not absent_cells.has(Vector2i(cx, cy))
 
-# Walkable bounds in world pixels, derived from the grid. The player clamps movement to
-# these so its range always matches the grid edge (beyond the grid is void, not walkable).
-func min_walkable_position() -> Vector2:
-	return Vector2(CELL_SIZE / 2.0, CELL_SIZE / 2.0)
-
-func max_walkable_position() -> Vector2:
-	return Vector2((grid_width - 1) * CELL_SIZE + CELL_SIZE / 2.0, (grid_height - 1) * CELL_SIZE + CELL_SIZE / 2.0)
-
 var ground_texture := preload("res://world/ground_grass.png")
 
 # Out-of-map void look: instead of a jarring pure-black cutoff, the area beyond the grid reads as

@@ -1,3 +1,4 @@
+class_name RoomLight
 extends Node2D
 
 # Lights the room the player is in (plus any room reachable through an OPEN door) and
@@ -16,9 +17,9 @@ const CELL := Grid.CELL
 const DARK := Color(0.0, 0.0, 0.05, 0.55) # overlay colour for unlit floor
 const VIEW := 15 # cells around the player the dim overlay covers (past the camera edge)
 
-@onready var player = get_node("../Player")
+@onready var player: Player = get_node("../Player")
 @onready var obstacles: Obstacles = get_node("../Obstacles")
-@onready var _shadows = get_node_or_null("../ShadowGroup")
+@onready var _shadows: ShadowManager = get_node_or_null("../ShadowGroup")
 @onready var _fm: FloorManager = get_node_or_null("../FloorManager")
 
 var last_key := "?"
