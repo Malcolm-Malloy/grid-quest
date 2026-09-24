@@ -17,7 +17,9 @@ const DARK := Color(0.0, 0.0, 0.05, 0.55) # overlay colour for unlit floor
 const VIEW := 15 # cells around the player the dim overlay covers (past the camera edge)
 
 @onready var player = get_node("../Player")
-@onready var obstacles = get_node("../Obstacles")
+@onready var obstacles: Obstacles = get_node("../Obstacles")
+@onready var _shadows = get_node_or_null("../ShadowGroup")
+@onready var _fm: FloorManager = get_node_or_null("../FloorManager")
 
 var last_key := "?"
 var _built := false
@@ -35,9 +37,8 @@ func _process(_delta: float) -> void:
 		last_key = key
 		queue_redraw()
 		# the shadow manager reads the same layout, so it has to redraw in step
-		var shadows := get_parent().get_node_or_null("ShadowGroup")
-		if shadows:
-			shadows.refresh()
+		if _shadows:
+			_shadows.refresh()
 
 # --- layout, built once from Obstacles (rebuildable later for an editor) ---
 
@@ -54,9 +55,8 @@ func rebuild() -> void:
 	last_key = "?"
 	_ensure_built()
 	queue_redraw()
-	var shadows := get_parent().get_node_or_null("ShadowGroup")
-	if shadows:
-		shadows.refresh()
+	if _shadows:
+		_shadows.refresh()
 
 func _ensure_built() -> void:
 	if _built or obstacles == null:
@@ -306,9 +306,8 @@ func _draw() -> void:
 	# an active floor selection reads LIT so the colour being edited shows its true (lit) value: a room
 	# the player is not standing in is otherwise dimmed, which distorts the picked colour. Copy the cache
 	# (never mutate it) and fold the selected cells in, so their wall neighbours light on that side too.
-	var fm := get_parent().get_node_or_null("FloorManager")
-	if fm != null:
-		var sel: Dictionary = fm.selection_lit_cells()
+	if _fm != null:
+		var sel: Dictionary = _fm.selection_lit_cells()
 		if not sel.is_empty():
 			lit = lit.duplicate()
 			for c in sel:

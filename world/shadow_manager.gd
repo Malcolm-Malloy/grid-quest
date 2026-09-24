@@ -19,6 +19,9 @@ var ground_texture := preload("res://world/ground_grass.png") # to stamp interio
 var static_union: Array = [] # pre-merged static wall regions, in World/grid space
 var merged_regions: Array = [] # the pieces actually drawn, for the in-shadow test
 
+@onready var _room_light = get_node_or_null("../RoomLight")
+@onready var _fm: FloorManager = get_node_or_null("../FloorManager")
+
 func _ready() -> void:
 	texture_filter = TEXTURE_FILTER_NEAREST
 
@@ -31,12 +34,11 @@ func refresh() -> void:
 
 func _draw() -> void:
 	merged_regions = []
-	var rl := get_parent().get_node_or_null("RoomLight")
 	# rule 1: only ONE darkness layer is ever active. When the outdoor is NOT lit (the
 	# player is purely indoors) the RoomLight owns all the darkness and shadows draw
 	# nothing, which is what makes double-darkening impossible. Shadows draw only when
 	# the outdoor is lit (player outside, or crossing an open outdoor door).
-	if rl and not rl.exterior_lit():
+	if _room_light and not _room_light.exterior_lit():
 		return
 	var polys: Array = static_union.duplicate()
 	for gate in get_tree().get_nodes_in_group("gates"):
@@ -51,17 +53,16 @@ func _draw() -> void:
 	# polygon can't carve a hole in an enclosed shadow). So per interior: stamp the clean
 	# ground back (erasing that fill), then lay ONE flat shadow over it. Exactly one pass,
 	# so it's a uniform shade with no doubling and no wall-shadow shapes inside.
-	if rl:
-		var lit: Dictionary = rl.lit_cells()
-		var fm := get_parent().get_node_or_null("FloorManager")
-		var grid_on: bool = fm.grid_on() if fm else false
-		var grid: Color = fm.grid_color() if fm else Color(1, 1, 1, 0.12)
-		for c in rl.enclosed_floor_cells():
+	if _room_light:
+		var lit: Dictionary = _room_light.lit_cells()
+		var grid_on: bool = _fm.grid_on() if _fm else false
+		var grid: Color = _fm.grid_color() if _fm else Color(1, 1, 1, 0.12)
+		for c in _room_light.enclosed_floor_cells():
 			var r := Grid.cell_rect(c)
 			# erase the wall-shadow fill with the cell's real floor, quarter by quarter so
 			# quarter-level painting survives (the whole-cell stamp used to grass mixed cells)
 			for q in Grid.quads_of(c):
-				_stamp_floor(fm, q)
+				_stamp_floor(_fm, q)
 			# a room joined to the outdoor by an open door stays bright; the rest shade
 			if not lit.has(c):
 				draw_rect(r, shadow_color)
@@ -74,11 +75,11 @@ func _draw() -> void:
 		# wipe the wall shadows off the interior wall/corner tiles of lit rooms so they read
 		# clean like indoors, restamping each quarter with the ground under it (a uniform room's
 		# wall-ring fill, or a quarter painted under the wall) instead of blanket grass
-		for r in rl.lit_wall_stamps():
-			_stamp_floor(fm, Grid.quad_of(r.position))
+		for r in _room_light.lit_wall_stamps():
+			_stamp_floor(_fm, Grid.quad_of(r.position))
 
 # stamp one 16px floor quarter (coords in quarter units) with its real material, matching the
-# indoor base_fills: fm.floor_tex_at_quad gives a painted quarter or a uniform room's wall-ring
+# indoor base_fills: _fm.floor_tex_at_quad gives a painted quarter or a uniform room's wall-ring
 # fill, and null falls back to the grass base.
 func _stamp_floor(fm, q: Vector2i) -> void:
 	var r := Grid.quad_rect(q)
@@ -103,10 +104,9 @@ func point_in_shadow(global_pt: Vector2) -> bool:
 	return false
 
 func _in_any_room(local: Vector2) -> bool:
-	var rl := get_parent().get_node_or_null("RoomLight")
-	if rl == null:
+	if _room_light == null:
 		return false
-	return rl.is_enclosed_floor(Grid.cell_of(local))
+	return _room_light.is_enclosed_floor(Grid.cell_of(local))
 
 # merges a list of polygons into disjoint boundary (CCW) regions. Holes (CW rings)
 # are dropped; directional cast shadows don't enclose anything, so none arise here.

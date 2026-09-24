@@ -189,16 +189,6 @@ func _ready() -> void:
 			fmt._rebuild()
 			await get_tree().process_frame
 
-	# GQ_HOVER="x,y" previews the floor-hover highlight on a room (mouse motion can't fire
-	# headlessly). Set after GQ_FLOOR so both can be tested together.
-	var hover := OS.get_environment("GQ_HOVER")
-	if hover != "":
-		var hp := hover.split(",")
-		if hp.size() == 2:
-			var fmh := main.get_node_or_null("World/FloorManager")
-			if fmh:
-				fmh._set_hover(Vector2i(int(hp[0]), int(hp[1])))
-
 	# GQ_GRID="1" turns the reference grid on (normally toggled via the right-click menu)
 	if OS.get_environment("GQ_GRID") == "1":
 		var fmg := main.get_node_or_null("World/FloorManager")

@@ -33,12 +33,15 @@ var frame_index := 0
 var in_shadow := false
 var shadow_scale := 1.0 # 1 outdoors; shrinks to a third indoors (softer indoor light)
 
-@onready var obstacles := get_node("../Obstacles")
-@onready var floor_manager := get_node("../FloorManager") # for impassable floors (water)
-@onready var grid_bg := get_node("../GridBackground")
+@onready var obstacles: Obstacles = get_node("../Obstacles")
+@onready var floor_manager: FloorManager = get_node("../FloorManager") # for impassable floors (water)
+@onready var grid_bg: GridBackground = get_node("../GridBackground")
 @onready var room_light := get_node_or_null("../RoomLight")
 @onready var sprite := $Sprite2D
 @onready var shadow_sprite := $Shadow
+@onready var _creatures: Creatures = get_node_or_null("../Creatures")
+@onready var _pickups: Pickups = get_node_or_null("../Pickups")
+@onready var _shadows = get_node_or_null("../ShadowGroup")
 
 func _ready() -> void:
 	target_position = position
@@ -123,7 +126,7 @@ func update_shadow_shape() -> void:
 			points = get_shadow_points_side(shadow_scale)
 		_:
 			points = get_shadow_points_frontback(shadow_scale)
-	shadow_sprite.setup(points, false)
+	shadow_sprite.setup(points)
 
 # picks the shadow size from where the player is: a third indoors, full outside
 func _update_shadow_scale() -> void:
@@ -146,10 +149,9 @@ func _physics_process(delta: float) -> void:
 			position = target_position
 			is_moving = false
 			# the step landed: STACKABLE items on this cell are collected automatically, with no input
-			# at all (ROADMAP "Items and pickups"). Unique items ignore this and wait to be clicked.
-			var pickups := get_node_or_null("../Pickups")
-			if pickups != null:
-				pickups.try_auto_collect(Grid.cell_of(position))
+			# at all (ROADMAP "Items and _pickups"). Unique items ignore this and wait to be clicked.
+			if _pickups != null:
+				_pickups.try_auto_collect(Grid.cell_of(position))
 	else:
 		var input_dir := Vector2.ZERO
 		if Input.is_action_pressed("ui_right"):
@@ -187,8 +189,7 @@ func _physics_process(delta: float) -> void:
 				# a creature standing there stops you (ROADMAP "Passability": monster blocks while
 				# alive, with a per-object override the inspector exposes). Kept out of is_blocked for
 				# the same reason as the two checks above: that stays "is a wall" for the editor.
-				var creatures = get_node_or_null("../Creatures")
-				var creature_blocks: bool = creatures != null and creatures.blocks_movement(cell)
+				var creature_blocks: bool = _creatures != null and _creatures.blocks_movement(cell)
 				if not obstacles.is_blocked(cell) and not floor_blocks and not locked and not creature_blocks:
 					target_position = new_target
 					is_moving = true
@@ -266,9 +267,8 @@ func update_sprite() -> void:
 func update_shadow_state() -> void:
 	var was_in_shadow := in_shadow
 	in_shadow = false
-	var shadows := get_node_or_null("../ShadowGroup")
-	if shadows:
-		in_shadow = shadows.point_in_shadow(global_position)
+	if _shadows:
+		in_shadow = _shadows.point_in_shadow(global_position)
 	if in_shadow != was_in_shadow:
 		# approximation: tints the whole sprite rather than only the covered
 		# portion, true per-pixel masking would need a shader
@@ -313,9 +313,3 @@ func uniques_of(item: String) -> Array:
 		if String(u.get("item", "")) == item:
 			out.append(u)
 	return out
-
-func inventory_count() -> int:
-	var n: int = inventory["uniques"].size()
-	for k in inventory["stacks"]:
-		n += int(inventory["stacks"][k])
-	return n

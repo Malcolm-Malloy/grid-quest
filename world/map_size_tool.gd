@@ -26,6 +26,10 @@ const _NO_CELL := Grid.INVALID_CELL
 var _dragging := false
 var _drag_changed := false
 
+@onready var _fm: FloorManager = get_node_or_null("../FloorManager")
+@onready var _grid_bg: GridBackground = get_node_or_null("../GridBackground")
+@onready var _edge_highlight = get_node_or_null("../EdgeHighlight")
+
 func _process(_delta: float) -> void:
 	# EDIT-only, like every other map tool: this one uses _input (which runs before the GUI), so without
 	# the guard its green add-band would sit frozen over a running game AND a click would still resize
@@ -97,8 +101,7 @@ func _pointer_over_ui() -> bool:
 # is the editor in Cell mode? (drives the single-cell grain). Defaults to the row/column grain if the
 # FloorManager can't be found, matching the pre-single-cell behaviour.
 func _single_cell_grain() -> bool:
-	var fm = get_node_or_null("../FloorManager")
-	return fm != null and fm.has_method("mode") and fm.mode() == M_CELL
+	return _fm != null and _fm.has_method("mode") and _fm.mode() == M_CELL
 
 # the addable void/hole cell under the cursor, or _NO_CELL. Uses MapEdit.can_add_cell so the highlight
 # only lights where a click would actually add (a perimeter spur or a fillable hole).
@@ -108,10 +111,9 @@ func _hovered_cell() -> Vector2i:
 	return cell if MapEdit.can_add_cell(cell) else _NO_CELL
 
 func _hovered_edge() -> String:
-	var gb = get_node_or_null("../GridBackground")
-	if gb == null:
+	if _grid_bg == null:
 		return ""
-	return edge_at(get_local_mouse_position(), gb.grid_width, gb.grid_height)
+	return edge_at(get_local_mouse_position(), _grid_bg.grid_width, _grid_bg.grid_height)
 
 # which edge's add-zone the point falls in ("" = none). Pure geometry, unit-tested headlessly.
 # The zone is the BAND-deep strip of void just outside an edge, within that edge's span (so the
@@ -135,25 +137,23 @@ func _set_edge(edge: String) -> void:
 	if edge == _edge:
 		return
 	_edge = edge
-	var eh = get_node_or_null("../EdgeHighlight")
-	if eh == null:
+	if _edge_highlight == null:
 		return
 	if edge == "":
-		eh.clear_band()
+		_edge_highlight.clear_band()
 	else:
-		eh.show_band(edge, "add")
+		_edge_highlight.show_band(edge, "add")
 
 func _set_cell(cell: Vector2i) -> void:
 	if cell == _cell:
 		return
 	_cell = cell
-	var eh = get_node_or_null("../EdgeHighlight")
-	if eh == null:
+	if _edge_highlight == null:
 		return
 	if cell == _NO_CELL:
-		eh.clear_band()
+		_edge_highlight.clear_band()
 	else:
-		eh.show_cell(cell, "add")
+		_edge_highlight.show_cell(cell, "add")
 
 # clear whichever highlight (edge band or single cell) is currently showing
 func _clear() -> void:

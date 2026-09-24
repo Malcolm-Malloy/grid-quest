@@ -33,9 +33,6 @@ func _ready() -> void:
 
 # --- the spawn, in world pixels (the node's own position) ---
 
-func spawn_position() -> Vector2:
-	return position
-
 func set_spawn(pos: Vector2) -> void:
 	position = pos
 	queue_redraw()

@@ -42,10 +42,10 @@ func _ready() -> void:
 	# --- new materials Brick + Hedge are registered and render through the same path ---
 	var fm = main.get_node("World/FloorManager")
 	var menu_mats := {}
-	for e in fm.WALL_MATERIALS:
+	for e in WallSegment.MATERIAL_NAMES:
 		menu_mats[e[1]] = true
 	_check("Brick + Hedge in the wall-material menu", menu_mats.has("brick") and menu_mats.has("hedge"))
-	_check("Brick + Hedge have a cap texture (Brush panel)", fm.WALL_TEX.has("brick") and fm.WALL_TEX.has("hedge"))
+	_check("Brick + Hedge have a cap texture (Brush panel)", WallSegment.swatch_texture("brick") == WallSegment.MATERIALS["brick"][1] and WallSegment.swatch_texture("hedge") == WallSegment.MATERIALS["hedge"][1])
 	for m in ["brick", "hedge"]:
 		obs.set_wall_material(wall, m)
 		await get_tree().process_frame

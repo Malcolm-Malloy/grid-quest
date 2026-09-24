@@ -89,6 +89,10 @@ var _item_buttons := {}           # item id -> Button (radio-ish); the armed one
 var _creature_buttons := {}       # creature id -> Button (radio-ish); the armed one is highlighted
 var _kind_buttons := {}           # Bestiary kind -> Button: spawn point vs fixed instance
 
+@onready var _fm: FloorManager = get_node_or_null("../World/FloorManager")
+@onready var _edge_highlight = get_node_or_null("../World/EdgeHighlight")
+@onready var _map_size_tool = get_node_or_null("../World/MapSizeTool")
+
 func _ready() -> void:
 	# the tool strip is editor-only chrome: show it in EDIT, hide it in PLAY (see EditorMode)
 	visible = EditorMode.is_edit()
@@ -180,14 +184,13 @@ func _ready() -> void:
 	# --- Brush accordion section (expanded): the armed floor brush (material + colour), always visible
 	# and editable here without opening the right-click menu (ROADMAP "Photoshop-style persistent LEFT
 	# panel"). Live-synced to FloorManager via its brush_changed signal.
-	var fm := get_node_or_null("../World/FloorManager")
-	if fm != null:
+	if _fm != null:
 		# collapsed at startup: with an exclusive accordion only one section can be open, and Tools is
 		# the one you always need. Selecting a floor opens this automatically (see _on_selection_changed).
 		var brush := _add_section(vb, "Brush", false)
 		# 4-column material grid: keeps the Brush section short as the roster grows (8 materials = 2 rows,
 		# not 4), so the panel needs little scrolling. Buttons hug their text, so 4 short labels stay narrow.
-		_brush_preview = _fill_brush_section(brush, fm.MENU, 4, _on_brush_material, fm.FLOOR_COLORS, _on_brush_color, _mat_buttons, _col_swatches)
+		_brush_preview = _fill_brush_section(brush, _fm.MENU, 4, _on_brush_material, _fm.FLOOR_COLORS, _on_brush_color, _mat_buttons, _col_swatches)
 		# --- the MATERIAL-AWARE half of the palette (ROADMAP "Colour palette: 16 swatches, half
 		# material-aware"). The row above is the eight constant "fun" tints; this one swaps to eight
 		# realistic tints for whatever material is armed -- wood tones for wood, greys for concrete,
@@ -199,7 +202,7 @@ func _ready() -> void:
 		_mat_col_grid = GridContainer.new()
 		_mat_col_grid.columns = 4
 		brush.add_child(_mat_col_grid)
-		_rebuild_material_colors(fm.armed_material())
+		_rebuild_material_colors(_fm.armed_material())
 		# --- Item accordion section (collapsed): which item the Item (T) tool places. Each button is
 		# labelled with the definition's name and carries its RARITY colour, so the ramp is visible where
 		# you choose, not only on the ground (ROADMAP "Item rarity and rarity highlight").
@@ -215,7 +218,7 @@ func _ready() -> void:
 			ib.pressed.connect(_on_item_pressed.bind(iid))
 			item_grid.add_child(ib)
 			_item_buttons[iid] = ib
-		_sync_item_buttons(fm.armed_item())
+		_sync_item_buttons(_fm.armed_item())
 
 		# --- Creature accordion section (collapsed): which creature the Creature (A) tool places, and
 		# as WHICH KIND. The kind is a sub-choice of the one tool rather than two Place kinds, the same
@@ -244,21 +247,21 @@ func _ready() -> void:
 			cb.pressed.connect(_on_creature_pressed.bind(cid))
 			creature_grid.add_child(cb)
 			_creature_buttons[cid] = cb
-		_sync_creature_buttons(fm.armed_creature(), fm.armed_creature_kind())
+		_sync_creature_buttons(_fm.armed_creature(), _fm.armed_creature_kind())
 
 		# River Bank switch: set BEFORE laying a liquid (Water/Lava) to give that body a brown bank or not.
 		_bank_check = CheckButton.new()
 		_bank_check.text = "River Bank"
 		_bank_check.tooltip_text = "When on, Water/Lava you lay grows a brown bank ring. Set before painting."
-		_bank_check.button_pressed = fm.bank_on()
-		_bank_check.toggled.connect(func(on: bool): fm.set_bank_on(on))
+		_bank_check.button_pressed = _fm.bank_on()
+		_bank_check.toggled.connect(func(on: bool): _fm.set_bank_on(on))
 		brush.add_child(_bank_check)
 		# --- Wall accordion section: the armed wall brush (material + colour), same two-way binding as
 		# the floor Brush (a wall selection reflects here; picking here edits the selection in place) ---
 		var wall := _add_section(vb, "Wall", false) # collapsed by default; opens when a wall is selected
-		_wall_preview = _fill_brush_section(wall, fm.WALL_MATERIALS, 3, _on_wall_material, fm.WALL_COLORS, _on_wall_color, _wall_mat_buttons, _wall_col_swatches)
-		fm.brush_changed.connect(_refresh_brush)
-		fm.selection_changed.connect(_on_selection_changed)
+		_wall_preview = _fill_brush_section(wall, WallSegment.MATERIAL_NAMES, 3, _on_wall_material, WallSegment.COLORS, _on_wall_color, _wall_mat_buttons, _wall_col_swatches)
+		_fm.brush_changed.connect(_refresh_brush)
+		_fm.selection_changed.connect(_on_selection_changed)
 		_refresh_brush()
 
 	# --- Advanced accordion section (collapsed): the Map Size edge controls ---
@@ -358,12 +361,11 @@ func _set_section(title: String, expanded: bool) -> void:
 # opens Brush, so the reflected material + colour are visible. Folding the sibling is no longer done by
 # hand -- the exclusive accordion closes whatever else was open. No selection leaves the sections alone.
 func _on_selection_changed() -> void:
-	var fm := get_node_or_null("../World/FloorManager")
-	if fm == null:
+	if _fm == null:
 		return
-	if fm.has_wall_selection():
+	if _fm.has_wall_selection():
 		_set_section("Wall", true)
-	elif fm.has_floor_selection():
+	elif _fm.has_floor_selection():
 		_set_section("Brush", true)
 
 # --- Brush panel: swatches + live highlight of the active material/colour ---
@@ -443,13 +445,12 @@ func _swatch_box(color: Color, active: bool) -> StyleBoxFlat:
 # highlight the active material (radio) + active colour swatch (border) for BOTH the floor Brush and the
 # Wall sections, from FloorManager's live state (fires on every brush_changed)
 func _refresh_brush() -> void:
-	var fm := get_node_or_null("../World/FloorManager")
-	if fm == null:
+	if _fm == null:
 		return
-	_refresh_brush_section(_mat_buttons, fm.armed_material(), _col_swatches, fm.active_floor_color(), _brush_preview, fm.armed_brush_texture())
-	_rebuild_material_colors(fm.armed_material())
-	_mark_active_swatch(_mat_col_swatches, fm.active_floor_color())
-	_refresh_brush_section(_wall_mat_buttons, fm.armed_wall_material(), _wall_col_swatches, fm.active_wall_color(), _wall_preview, fm.armed_wall_texture())
+	_refresh_brush_section(_mat_buttons, _fm.armed_material(), _col_swatches, _fm.active_floor_color(), _brush_preview, _fm.armed_brush_texture())
+	_rebuild_material_colors(_fm.armed_material())
+	_mark_active_swatch(_mat_col_swatches, _fm.active_floor_color())
+	_refresh_brush_section(_wall_mat_buttons, _fm.armed_wall_material(), _wall_col_swatches, _fm.active_wall_color(), _wall_preview, _fm.armed_wall_texture())
 
 # highlight one section: press the active material radio, border the active colour swatch, and set the
 # preview swatch to the armed texture multiplied by the armed colour (so it reads as the real result).
@@ -473,8 +474,7 @@ func _rebuild_material_colors(material: String) -> void:
 	if _mat_col_grid == null or material == _mat_col_for:
 		return
 	_mat_col_for = material
-	var fm := get_node_or_null("../World/FloorManager")
-	var entries: Array = fm.material_colors(material) if fm != null else []
+	var entries: Array = _fm.material_colors(material) if _fm != null else []
 	for c in _mat_col_grid.get_children():
 		_mat_col_grid.remove_child(c)
 		c.queue_free()
@@ -507,39 +507,35 @@ func _mark_active_swatch(row: Array, active_col: Color) -> void:
 # fill), so we leave the mode alone. With no selection, picking means "I want to paint", so drop into
 # Cell if not already in a painting mode.
 func _on_brush_material(mval: String) -> void:
-	var fm := get_node_or_null("../World/FloorManager")
-	if fm == null:
+	if _fm == null:
 		return
-	if not fm.has_floor_selection() and fm.mode() != M_CELL and fm.mode() != M_FINE:
+	if not _fm.has_floor_selection() and _fm.mode() != M_CELL and _fm.mode() != M_FINE:
 		_select_mode(M_CELL)
-	fm.arm_floor_material(mval)
+	_fm.arm_floor_material(mval)
 
 func _on_brush_color(cval: Color) -> void:
-	var fm := get_node_or_null("../World/FloorManager")
-	if fm == null:
+	if _fm == null:
 		return
-	if not fm.has_floor_selection() and fm.mode() != M_CELL and fm.mode() != M_FINE:
+	if not _fm.has_floor_selection() and _fm.mode() != M_CELL and _fm.mode() != M_FINE:
 		_select_mode(M_CELL)
-	fm.arm_floor_color(cval)
+	_fm.arm_floor_color(cval)
 
 # wall picks: with a wall selection active they EDIT it in place (arm_wall_* do the fill); with NO
 # selection, picking a wall material/colour means "I want to build with it", so drop into Wall mode (the
 # same _wall brush also stamps new walls now) - mirroring the floor brush dropping into Cell to paint.
 func _on_wall_material(mval: String) -> void:
-	var fm := get_node_or_null("../World/FloorManager")
-	if fm == null:
+	if _fm == null:
 		return
-	if not fm.has_wall_selection() and fm.mode() != M_WALL:
+	if not _fm.has_wall_selection() and _fm.mode() != M_WALL:
 		_select_mode(M_WALL)
-	fm.arm_wall_material(mval)
+	_fm.arm_wall_material(mval)
 
 func _on_wall_color(cval: Color) -> void:
-	var fm := get_node_or_null("../World/FloorManager")
-	if fm == null:
+	if _fm == null:
 		return
-	if not fm.has_wall_selection() and fm.mode() != M_WALL:
+	if not _fm.has_wall_selection() and _fm.mode() != M_WALL:
 		_select_mode(M_WALL)
-	fm.arm_wall_color(cval)
+	_fm.arm_wall_color(cval)
 
 func _edge_button(text: String, edge: String, mode: String) -> Button:
 	var b := Button.new()
@@ -558,14 +554,12 @@ func _on_press(edge: String, mode: String) -> void:
 	_show_band(edge, mode) # refresh the preview against the new size
 
 func _show_band(edge: String, mode: String) -> void:
-	var eh := get_node_or_null("../World/EdgeHighlight")
-	if eh:
-		eh.show_band(edge, mode)
+	if _edge_highlight:
+		_edge_highlight.show_band(edge, mode)
 
 func _clear_band() -> void:
-	var eh := get_node_or_null("../World/EdgeHighlight")
-	if eh:
-		eh.clear_band()
+	if _edge_highlight:
+		_edge_highlight.clear_band()
 
 func _recenter() -> void:
 	var cam := get_node_or_null("../Camera2D")
@@ -573,16 +567,14 @@ func _recenter() -> void:
 		cam.recenter_on_player()
 
 func _on_hover_toggled(on: bool) -> void:
-	var mst := get_node_or_null("../World/MapSizeTool")
-	if mst:
-		mst.active = on
+	if _map_size_tool:
+		_map_size_tool.active = on
 
 # --- authoring mode selection ---
 
 func _on_mode_pressed(mode: int) -> void:
-	var fm := get_node_or_null("../World/FloorManager")
-	if fm and fm.has_method("set_mode"):
-		fm.set_mode(mode)
+	if _fm and _fm.has_method("set_mode"):
+		_fm.set_mode(mode)
 
 # which tool is lit right now
 func _current_tool() -> int:
@@ -689,10 +681,9 @@ func _load_level(map_name: String) -> void:
 # picking an item in the panel arms it AND drops into the Item tool, matching how picking a wall
 # material drops into Wall mode ("I want to place this").
 func _on_item_pressed(item: String) -> void:
-	var fm := get_node_or_null("../World/FloorManager")
-	if fm == null:
+	if _fm == null:
 		return
-	fm.arm_item(item)
+	_fm.arm_item(item)
 	_sync_item_buttons(item)
 	_select_mode(M_ITEM)
 
@@ -706,21 +697,19 @@ func _sync_item_buttons(active: String) -> void:
 # picking a creature arms it AND drops into the Creature tool, the same "I want to place this" move
 # the item and wall-material buttons make.
 func _on_creature_pressed(creature: String) -> void:
-	var fm := get_node_or_null("../World/FloorManager")
-	if fm == null:
+	if _fm == null:
 		return
-	fm.arm_creature(creature)
-	_sync_creature_buttons(creature, fm.armed_creature_kind())
+	_fm.arm_creature(creature)
+	_sync_creature_buttons(creature, _fm.armed_creature_kind())
 	_select_mode(M_CREATURE)
 
 # the KIND is a property of the armed brush, not a tool of its own, so picking one does NOT switch
 # tools: you can set "fixed instance" before ever choosing a creature.
 func _on_creature_kind_pressed(kind: String) -> void:
-	var fm := get_node_or_null("../World/FloorManager")
-	if fm == null:
+	if _fm == null:
 		return
-	fm.arm_creature_kind(kind)
-	_sync_creature_buttons(fm.armed_creature(), kind)
+	_fm.arm_creature_kind(kind)
+	_sync_creature_buttons(_fm.armed_creature(), kind)
 
 func _kind_tip(kind: String) -> String:
 	match kind:

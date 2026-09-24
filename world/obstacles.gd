@@ -1,8 +1,9 @@
+class_name Obstacles
 extends Node2D
 
 const CELL_SIZE := Grid.CELL
-const CAP_HEIGHT := 11 # thin-rail width; must match wall_segment.gd's CAP_HEIGHT
-const WALL_HEIGHT := 7 # cap rises this far above the cell top; must match wall_segment.gd
+const CAP_HEIGHT := WallSegment.CAP_HEIGHT # thin-rail width
+const WALL_HEIGHT := WallSegment.WALL_HEIGHT # cap rises this far above the cell top
 const SHADOW_CAST := 12.0 # 45-degree down-right smear length for the whole-structure shadow
 
 # Four rooms laid out like a window (2x2), doors between neighbours plus one out.
@@ -300,12 +301,11 @@ func make_segment(cell: Vector2i, run_length: int) -> Node2D:
 func is_blocked(cell: Vector2i) -> bool:
 	return blocked_cells.has(cell)
 
-# see-through fence materials, which render short/gappy and cast no solid wall shadow. Keep in sync with
-# wall_segment.FENCE. A cell's material comes from the wall_materials store (default "stone" = a solid wall).
-const FENCE_MATERIALS := {"wood_fence": true, "metal_bars": true, "chainlink": true}
+# see-through fence materials (WallSegment.FENCE) render short/gappy and cast no solid wall shadow. A
+# cell's material comes from the wall_materials store (default "stone" = a solid wall).
 
 func _is_fence(cell: Vector2i) -> bool:
-	return FENCE_MATERIALS.has(wall_materials.get(cell, "stone"))
+	return WallSegment.FENCE.has(wall_materials.get(cell, "stone"))
 
 # is `cell` part of a wall LINE running in the given direction? A WALL always is. A DOOR is only if its
 # orientation matches: a "horizontal" door lies in a horizontal line, a "vertical" door in a vertical one.
@@ -499,7 +499,7 @@ func try_unlock(cell: Vector2i, player) -> bool:
 	if lock == "colour":
 		if CharacterIO.is_unlocked(MapIO.current(), id):
 			return true
-		var key := "key_" + String(d.get("lock_color", "red"))
+		var key := Items.key_for_color(String(d.get("lock_color", "red")))
 		if not player.take_from_stack(key, 1):
 			return false
 		CharacterIO.mark_unlocked(MapIO.current(), id)
@@ -569,10 +569,6 @@ func set_wall_color(cell: Vector2i, color: Color) -> void:
 # colour every wall of the building `cell` belongs to
 func color_building(cell: Vector2i, color: Color) -> void:
 	_color_cells(building_cells(cell), color)
-
-# colour the connected straight wall run(s) through `cell` (the horizontal + vertical arms)
-func color_line(cell: Vector2i, color: Color) -> void:
-	_color_cells(line_cells(cell), color)
 
 func _color_cells(cells: Dictionary, color: Color) -> void:
 	for c in cells:

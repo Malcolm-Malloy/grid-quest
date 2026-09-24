@@ -2,8 +2,8 @@ extends "res://dev/test_case.gd"
 
 # Dev-only headless test for SEE-THROUGH fences (ROADMAP item 7 fence roster): Wood Fence / Metal Bars /
 # Chainlink are wall materials that render short + gappy (procedurally in wall_segment) and cast NO solid
-# wall shadow, while still blocking + enclosing like any wall. Checks registration, the fence set is in
-# sync (wall_segment.FENCE == obstacles.FENCE_MATERIALS), _is_fence, collision is unchanged, the segment
+# wall shadow, while still blocking + enclosing like any wall. Checks registration, the one fence set
+# (WallSegment.FENCE), _is_fence, collision is unchanged, the segment
 # reports the fence material, and a fully-fenced map casts no wall shadow. Text-only.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_fence.tscn
 
@@ -17,12 +17,12 @@ func _ready() -> void:
 
 	# --- registration + set sync ---
 	var menu := {}
-	for e in fm.WALL_MATERIALS:
+	for e in WallSegment.MATERIAL_NAMES:
 		menu[e[1]] = true
 	for f in FENCES:
 		_check("%s in the wall-material menu" % f, menu.has(f))
-		_check("%s has a preview icon" % f, fm.WALL_TEX.has(f))
-	_check("obstacles.FENCE_MATERIALS matches the 3 fences", obs.FENCE_MATERIALS.size() == 3 and obs.FENCE_MATERIALS.has("chainlink"))
+		_check("%s has a preview icon" % f, WallSegment.swatch_texture(f) == WallSegment.FENCE_ICONS[f])
+	_check("WallSegment.FENCE holds the 3 fences", WallSegment.FENCE.size() == 3 and WallSegment.FENCE.has("chainlink"))
 
 	# --- _is_fence + collision unchanged ---
 	var wall := Vector2i(6, 3)

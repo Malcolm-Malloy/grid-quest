@@ -18,6 +18,8 @@ var grid_height := 32
 # working; a jagged map just lists its missing cells. Keyed by Vector2i, value true (used as a set).
 var absent_cells := {}
 
+@onready var _fm: FloorManager = get_node_or_null("../FloorManager")
+
 func set_grid_size(w: int, h: int) -> void:
 	grid_width = w
 	grid_height = h
@@ -80,8 +82,7 @@ func _process(_delta: float) -> void:
 		queue_redraw()
 	# advance the water shimmer and redraw at ~SHIMMER_HZ, ONLY while the map has water (a dry map never
 	# enters this branch, so animation costs nothing). Throttled so it isn't a full per-frame floor redraw.
-	var fm := get_node_or_null("../FloorManager")
-	if fm != null and fm.has_method("has_animated_water") and fm.has_animated_water():
+	if _fm != null and _fm.has_method("has_animated_water") and _fm.has_animated_water():
 		_wphase += _delta
 		_waccum += _delta
 		if _waccum >= 1.0 / SHIMMER_HZ:
@@ -117,14 +118,13 @@ func _draw() -> void:
 	# any room with a floor style fills its WHOLE area (interior cells + the room-facing
 	# wall/door quadrants) with that texture, so no grass shows between floor and walls.
 	# FloorManager supplies the [dst_rect, texture] pieces; they tile by world position.
-	var fm := get_node_or_null("../FloorManager")
-	if fm:
+	if _fm:
 		# f = [dst_rect, texture, tint] with an OPTIONAL 4th element = a source-rect override (in
 		# texture space) and an OPTIONAL 5th truthy element = ANIMATE (a water fill). Most fills omit
 		# both and sample the 128px tile by world position (tiled_src) so neighbours line up; the shoreline
 		# autotile passes an atlas src rect instead. Animated water fills get a subtle brightness shimmer
 		# that varies by world position + time, so the surface reads as gently rippling rather than a fade.
-		for f in fm.base_fills():
+		for f in _fm.base_fills():
 			var src: Rect2 = f[3] if f.size() > 3 else tiled_src(f[0])
 			var tint: Color = f[2]
 			if f.size() > 4 and f[4]:
@@ -134,8 +134,8 @@ func _draw() -> void:
 			draw_texture_rect_region(f[1], f[0], src, tint)
 	# the reference grid draws only when toggled on from the floor menu (off by default so
 	# it doesn't tint the floor textures the rest of the time)
-	if fm and fm.grid_on():
-		var color: Color = fm.grid_color()
+	if _fm and _fm.grid_on():
+		var color: Color = _fm.grid_color()
 		for x in range(grid_width + 1):
 			draw_line(Vector2(x * CELL_SIZE, 0), Vector2(x * CELL_SIZE, grid_height * CELL_SIZE), color, 1.0, true)
 		for y in range(grid_height + 1):

@@ -1,3 +1,4 @@
+class_name Creatures
 extends Node2D
 
 # Creatures: the placed creature records on the current map, and the nodes drawn from them. The

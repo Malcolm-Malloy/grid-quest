@@ -154,7 +154,7 @@ func _ready() -> void:
 	fm._cancel_pending()
 	_check("Esc / right-click drops the armed paste", fm._pending_clip.is_empty() and fm._pending_kind == "")
 	_check("a stampable cell reads in-bounds, an off-map one does not",
-		fm._stampable(Vector2i(3, 3)) and not fm._stampable(Vector2i(99, 3)))
+		fm._in_bounds(Vector2i(3, 3)) and not fm._in_bounds(Vector2i(99, 3)))
 
 	# --- 10. the FloorManager gestures end to end: a drag-move, then a paste click ---
 	await _setup(fm)

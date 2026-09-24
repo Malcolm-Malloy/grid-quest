@@ -9,15 +9,6 @@ extends CanvasLayer
 # entry. Doors expose the new authored open/swing/orientation; walls expose colour (the same palette
 # as the right-click menu). More object types (spawns, objects) slot in as the roster grows.
 
-# wall colour palette, mirrored from floor_manager.WALL_COLORS (kept in sync by hand; small list)
-const WALL_COLORS := [
-	["Natural", Color.WHITE], ["Red", Color(0.85, 0.3, 0.28)], ["Green", Color(0.42, 0.72, 0.42)],
-	["Blue", Color(0.4, 0.55, 0.85)], ["Yellow", Color(0.9, 0.82, 0.35)],
-	["Orange", Color(0.9, 0.58, 0.3)], ["Purple", Color(0.66, 0.45, 0.8)],
-]
-
-# wall material list, mirrored from floor_manager.WALL_MATERIALS (kept in sync by hand)
-const WALL_MATERIALS := [["Stone", "stone"], ["Wood", "wood"], ["Slate", "slate"], ["Brick", "brick"], ["Hedge", "hedge"], ["Wood Fence", "wood_fence"], ["Metal Bars", "metal_bars"], ["Chainlink", "chainlink"]]
 
 var _kind := ""            # "", "door" or "wall"
 var _cell := Vector2i.ZERO
@@ -385,7 +376,7 @@ func _build_wall() -> void:
 	var current: Color = obs.get_wall_color(_cell)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 2)
-	for entry in WALL_COLORS:
+	for entry in WallSegment.COLORS:
 		var name: String = entry[0]
 		var col: Color = entry[1]
 		var b := Button.new()
@@ -405,7 +396,7 @@ func _build_wall() -> void:
 	var current_mat: String = obs.get_wall_material(_cell)
 	var mat_row := HBoxContainer.new()
 	mat_row.add_theme_constant_override("separation", 2)
-	for entry in WALL_MATERIALS:
+	for entry in WallSegment.MATERIAL_NAMES:
 		var mname: String = entry[0]
 		var mat: String = entry[1]
 		var mb := Button.new()

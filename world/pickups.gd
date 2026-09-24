@@ -1,3 +1,4 @@
+class_name Pickups
 extends Node2D
 
 # Pickups: the placed item INSTANCES on the current map, and the rules for collecting them.

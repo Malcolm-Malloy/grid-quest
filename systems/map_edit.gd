@@ -563,7 +563,7 @@ func _shift(d: Dictionary, dx: int, dy: int, nw: int, nh: int) -> Dictionary:
 		if clipped.size.x <= 0 or clipped.size.y <= 0:
 			continue
 		zs.append({"rect": [clipped.position.x, clipped.position.y, clipped.size.x, clipped.size.y],
-			"creature": z["creature"], "rate": z.get("rate", 4.0), "cap": z.get("cap", 3),
+			"creature": z["creature"], "rate": z.get("rate", Bestiary.ZONE_RATE), "cap": z.get("cap", Bestiary.ZONE_CAP),
 			"id": z.get("id", "")})
 	out["creature_zones"] = zs
 

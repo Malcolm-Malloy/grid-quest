@@ -16,6 +16,8 @@ const MARGIN := 160.0 # global px of slack beyond the map edge, so the add-band 
 
 @export var target_path: NodePath = ^"../World/Player"
 @onready var target := get_node(target_path) as Node2D
+@onready var _world: Node2D = get_node_or_null("../World")
+@onready var _grid_bg: GridBackground = get_node_or_null("../World/GridBackground")
 
 var mode: int = Mode.FOLLOW
 var _panning := false
@@ -81,13 +83,11 @@ func recenter_on_player() -> void:
 # frame the whole map (used by the capture harness to verify the edge band headlessly)
 func fit_map() -> void:
 	mode = Mode.FREE
-	var world := get_node_or_null("../World") as Node2D
-	var gb := get_node_or_null("../World/GridBackground")
-	if world == null or gb == null:
+	if _world == null or _grid_bg == null:
 		return
-	var xf: Transform2D = world.get_global_transform()
+	var xf: Transform2D = _world.get_global_transform()
 	var tl: Vector2 = xf * Vector2.ZERO
-	var br: Vector2 = xf * Vector2(gb.grid_width * float(CELL), gb.grid_height * float(CELL))
+	var br: Vector2 = xf * Vector2(_grid_bg.grid_width * float(CELL), _grid_bg.grid_height * float(CELL))
 	global_position = (tl + br) / 2.0
 	var vp := get_viewport_rect().size
 	var map_w: float = absf(br.x - tl.x) + 2 * CELL
@@ -97,12 +97,10 @@ func fit_map() -> void:
 
 # clamp the camera centre to the map rect plus a margin, so it can't fly off into the void
 func _clamp_to_map() -> void:
-	var world := get_node_or_null("../World") as Node2D
-	var gb := get_node_or_null("../World/GridBackground")
-	if world == null or gb == null:
+	if _world == null or _grid_bg == null:
 		return
-	var xf: Transform2D = world.get_global_transform()
+	var xf: Transform2D = _world.get_global_transform()
 	var tl: Vector2 = xf * Vector2.ZERO
-	var br: Vector2 = xf * Vector2(gb.grid_width * float(CELL), gb.grid_height * float(CELL))
+	var br: Vector2 = xf * Vector2(_grid_bg.grid_width * float(CELL), _grid_bg.grid_height * float(CELL))
 	global_position.x = clampf(global_position.x, min(tl.x, br.x) - MARGIN, max(tl.x, br.x) + MARGIN)
 	global_position.y = clampf(global_position.y, min(tl.y, br.y) - MARGIN, max(tl.y, br.y) + MARGIN)

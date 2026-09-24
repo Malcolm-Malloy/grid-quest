@@ -376,9 +376,6 @@ func _recovery_is_newer(rec: Dictionary) -> bool:
 func has_recovery() -> bool:
 	return not _pending_recovery.is_empty()
 
-func recovery_info() -> Dictionary:
-	return _pending_recovery.duplicate(true)
-
 # Apply the recovered map. It comes back DIRTY on purpose: recovered work is by definition work that
 # was never saved, so the editor must keep saying so until the user actually writes it somewhere.
 func restore_recovery() -> bool:
