@@ -107,12 +107,7 @@ var _box_op: EditorState.SelOp = EditorState.SelOp.REPLACE # captured from the m
 var _box_base := {}           # selection quads snapshot at drag start (the base add/subtract build on)
 var _cursor: Node2D          # the Cell/Fine square paint cursor (see paint_cursor.gd)
 var _preview: Node2D         # the lifted terrain drop-preview sprite (see terrain_preview.gd)
-var _bridge_preview: Node2D  # the lifted BRIDGE deck preview (bridge.gd in preview mode), BRIDGE mode only
-var _wall_ghost: Array = []  # up to 2 reused translucent wall_segments: the shape a WALL-mode click would
-							 # place (horizontal/vertical/corner/T/cross), in the armed wall colour+material
-var _wall_ghost_key := ""    # dedupe: cell + colour + material + piece-count, so the ghost only re-configs on change
-var _door_preview: Node2D    # the lifted DOOR ghost (gate.gd in preview mode), DOOR mode only
-var _door_ghost_key := ""    # dedupe the door ghost by cell + orientation
+var _ghosts: PlacementGhosts # the wall / door / bridge placement previews (placement_ghosts.gd)
 var _selection: Node2D       # marching-ants selection overlay (see selection_overlay.gd)
 var _clip_ghost: Node2D      # hover ghost for an armed paste / an in-flight move (clip_preview.gd)
 var _zone_active := false    # true while a zone rectangle is being dragged out
@@ -249,31 +244,10 @@ func _ready() -> void:
 	_preview = Node2D.new()
 	_preview.set_script(load("res://floors/terrain_preview.gd"))
 	add_child(_preview)
-	# the lifted BRIDGE drop-preview: the actual deck art (bridge.gd in preview mode) floats over the
-	# hovered cell in BRIDGE mode, oriented to the water run under the cursor, so the tool shows what
-	# will land instead of the last floor material. Hidden until BRIDGE-mode hover shows it.
-	_bridge_preview = Node2D.new()
-	_bridge_preview.set_script(load("res://world/bridge.gd"))
-	_bridge_preview.preview = true
-	_bridge_preview.visible = false
-	add_child(_bridge_preview)
-	# Wall placement ghost pool: 2 translucent preview wall_segments (a cell gets at most a horizontal
-	# piece + a vertical rail). Shown on WALL-mode hover, configured from obstacles.preview_wall_configs so
-	# the ghost is the REAL shape a click would place, in the armed wall colour+material.
-	for _i in 2:
-		var wp := Node2D.new()
-		wp.set_script(WallSegment)
-		wp.preview = true
-		wp.visible = false
-		add_child(wp)
-		_wall_ghost.append(wp)
-	# Door placement ghost: gate.gd in preview mode, auto-oriented to the wall run under the cursor,
-	# shown on DOOR-mode hover (mirrors the wall ghost + bridge deck preview).
-	_door_preview = Node2D.new()
-	_door_preview.set_script(load("res://world/gate.gd"))
-	_door_preview.preview = true
-	_door_preview.visible = false
-	add_child(_door_preview)
+	# the lifted previews of what a WALL / DOOR / BRIDGE click would build
+	_ghosts = PlacementGhosts.new()
+	add_child(_ghosts)
+	_ghosts.setup(_obs)
 	# when the cursor leaves the game window, drop every highlight (ROADMAP "Terrain placement UX":
 	# cursor off screen clears all highlights); restore tracking when it returns
 	get_window().mouse_exited.connect(_on_window_mouse_exited)
@@ -1605,10 +1579,8 @@ func _reset_highlight() -> void:
 	_mask.hide_floor()
 	_cursor.hide_cursor()
 	_preview.hide_preview()
-	if _bridge_preview != null:
-		_bridge_preview.visible = false
-	_hide_wall_ghost()
-	_hide_door_ghost()
+	if _ghosts != null:
+		_ghosts.hide_all()
 	if _clip_ghost != null:
 		_clip_ghost.hide_clip() # an armed clip re-shows it on the next hover; off-window/over-UI it goes
 
@@ -2287,8 +2259,7 @@ func _update_structure_placement_hover(cell: Vector2i) -> void:
 	_preview.hide_preview()
 	if not _in_bounds(cell):
 		_cursor.hide_cursor()
-		_hide_wall_ghost()
-		_hide_door_ghost()
+		_ghosts.hide_all()
 		return
 	_cursor.set_role(PaintCursor.Role.ADD) # green: placing a wall/door is additive
 	_cursor.show_rect(Grid.cell_rect(cell))
@@ -2296,99 +2267,38 @@ func _update_structure_placement_hover(cell: Vector2i) -> void:
 	# (horizontal/vertical/corner/T/cross) in the armed colour+material, over an empty cell. DOOR: the
 	# closed door, auto-oriented to the wall run it would bridge.
 	if EditorState.mode == EditorState.Mode.WALL and _obs != null and not _obs.is_blocked(cell):
-		_show_wall_ghost(cell)
-		_hide_door_ghost()
+		_ghosts.show_wall(cell)
+		_ghosts.hide_door()
 	elif EditorState.mode == EditorState.Mode.DOOR and _obs != null:
-		_hide_wall_ghost()
-		_show_door_ghost(cell, _obs)
+		_ghosts.hide_wall()
+		_ghosts.show_door(cell)
 	else:
-		_hide_wall_ghost()
-		_hide_door_ghost()
-
-# configure + show the door ghost for `cell`: auto-orient exactly like _place_door_at (the wall run it
-# bridges, else the R-flippable default), positioned at the cell centre, drawn closed + translucent.
-func _show_door_ghost(cell: Vector2i, obs) -> void:
-	if _door_preview == null:
-		return
-	var orient: String = obs.wall_run_orientation(cell)
-	if orient == "":
-		orient = EditorState.door_orient
-	var key := "%s|%s" % [cell, orient]
-	if key == _door_ghost_key and _door_preview.visible:
-		return
-	_door_ghost_key = key
-	_door_preview.set_preview_orientation(orient)
-	_door_preview.position = Grid.cell_center(cell)
-	_door_preview.visible = true
-
-func _hide_door_ghost() -> void:
-	if _door_preview == null or not _door_preview.visible:
-		return
-	_door_ghost_key = ""
-	_door_preview.visible = false
-
-# configure + show the wall placement ghost for `cell`: obstacles computes the piece config(s) the cell
-# would get (same shaping as build_world), which we apply to the reused preview wall_segments, carrying
-# the armed wall colour+material so the ghost previews exactly what a click builds.
-func _show_wall_ghost(cell: Vector2i) -> void:
-	if _obs == null:
-		return
-	var configs: Array = _obs.preview_wall_configs(cell)
-	var key := "%s|%s|%s|%d" % [cell, EditorState.wall_color, EditorState.wall_mat, configs.size()]
-	if key == _wall_ghost_key:
-		return # nothing changed (same cell + brush + shape): leave the ghost as-is
-	_wall_ghost_key = key
-	var center := Grid.cell_center(cell)
-	for i in _wall_ghost.size():
-		var wp: WallSegment = _wall_ghost[i]
-		if i < configs.size():
-			var cfg: Dictionary = configs[i]
-			wp.run_length = int(cfg["run_length"])
-			wp.align_offset_x = float(cfg["align"])
-			wp.seg_x_start = float(cfg["x_start"])
-			wp.seg_width = float(cfg["width"])
-			wp.cell_colors = [EditorState.wall_color]
-			wp.cell_materials = [EditorState.wall_mat]
-			wp.position = center
-			wp.visible = true
-			wp.queue_redraw()
-		else:
-			wp.visible = false
-
-func _hide_wall_ghost() -> void:
-	if _wall_ghost_key == "":
-		return
-	_wall_ghost_key = ""
-	for wp in _wall_ghost:
-		wp.visible = false
+		_ghosts.hide_wall()
+		_ghosts.hide_door()
 
 # Bridge placement hover: a green ADD cell cursor (like wall/door) PLUS the real deck art lifted a few
 # px above the cell, oriented to the water run the click would span (or the R-flippable default). Shows
 # the bridge that will land instead of the last floor material's drop-preview.
-const _BRIDGE_PREVIEW_LIFT := 6.0
 func _update_bridge_hover(cell: Vector2i) -> void:
 	_clear_room_hover()
 	_restore_faded()
 	_preview.hide_preview() # never show the leftover floor-material drop-preview in BRIDGE mode
 	if not _in_bounds(cell):
 		_cursor.hide_cursor()
-		_bridge_preview.visible = false
+		_ghosts.hide_bridge()
 		return
 	# lava can't be bridged (wooden bridges burn): mark it invalid (red cursor, no deck preview)
 	if _cell_liquid(cell) == "lava":
 		_cursor.set_role(PaintCursor.Role.ERASE)
 		_cursor.show_rect(Grid.cell_rect(cell))
-		_bridge_preview.visible = false
+		_ghosts.hide_bridge()
 		return
 	_cursor.set_role(PaintCursor.Role.ADD)
 	_cursor.show_rect(Grid.cell_rect(cell))
 	var orient := _bridge_river_orientation(cell)
 	if orient == "":
 		orient = EditorState.bridge_orient
-	_bridge_preview.orientation = orient
-	_bridge_preview.position = Grid.cell_center(cell) - Vector2(0, _BRIDGE_PREVIEW_LIFT)
-	_bridge_preview.visible = true
-	_bridge_preview.queue_redraw()
+	_ghosts.show_bridge(cell, orient)
 
 # set one quarter's material ("" erases it back to grass). Returns whether anything changed,
 # so a drag that stays inside the same quarter doesn't trigger a redundant rebuild.
