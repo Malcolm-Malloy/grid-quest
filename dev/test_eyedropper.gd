@@ -1,23 +1,15 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the Eyedropper (ROADMAP "Eyedropper"): picking an existing cell's
 # material + colour into the active brush, from the tool AND from Alt+click while a paint brush is
 # active. Text-only, no rendering.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_eyedropper.tscn
 
-var _fails := 0
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond: _fails += 1
-
 func _mid(cell: Vector2i) -> Vector2:
 	return Vector2(cell.x * 32 + 16, cell.y * 32 + 16)
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 	var obs = main.get_node("World/Obstacles")
 	EditHistory.reset()
@@ -79,5 +71,4 @@ func _ready() -> void:
 	# --- 6. off-map picks nothing ---
 	_check("a pick off the map does nothing", not fm._eyedrop_at(Vector2(-40, -40)))
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

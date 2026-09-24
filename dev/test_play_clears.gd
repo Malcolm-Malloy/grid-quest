@@ -1,23 +1,15 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test: switching to PLAY drops every piece of editor state. The map tools stand
 # down in PLAY, so anything left on screen would sit frozen over the running game, and a selection you
 # cannot change is not a selection. Text-only, no rendering.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_play_clears.tscn
 
-var _fails := 0
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond: _fails += 1
-
 func _mid(cell: Vector2i) -> Vector2:
 	return Vector2(cell.x * 32 + 16, cell.y * 32 + 16)
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 	var mst = main.get_node("World/MapSizeTool")
 	var gb = main.get_node("World/GridBackground")
@@ -67,5 +59,4 @@ func _ready() -> void:
 	_check("the editor is usable again (a fresh selection works)",
 		fm._wand_click(_mid(Vector2i(8, 9))) == null and fm._selection.has_selection())
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

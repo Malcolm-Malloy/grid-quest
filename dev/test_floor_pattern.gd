@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for Terrain patterns (ROADMAP item 7 -> "Terrain patterns and material
 # variants"): a per-16px-quarter PATTERN index into the material's texture-variant array, stored
@@ -8,18 +8,8 @@ extends Node
 # Text-only, no rendering (renders hang headless on this machine).
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_floor_pattern.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 	EditHistory.reset()
 
@@ -101,5 +91,4 @@ func _ready() -> void:
 	EditHistory.redo()
 	_check("redo: the pattern is back", not fm._quad_pattern.is_empty())
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

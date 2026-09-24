@@ -1,16 +1,9 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for CharacterIO (ROADMAP Phase B item 9: character save). Verifies the
 # serialize/apply round-trip, atomic save/load to disk, inventory persistence, and that loading a
 # non-existent save is a safe no-op. Text-only, no rendering.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_character_io.tscn
-
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
 
 func _ready() -> void:
 	MapIO.auto_load = false
@@ -75,5 +68,4 @@ func _ready() -> void:
 	CharacterIO.delete_character()
 	_check("delete removes the save", not CharacterIO.has_save())
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for Wall materials (ROADMAP item 7 -> "Terrain patterns and material
 # variants" -> wall materials): a per-cell face/cap texture pair (Stone/Wood/Slate) stored parallel
@@ -7,18 +7,8 @@ extends Node
 # Text-only, no rendering (renders hang headless on this machine).
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_wall_material.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var obs = main.get_node("World/Obstacles")
 	EditHistory.reset()
 
@@ -110,8 +100,7 @@ func _ready() -> void:
 	EditHistory.redo()
 	_check("redo: the material is back", obs.get_wall_material(wall) == "wood")
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()
 
 # a copy of `data` with no wall materials, for a clean undo baseline
 func _stone_state(data: Dictionary) -> Dictionary:

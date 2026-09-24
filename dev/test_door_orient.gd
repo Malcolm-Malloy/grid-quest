@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only test for orientation-aware wall/door connection (ROADMAP "Wall connects to a perpendicular
 # door" fix): a wall's corner logic treats a neighbouring DOOR as part of its wall line only if the door's
@@ -8,18 +8,8 @@ extends Node
 # Text-only, no render.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_door_orient.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	await get_tree().process_frame # let build_world (and _gate_orient) settle
 	var obs = main.get_node("World/Obstacles")
 
@@ -46,5 +36,4 @@ func _ready() -> void:
 	# open ground is in neither
 	_check("empty cell: in neither direction", not obs._in_wall_line(empty, true) and not obs._in_wall_line(empty, false))
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

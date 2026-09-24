@@ -1,11 +1,10 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only audit for "invisible wall" (a cell that blocks but renders no node). Builds a map covering
 # every wall configuration (isolated, lines, corners, cross, T-junction, 2x2 block, diagonal staircase,
 # walls beside aligned + perpendicular doors) and asserts EVERY blocked cell has a covering wall node.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_wall_coverage.tscn
 
-var _fails := 0
 func _covered(cell: Vector2i) -> bool:
 	for w in get_tree().get_nodes_in_group("walls"):
 		if w.covers_cell(cell):
@@ -13,10 +12,7 @@ func _covered(cell: Vector2i) -> bool:
 	return false
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var obs = main.get_node("World/Obstacles")
 
 	var walls: Array = []
@@ -42,5 +38,4 @@ func _ready() -> void:
 	print(("PASS " if uncovered.is_empty() else "FAIL ") + "every blocked cell has a wall node (uncovered: %s)" % str(uncovered))
 	if not uncovered.is_empty(): _fails += 1
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

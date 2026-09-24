@@ -1,23 +1,15 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the authored player spawn (ROADMAP "Player spawn marker"): the Set Spawn
 # tool, the marker as MapIO's source of truth for `spawn`, and the decoupling from where the character
 # happens to stand. Text-only, no rendering.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_spawn_marker.tscn
 
-var _fails := 0
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond: _fails += 1
-
 func _mid(cell: Vector2i) -> Vector2:
 	return Vector2(cell.x * 32 + 16, cell.y * 32 + 16)
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 	var obs = main.get_node("World/Obstacles")
 	var player = main.get_node("World/Player")
@@ -82,5 +74,4 @@ func _ready() -> void:
 	await get_tree().process_frame
 	_check("and returns in EDIT", marker.visible)
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the Erase tool's structure removal (ROADMAP "Erase mode"). Builds
 # the real world and checks that a click on a wall or door removes it topmost-first, that terrain
@@ -6,22 +6,12 @@ extends Node
 # level through the MapIO rebuild path. Text-only, no rendering.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_erase.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 # world-space centre of a cell, as _erase_structure_at expects (it floors local/CELL back to a cell)
 func _center(cell: Vector2i) -> Vector2:
 	return Vector2(cell.x * 32 + 16, cell.y * 32 + 16)
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 	var obs = main.get_node("World/Obstacles")
 	fm.set_mode(3) # Mode.ERASE
@@ -84,5 +74,4 @@ func _ready() -> void:
 	_check("guard: survived fade+erase+restore without a freed-node error", true)
 	_check("guard: (9,3) wall stayed erased", not obs.is_blocked(hover_wall))
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the tool-strip ACCORDION (ROADMAP "Editor UX revisions" -> accordion left
 # menu + Map Size -> Advanced). Checks the strip builds two collapsible sections ("Tools" expanded,
@@ -8,18 +8,8 @@ extends Node
 # own constants so adding a mode does not break this. Text-only, no render.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_tool_strip.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var ts = get_tree().get_first_node_in_group("tool_strip")
 	_check("tool strip exists (grouped)", ts != null)
 
@@ -149,5 +139,4 @@ func _ready() -> void:
 	MapIO.delete_map(m1)
 	MapIO.delete_map(m2)
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the two-way Brush-panel <-> floor-selection binding (ROADMAP "Coloured
 # highlight system"): a Magic Wand floor selection REFLECTS its material + colour into the panel
@@ -6,16 +6,8 @@ extends Node
 # selection in place (re-texture / re-tint), keeping the selection and the other axis. Text-only.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_brush_selection_sync.tscn
 
-var _fails := 0
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond: _fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 	EditHistory.reset()
 
@@ -49,5 +41,4 @@ func _ready() -> void:
 	_check("re-texture keeps the colour", fm._quad_tint.get(q0, Color.WHITE).is_equal_approx(Color.GREEN))
 	_check("re-texture keeps the selection", fm.has_floor_selection())
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

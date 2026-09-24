@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for BRIDGES, slice 1 (crossable deck over water). Builds the real world and
 # checks: bridges are a placed-object store on Obstacles; the BRIDGE tool auto-orients to the water
@@ -6,13 +6,6 @@ extends Node
 # a water cell (passable-over-impassable); the deck node spawns; and MapIO round-trips bridges at v8.
 # Text-only, no rendering.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_bridge.tscn
-
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
 
 func _quads(cell: Vector2i) -> Array:
 	return [
@@ -25,10 +18,7 @@ func _fill_water(fm, cell: Vector2i) -> void:
 		fm._quad_mat[q] = "water"
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 	var obs = main.get_node("World/Obstacles")
 	var player = main.get_node("World/Player")
@@ -114,5 +104,4 @@ func _ready() -> void:
 	await get_tree().process_frame
 	_check("right-click Erase removes the bridge", not obs.is_bridge(ecell))
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

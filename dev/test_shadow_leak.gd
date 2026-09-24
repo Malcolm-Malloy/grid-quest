@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only guard for the wall-shadow accumulation leak (ROADMAP "Investigate lag"): spawn_shadows() runs
 # on EVERY map rebuild (every wall placement re-applies the whole map), and `wall_shadow_polys` is a
@@ -9,18 +9,8 @@ extends Node
 # Text-only, no render.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_shadow_leak.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	await get_tree().process_frame
 	var obs = main.get_node("World/Obstacles")
 
@@ -45,5 +35,4 @@ func _ready() -> void:
 	var n5: int = obs.wall_shadow_polys.size()
 	_check("20 rebuilds keep the poly count flat (no progressive growth)", n5 == n1)
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

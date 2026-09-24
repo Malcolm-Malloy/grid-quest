@@ -1,16 +1,9 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for Persistence slice 1 (ROADMAP "Persistence & library"): current-map
 # tracking, the dirty (unsaved-changes) flag hooked through EditHistory, New Map, and autosave.
 # Text-only, no rendering.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_persistence.tscn
-
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
 
 func _ready() -> void:
 	MapIO.auto_load = false
@@ -151,5 +144,4 @@ func _ready() -> void:
 	# cleanup the test map files
 	MapIO.delete_map("_persist_test")
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

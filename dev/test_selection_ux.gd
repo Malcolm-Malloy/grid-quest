@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the Selection UX fixes (ROADMAP "Editor UX revisions"): (1) Cell/Fine
 # must NOT start with a material armed to drop (the user picks one first), and (2) a Wand selection
@@ -8,21 +8,12 @@ extends Node
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_selection_ux.tscn
 
 const TILE_ID := 3 # MENU index of "tile"
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
 
 func _center(cell: Vector2i) -> Vector2:
 	return Vector2(cell.x * 32 + 16, cell.y * 32 + 16)
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 	EditHistory.reset()
 
@@ -99,5 +90,4 @@ func _ready() -> void:
 	fm._clear_selection()
 	_check("clear_selection: the selection is gone", not fm._selection.has_selection())
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

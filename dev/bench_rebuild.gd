@@ -54,4 +54,22 @@ func _ready() -> void:
 	print("spawn_shadows alone:      %.2f ms each" % per_shadow)
 	print("shadow poly count: ", obs.wall_shadow_polys.size())
 
+	# the editor paths layered on top: a floor repaint over a big lake (liquid edges + banks are the
+	# costly part), a whole-map serialize (every undo commit), and one frame of a wall drag
+	var fm = main.get_node("World/FloorManager")
+	obs.apply_map(uniq, [])
+	await get_tree().process_frame
+	for qx in range(0, 40):
+		for qy in range(52, 64):
+			fm._quad_mat[Vector2i(qx, qy)] = "water"
+	print("floor _rebuild (%d quarters, lake): %.2f ms each" % [fm._quad_mat.size(), _time(func(): fm._rebuild(), reps)])
+	print("MapIO.serialize:          %.2f ms each" % _time(func(): MapIO.serialize(), reps))
+	print("wall-drag frame:          %.2f ms each" % _time(func(): fm._reapply_map(), reps))
+
 	get_tree().quit(0)
+
+func _time(f: Callable, reps: int) -> float:
+	var t := _t()
+	for i in reps:
+		f.call()
+	return float(_t() - t) / reps / 1000.0

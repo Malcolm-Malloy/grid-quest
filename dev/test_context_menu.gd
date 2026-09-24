@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the contextual right-click menu (ROADMAP "Right-click menu overhaul",
 # "Editor UX revisions", "Optimise the right menu"). After the 2026-09-05 merge the menu is ONE submenu
@@ -9,13 +9,6 @@ extends Node
 # The Grid toggle stays regardless. Text-only, no render.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_context_menu.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 # index of the top-level menu item whose text == label, or -1 if absent (contextual = present or not)
 func _idx_of(menu: PopupMenu, label: String) -> int:
 	for i in menu.item_count:
@@ -24,10 +17,7 @@ func _idx_of(menu: PopupMenu, label: String) -> int:
 	return -1
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 	var obs = main.get_node("World/Obstacles")
 	var menu: PopupMenu = fm._menu
@@ -79,5 +69,4 @@ func _ready() -> void:
 	fm._apply_menu_context(floor_cell)
 	_check("Grid check mirrors _grid_on after rebuild", menu.is_item_checked(menu.get_item_index(fm.GRID_ID)))
 
-	print("RESULT: " + ("OK" if _fails == 0 else str(_fails) + " FAILURES"))
-	get_tree().quit(_fails)
+	finish()

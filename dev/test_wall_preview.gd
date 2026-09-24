@@ -1,17 +1,10 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the WALL PLACEMENT GHOST shaping (the hover-drop preview). obstacles
 # .preview_wall_configs(cell) must return the SAME piece shape build_world would give the cell, so the
 # ghost shows the real horizontal / vertical / corner / T / cross look. Also checks the FloorManager ghost
 # pool exists. Text-only (the shaping is pure geometry; rendering is verified by eye).
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_wall_preview.tscn
-
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
 
 func _has_full(cfgs: Array) -> bool:
 	for c in cfgs:
@@ -26,10 +19,7 @@ func _has_thin(cfgs: Array, cap: float) -> bool:
 	return false
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var obs = main.get_node("World/Obstacles")
 	var fm = main.get_node("World/FloorManager")
 	var cap: float = obs.CAP_HEIGHT
@@ -73,5 +63,4 @@ func _ready() -> void:
 	cfgs = obs.preview_wall_configs(c)
 	_check("vertical: 1 thin rail piece", cfgs.size() == 1 and cfgs[0]["width"] == cap)
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

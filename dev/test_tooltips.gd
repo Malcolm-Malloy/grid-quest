@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the TOOLTIP sweep (ROADMAP "Tooltips on menu and tool options"). The
 # point of that entry is not that tooltips exist -- it is that they read their shortcut from the SAME
@@ -7,18 +7,8 @@ extends Node
 # and tooltips are composed from it rather than spelling the key out a second time.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_tooltips.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var ts = get_tree().get_first_node_in_group("tool_strip")
 	EditorMode.set_mode(EditorMode.Mode.EDIT)
 
@@ -71,5 +61,4 @@ func _ready() -> void:
 	var erase_idx: int = fm._menu.get_item_index(fm.ERASE_ID)
 	_check("the right-click Erase entry is tipped", "Shortcut: E" in fm._menu.get_item_tooltip(erase_idx))
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

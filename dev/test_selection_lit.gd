@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for "a floor selection reads LIT and un-tinted while its colour is edited"
 # (ROADMAP "Coloured highlight system"): the marching-ants selection must NOT wash the floor with the
@@ -6,16 +6,8 @@ extends Node
 # player is not standing in shows its true (lit) colour. Text-only, no rendering.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_selection_lit.tscn
 
-var _fails := 0
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond: _fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 
 	# a FLOOR selection: the overlay draws ants only (no wash), so the true colour shows through
@@ -38,5 +30,4 @@ func _ready() -> void:
 	fm._sel_quads = {}
 	_check("no floor selection: selection_lit_cells empty", fm.selection_lit_cells().is_empty())
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for LAVA + the river-bank switch. Lava is a second impassable "liquid" that works
 # like water (shoreline, shimmer, bank) but is its OWN material, so wooden bridges cannot be built over it.
@@ -6,13 +6,6 @@ extends Node
 # shoreline for lava; bridges refuse lava but allow water; the bank switch suppresses the bank and
 # round-trips through MapIO v9. Text-only.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_lava.tscn
-
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
 
 func _fill(fm, cell: Vector2i, mat: String) -> void:
 	for dx in 2:
@@ -30,10 +23,7 @@ func _bank_count(fm) -> int:
 	return n
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 	var obs = main.get_node("World/Obstacles")
 	EditHistory.reset()
@@ -115,5 +105,4 @@ func _ready() -> void:
 	await get_tree().process_frame
 	_check("apply restores the no-bank flags", fm._quad_no_bank.size() == 4)
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

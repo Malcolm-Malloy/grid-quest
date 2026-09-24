@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for Coloured floors slice 1 (ROADMAP "Coloured floors" -> "First-slice
 # build plan"): floor TINTS stored per 16px quarter, parallel to floor materials. Checks that a
@@ -7,21 +7,11 @@ extends Node
 # Text-only, no rendering (renders hang headless on this machine).
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_floor_color.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _center(cell: Vector2i) -> Vector2:
 	return Vector2(cell.x * 32 + 16, cell.y * 32 + 16)
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 	EditHistory.reset()
 
@@ -149,5 +139,4 @@ func _ready() -> void:
 	_check("picker: live change tints the target", fm.floor_tint_at_quad(fm._cell_quads(cell)[0]) == blue)
 	_check("picker: flags applied for commit-on-close", fm._picker_applied)
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

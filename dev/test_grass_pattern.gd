@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for GRASS PATTERNS (ROADMAP item 7): grass is now a real, patternable floor
 # material ("grass") with variants Plain/Wild/Tuft. Plain draws NOTHING so the base ground shows through
@@ -7,21 +7,11 @@ extends Node
 # passable base terrain. Text-only.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_grass_pattern.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _rect(q: Vector2i) -> Rect2:
 	return Rect2(q.x * 16, q.y * 16, 16, 16)
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 
 	# --- registration ---
@@ -70,5 +60,4 @@ func _ready() -> void:
 			fm._quad_mat[Vector2i(20 * 2 + dx, 20 * 2 + dy)] = "grass"
 	_check("a grass cell is passable", not fm.is_cell_impassable(Vector2i(20, 20)))
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

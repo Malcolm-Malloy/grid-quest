@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for SEE-THROUGH fences (ROADMAP item 7 fence roster): Wood Fence / Metal Bars /
 # Chainlink are wall materials that render short + gappy (procedurally in wall_segment) and cast NO solid
@@ -7,19 +7,10 @@ extends Node
 # reports the fence material, and a fully-fenced map casts no wall shadow. Text-only.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_fence.tscn
 
-var _fails := 0
 const FENCES := ["wood_fence", "metal_bars", "chainlink"]
 
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var obs = main.get_node("World/Obstacles")
 	var fm = main.get_node("World/FloorManager")
 	EditHistory.reset()
@@ -61,5 +52,4 @@ func _ready() -> void:
 	# fences still block after the material change
 	_check("fenced cells still block", obs.is_blocked(wall))
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

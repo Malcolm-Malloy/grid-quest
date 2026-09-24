@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the generalised AUTO-MATCHING terrain edge system (item 8): outdoor natural
 # terrains (grass/sand/snow) feather into lower-precedence neighbours via the shared edge autotile the
@@ -8,13 +8,6 @@ extends Node
 # shore tile per edge quarter over the correct underlay while interior quarters stay flat. Text-only.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_automatch.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _quads(cell: Vector2i) -> Array:
 	return [
 		Vector2i(cell.x * 2, cell.y * 2), Vector2i(cell.x * 2 + 1, cell.y * 2),
@@ -22,10 +15,7 @@ func _quads(cell: Vector2i) -> Array:
 	]
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 
 	# --- registration (sand + snow are passable outdoor naturals) ---
@@ -115,5 +105,4 @@ func _ready() -> void:
 	_check("snow edge lays a sand underlay then the snow shore tile (underlay first)",
 		under_idx != -1 and snow_idx != -1 and under_idx < snow_idx)
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

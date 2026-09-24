@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for CREATURE PLACEMENT in the editor (ROADMAP "Creature placement in the
 # editor": spawn point + fixed instance now, spawn zone later). Covers the definition registry, both
@@ -6,18 +6,8 @@ extends Node
 # passability, save/load (v13), resize, copy/paste and undo. Text-only, no render.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_creatures.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 	var cr = main.get_node("World/Creatures")
 	var pk = main.get_node("World/Pickups")
@@ -253,5 +243,4 @@ func _ready() -> void:
 	_check("erasing again takes the zone", not cr.has_zone(inzone))
 
 	MapIO.delete_map(map_name)
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only guard for wall faces (ROADMAP "Wall cap rebuild"): EVERY wall cell keeps its front face (its
 # 3D body) - a straight wall, a corner, AND a +/T through-junction. (An earlier pass dropped the face at
@@ -9,13 +9,6 @@ extends Node
 # Text-only, no render.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_wall_cap.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 # the full-width horizontal piece (run_length == 1) covering `cell` (not the thin vertical rail)
 func _horizontal_piece(cell: Vector2i):
 	for w in get_tree().get_nodes_in_group("walls"):
@@ -24,10 +17,7 @@ func _horizontal_piece(cell: Vector2i):
 	return null
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	await get_tree().process_frame # walls spawn deferred; let them land
 
 	var obs = main.get_node("World/Obstacles")
@@ -51,5 +41,4 @@ func _ready() -> void:
 	_check("corner keeps its face (cap + face)", cseg != null and cseg.piece_rects(corner).size() == 2)
 	_check("exposed keeps its face (cap + face)", eseg != null and eseg.piece_rects(exposed).size() == 2)
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

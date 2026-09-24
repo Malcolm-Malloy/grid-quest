@@ -1,22 +1,12 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the DOOR-mode hover GHOST: FloorManager shows a translucent gate.gd preview
 # auto-oriented to the wall run under the cursor (horizontal between L/R walls, vertical between up/down
 # walls, else the R-flippable default), mirroring _place_door_at. Text-only (rendering is verified by eye).
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_door_preview.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var obs = main.get_node("World/Obstacles")
 	var fm = main.get_node("World/FloorManager")
 
@@ -53,5 +43,4 @@ func _ready() -> void:
 	fm._hide_door_ghost()
 	_check("hide clears the door ghost", not fm._door_preview.visible)
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

@@ -1,22 +1,12 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the cell-existence model (ROADMAP "Map extent and edge editing" ->
 # single-cell edge editing / non-square maps): GridBackground.absent_cells, MapEdit.add_cell /
 # remove_cell, walkability, save/load, resize-carry, and undo. Text-only, no rendering.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_cell_existence.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var gb = main.get_node("World/GridBackground")
 	var fm = main.get_node("World/FloorManager")
 
@@ -170,5 +160,4 @@ func _ready() -> void:
 	EditHistory.redo()
 	_check("redo restores the whole strip", gb.cell_present(dw, 10) and gb.cell_present(dw, 13))
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

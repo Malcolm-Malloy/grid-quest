@@ -1,15 +1,10 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for copy / paste / duplicate / move (ROADMAP "Copy, paste, and duplicate",
 # "Move tool"). Covers the clip format (MapClipboard.build_clip), the stamp transforms
 # (MapEdit.stamp_clip / move_clip), edge clipping, the rotate/flip orientation remap, undo, the
 # cross-map + on-disk clipboard, and FloorManager's selection -> clipboard path. Text-only.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_clipboard.tscn
-
-var _fails := 0
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond: _fails += 1
 
 func _cells(list: Array) -> Dictionary:
 	var out := {}
@@ -40,10 +35,7 @@ func _setup(fm) -> void:
 	await get_tree().process_frame
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var obs = main.get_node("World/Obstacles")
 	var fm = main.get_node("World/FloorManager")
 	await _setup(fm)
@@ -191,5 +183,4 @@ func _ready() -> void:
 	_check("the pasted region becomes the selection", fm._selection_cells().size() == 4)
 	fm._ghost_origin_pin = fm.INVALID_CELL
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

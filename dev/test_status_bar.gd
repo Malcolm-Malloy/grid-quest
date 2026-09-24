@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the editor STATUS BAR (ROADMAP "Editor layout" -> "A thin status bar",
 # the last open item of Phase A group 4). Checks the bar exists, is EDIT-only chrome, reports the
@@ -6,18 +6,8 @@ extends Node
 # room for it. Text-only, no render.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_status_bar.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var sb = get_tree().get_first_node_in_group("status_bar")
 	_check("status bar exists (grouped)", sb != null)
 	var fm = main.get_node("World/FloorManager")
@@ -114,5 +104,4 @@ func _ready() -> void:
 	# --- the readout is inert: it must never eat the hover the map tools need ---
 	_check("the bar ignores the mouse", sb._panel.mouse_filter == Control.MOUSE_FILTER_IGNORE)
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

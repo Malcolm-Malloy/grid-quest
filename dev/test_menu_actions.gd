@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the right-click-menu ACTIONS (ROADMAP "Editor UX revisions"): Build Wall /
 # Build Door, Erase (single structure, single floor cell, floor selection, wall selection), the Delete
@@ -8,13 +8,6 @@ extends Node
 # Text-only, no render.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_menu_actions.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _center(cell: Vector2i) -> Vector2:
 	return Vector2(cell.x * 32 + 16, cell.y * 32 + 16)
 
@@ -23,10 +16,7 @@ func _click(fm, cell: Vector2i, id: int) -> void:
 	fm._on_menu_id(id)
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 	var obs = main.get_node("World/Obstacles")
 	EditHistory.reset()
@@ -115,5 +105,4 @@ func _ready() -> void:
 	_check("panel brush: a wall built after a panel pick carries that colour", obs.get_wall_color(pw) == fm.WALL_COLORS[1][1])
 	_check("panel brush: a wall built after a panel pick carries that material", obs.get_wall_material(pw) == fm.WALL_MATERIALS[2][1])
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

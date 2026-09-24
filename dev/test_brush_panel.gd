@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only test for the persistent Brush panel (ROADMAP "Photoshop-style persistent LEFT panel"): the
 # left tool strip shows the armed floor material + colour as clickable swatches, live-synced to
@@ -6,16 +6,8 @@ extends Node
 # syncs the panel highlight back. Text-only, no render.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_brush_panel.tscn
 
-var _fails := 0
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond: _fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var ts = get_tree().get_first_node_in_group("tool_strip")
 	var fm = main.get_node("World/FloorManager")
 
@@ -73,8 +65,7 @@ func _ready() -> void:
 	# the fun row is unaffected by any of it
 	_check("the constant row still has its eight", ts._col_swatches.size() == fm.FLOOR_COLORS.size())
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()
 
 # every material the Material grid offers must have a realistic table, or picking it would silently
 # drop the row -- the one way this feature can be half-built as the roster grows

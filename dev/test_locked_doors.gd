@@ -1,23 +1,15 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for locked doors and keys (ROADMAP Phase B item 11, the terminal item of the
 # 2026-08-13 chain): the two lock types, what each does to the key, how a locked door blocks, where
 # the opened state lives, and the editor rules (authoring, durable door ids, deleting a bound door).
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_locked_doors.tscn
 
-var _fails := 0
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond: _fails += 1
-
 func _mid(cell: Vector2i) -> Vector2:
 	return Vector2(cell.x * 32 + 16, cell.y * 32 + 16)
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var obs = main.get_node("World/Obstacles")
 	var fm = main.get_node("World/FloorManager")
 	var pk = main.get_node("World/Pickups")
@@ -118,5 +110,4 @@ func _ready() -> void:
 	_check("the moved door kept its lock", obs.door_at(Vector2i(8, 12)).get("lock", "") == "unique")
 
 	DirAccess.remove_absolute("user://maps/__lock_test.json")
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

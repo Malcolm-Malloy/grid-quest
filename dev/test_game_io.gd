@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for WHOLE-GAME SAVES (ROADMAP Phase B item 9), the last piece of Phase B.
 # Covers the bundle (map name + a copy of the character), the refusals, the load order that puts the
@@ -6,18 +6,8 @@ extends Node
 # staying separate. Text-only, no render.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_game_io.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var player = main.get_node("World/Player")
 	GameIO.delete_game()
 	EditorMode.set_mode(EditorMode.Mode.EDIT)
@@ -74,5 +64,4 @@ func _ready() -> void:
 	_check("...and loading then does nothing", not GameIO.load_game())
 
 	CharacterIO.clear_collected()
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()
