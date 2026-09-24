@@ -11,23 +11,23 @@ func _ready() -> void:
 	var fm = main.get_node("World/FloorManager")
 
 	# a FLOOR selection: the overlay draws ants only (no wash), so the true colour shows through
-	fm._selection.set_floor({Vector2i(16, 18): true}, [])
-	_check("floor selection: wash off (ants only)", not fm._selection._wash)
+	fm.selection.overlay.set_floor({Vector2i(16, 18): true}, [])
+	_check("floor selection: wash off (ants only)", not fm.selection.overlay._wash)
 
 	# selection_lit_cells maps the selected quarters to their owning 32px cells for RoomLight
 	EditorState.sel_kind = EditorState.SelKind.FLOOR
 	EditorState.sel_quads = {Vector2i(16, 18): true, Vector2i(17, 18): true}
-	var lit: Dictionary = fm.selection_lit_cells()
+	var lit: Dictionary = fm.selection.lit_cells()
 	_check("selection_lit_cells: quarter (16,18) -> cell (8,9)", lit.has(Vector2i(8, 9)))
 	_check("selection_lit_cells: no stray cells", lit.size() == 1)
 
 	# a WALL selection keeps the wash (the 3D silhouette reads better than a bare outline)
-	fm._selection.set_wall({Vector2i(8, 8): true}, [Rect2(256, 256, 32, 18)])
-	_check("wall selection: wash on", fm._selection._wash)
+	fm.selection.overlay.set_wall({Vector2i(8, 8): true}, [Rect2(256, 256, 32, 18)])
+	_check("wall selection: wash on", fm.selection.overlay._wash)
 
 	# no floor selection -> nothing extra lit
 	EditorState.sel_kind = EditorState.SelKind.NONE
 	EditorState.sel_quads = {}
-	_check("no floor selection: selection_lit_cells empty", fm.selection_lit_cells().is_empty())
+	_check("no floor selection: selection_lit_cells empty", fm.selection.lit_cells().is_empty())
 
 	finish()

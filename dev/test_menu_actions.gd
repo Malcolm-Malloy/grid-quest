@@ -56,31 +56,31 @@ func _ready() -> void:
 
 	# --- Erase a FLOOR selection (Wand), then it clears ---
 	fm.set_mode(0) # WAND
-	fm._wand_click(_center(Vector2i(12, 9)))
-	_check("setup: a floor selection exists", fm._selection.has_selection() and EditorState.sel_kind == EditorState.SelKind.FLOOR)
+	fm.selection.wand_click(_center(Vector2i(12, 9)))
+	_check("setup: a floor selection exists", fm.selection.overlay.has_selection() and EditorState.sel_kind == EditorState.SelKind.FLOOR)
 	var sel_q = EditorState.sel_quads.keys()[0]
 	_click(fm, Vector2i(12, 9), fm.ERASE_ID)
 	_check("Erase (floor selection): a selected quarter is cleared", not fm._quad_mat.has(sel_q))
-	_check("Erase (floor selection): selection cleared afterwards", not fm._selection.has_selection())
+	_check("Erase (floor selection): selection cleared afterwards", not fm.selection.overlay.has_selection())
 
 	# --- Delete key erases the selection ---
-	fm._wand_click(_center(Vector2i(7, 4)))
-	_check("setup: a floor selection exists for Delete", fm._selection.has_selection())
+	fm.selection.wand_click(_center(Vector2i(7, 4)))
+	_check("setup: a floor selection exists for Delete", fm.selection.overlay.has_selection())
 	var del_q = EditorState.sel_quads.keys()[0]
 	var ev := InputEventKey.new()
 	ev.keycode = KEY_DELETE
 	ev.pressed = true
 	fm._unhandled_key_input(ev)
 	_check("Delete key: the selected quarter is cleared", not fm._quad_mat.has(del_q))
-	_check("Delete key: selection cleared afterwards", not fm._selection.has_selection())
+	_check("Delete key: selection cleared afterwards", not fm.selection.overlay.has_selection())
 
 	# --- Erase a WALL selection (Wand on a wall), then it clears ---
-	fm._wand_click(_center(Vector2i(6, 3)))
-	_check("setup: a wall selection exists", fm._selection.has_selection() and EditorState.sel_kind == EditorState.SelKind.WALL)
+	fm.selection.wand_click(_center(Vector2i(6, 3)))
+	_check("setup: a wall selection exists", fm.selection.overlay.has_selection() and EditorState.sel_kind == EditorState.SelKind.WALL)
 	var sel_wall = EditorState.sel_cells.keys()[0]
 	_click(fm, Vector2i(6, 3), fm.ERASE_ID)
 	_check("Erase (wall selection): a selected wall is removed", not obs.is_blocked(sel_wall))
-	_check("Erase (wall selection): selection cleared afterwards", not fm._selection.has_selection())
+	_check("Erase (wall selection): selection cleared afterwards", not fm.selection.overlay.has_selection())
 
 	# --- Build Wall configurator: pick colour + material, Start arms Wall mode, placed walls carry them ---
 	fm._on_build_wall_id(2)   # WALL_COLORS[2] = Green
@@ -97,7 +97,7 @@ func _ready() -> void:
 
 	# --- UNIFIED brush: arming a wall colour/material from the LEFT PANEL also builds with it (no wall
 	# selection, so arm_wall_* just set the brush), matching the floor flow ---
-	fm._clear_selection()
+	fm.selection.clear()
 	fm.arm_wall_color(WallSegment.COLORS[1][1])       # Red, via the panel path
 	fm.arm_wall_material(WallSegment.MATERIAL_NAMES[2][1]) # Slate, via the panel path
 	var pw := Vector2i(26, 20)

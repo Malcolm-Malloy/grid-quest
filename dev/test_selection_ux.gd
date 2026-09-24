@@ -65,7 +65,7 @@ func _ready() -> void:
 
 	# --- custom-shape drop: a Wand-selection fill animates the whole shape dropping in ---
 	fm.set_mode(0) # Mode.WAND
-	fm._wand_click(_center(cellA)) # makes a floor selection
+	fm.selection.wand_click(_center(cellA)) # makes a floor selection
 	var drop_rects: Array = fm._selection_drop_rects()
 	_check("shape-drop rects: >0 and <= selected quarters (excludes under-wall ring)",
 		drop_rects.size() > 0 and drop_rects.size() <= EditorState.sel_quads.size())
@@ -75,19 +75,19 @@ func _ready() -> void:
 
 	# --- (1) deselect helpers: a Wand selection, then the off-selection / off-map decisions ---
 	fm.set_mode(0) # Mode.WAND
-	fm._wand_click(_center(cellA))
-	_check("wand: a selection exists", fm._selection.has_selection())
-	_check("click-in-selection: a point inside the selection is 'inside'", fm._click_in_selection(_center(cellA)))
-	_check("click-in-selection: a far point is 'outside'", not fm._click_in_selection(_center(Vector2i(2, 2))))
+	fm.selection.wand_click(_center(cellA))
+	_check("wand: a selection exists", fm.selection.overlay.has_selection())
+	_check("click-in-selection: a point inside the selection is 'inside'", fm.selection.contains(_center(cellA)))
+	_check("click-in-selection: a far point is 'outside'", not fm.selection.contains(_center(Vector2i(2, 2))))
 	_check("off-map: an out-of-bounds cell is not in bounds", not fm._in_bounds(Vector2i(-1, -1)))
 
 	# the right-click handler's deselect decision = has_selection AND (off-map OR off-selection)
-	var deselect_far: bool = fm._selection.has_selection() and (not fm._in_bounds(Vector2i(2, 2)) or not fm._click_in_selection(_center(Vector2i(2, 2))))
+	var deselect_far: bool = fm.selection.overlay.has_selection() and (not fm._in_bounds(Vector2i(2, 2)) or not fm.selection.contains(_center(Vector2i(2, 2))))
 	_check("decision: right-click on a far cell would deselect", deselect_far)
-	var keep_inside: bool = fm._selection.has_selection() and (not fm._in_bounds(cellA) or not fm._click_in_selection(_center(cellA)))
+	var keep_inside: bool = fm.selection.overlay.has_selection() and (not fm._in_bounds(cellA) or not fm.selection.contains(_center(cellA)))
 	_check("decision: right-click inside the selection would NOT deselect (menu opens)", not keep_inside)
 
-	fm._clear_selection()
-	_check("clear_selection: the selection is gone", not fm._selection.has_selection())
+	fm.selection.clear()
+	_check("clear_selection: the selection is gone", not fm.selection.overlay.has_selection())
 
 	finish()

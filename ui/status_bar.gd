@@ -94,7 +94,7 @@ func _ready() -> void:
 
 func _on_selection_changed() -> void:
 	var fm := _floor_manager()
-	_sel_text = fm.selection_summary() if fm != null else ""
+	_sel_text = fm.selection.summary() if fm != null else ""
 
 # How much room the bar actually takes along the bottom, for whoever has to stay clear of it (the
 # tool strip). The COMBINED MINIMUM is what drives the panel's height and, unlike its laid-out size,

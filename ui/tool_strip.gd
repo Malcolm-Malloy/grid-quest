@@ -361,9 +361,9 @@ func _set_section(title: String, expanded: bool) -> void:
 func _on_selection_changed() -> void:
 	if _fm == null:
 		return
-	if _fm.has_wall_selection():
+	if _fm.selection.has_wall():
 		_set_section("Wall", true)
-	elif _fm.has_floor_selection():
+	elif _fm.selection.has_floor():
 		_set_section("Brush", true)
 
 # --- Brush panel: swatches + live highlight of the active material/colour ---
@@ -507,14 +507,14 @@ func _mark_active_swatch(row: Array, active_col: Color) -> void:
 func _on_brush_material(mval: String) -> void:
 	if _fm == null:
 		return
-	if not _fm.has_floor_selection() and _fm.mode() != Mode.CELL and _fm.mode() != Mode.FINE:
+	if not _fm.selection.has_floor() and _fm.mode() != Mode.CELL and _fm.mode() != Mode.FINE:
 		_select_mode(Mode.CELL)
 	_fm.arm_floor_material(mval)
 
 func _on_brush_color(cval: Color) -> void:
 	if _fm == null:
 		return
-	if not _fm.has_floor_selection() and _fm.mode() != Mode.CELL and _fm.mode() != Mode.FINE:
+	if not _fm.selection.has_floor() and _fm.mode() != Mode.CELL and _fm.mode() != Mode.FINE:
 		_select_mode(Mode.CELL)
 	_fm.arm_floor_color(cval)
 
@@ -524,14 +524,14 @@ func _on_brush_color(cval: Color) -> void:
 func _on_wall_material(mval: String) -> void:
 	if _fm == null:
 		return
-	if not _fm.has_wall_selection() and _fm.mode() != Mode.WALL:
+	if not _fm.selection.has_wall() and _fm.mode() != Mode.WALL:
 		_select_mode(Mode.WALL)
 	_fm.arm_wall_material(mval)
 
 func _on_wall_color(cval: Color) -> void:
 	if _fm == null:
 		return
-	if not _fm.has_wall_selection() and _fm.mode() != Mode.WALL:
+	if not _fm.selection.has_wall() and _fm.mode() != Mode.WALL:
 		_select_mode(Mode.WALL)
 	_fm.arm_wall_color(cval)
 

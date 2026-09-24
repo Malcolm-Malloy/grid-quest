@@ -24,8 +24,8 @@ func _ready() -> void:
 
 	# wand-select the room: the panel must reflect Tile + Red
 	fm.set_mode(0) # Mode.WAND
-	fm._wand_click(center)
-	_check("wand select: a floor selection exists", fm.has_floor_selection())
+	fm.selection.wand_click(center)
+	_check("wand select: a floor selection exists", fm.selection.has_floor())
 	_check("panel reflects material (tile)", fm.armed_material() == "tile")
 	_check("panel reflects colour (red)", fm.active_floor_color().is_equal_approx(Color.RED))
 
@@ -33,12 +33,12 @@ func _ready() -> void:
 	fm.arm_floor_color(Color.GREEN)
 	_check("panel colour re-tints the selection", fm._quad_tint.get(q0, Color.WHITE).is_equal_approx(Color.GREEN))
 	_check("re-tint keeps the material", fm._quad_mat.get(q0, "") == "tile")
-	_check("re-tint keeps the selection", fm.has_floor_selection())
+	_check("re-tint keeps the selection", fm.selection.has_floor())
 
 	# pick a material in the panel -> re-textures the SELECTION in place, colour + selection kept
 	fm.arm_floor_material("wood")
 	_check("panel material re-textures the selection", fm._quad_mat.get(q0, "") == "wood")
 	_check("re-texture keeps the colour", fm._quad_tint.get(q0, Color.WHITE).is_equal_approx(Color.GREEN))
-	_check("re-texture keeps the selection", fm.has_floor_selection())
+	_check("re-texture keeps the selection", fm.selection.has_floor())
 
 	finish()

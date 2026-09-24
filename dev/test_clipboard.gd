@@ -140,11 +140,11 @@ func _ready() -> void:
 	_check("clip() hands out a copy, not the stored clip", MapClipboard.clip_cell_count() == 4)
 
 	# --- 9. FloorManager: a selection is what gets copied ---
-	fm._select_cells(src)
-	_check("selection -> footprint cells", fm._selection_cells().size() == 4)
+	fm.selection.select_cells(src)
+	_check("selection -> footprint cells", fm.selection.cells().size() == 4)
 	MapClipboard.clear()
 	_check("Ctrl+C with a selection fills the clipboard", fm._copy_selection() and MapClipboard.has_clip())
-	fm._clear_selection()
+	fm.selection.clear()
 	_check("Ctrl+C with no selection copies nothing", not fm._copy_selection())
 	fm._arm_paste(MapClipboard.clip())
 	_check("Ctrl+V arms a paste", EditorState.pending_kind == EditorState.Pending.PASTE and not EditorState.pending_clip.is_empty())
@@ -159,20 +159,20 @@ func _ready() -> void:
 	# --- 10. the FloorManager gestures end to end: a drag-move, then a paste click ---
 	await _setup(fm)
 	EditHistory.reset()
-	fm._select_cells(src)
+	fm.selection.select_cells(src)
 	fm._begin_move(Vector2i(2, 2)) # grab the run's left end
 	_check("MOVE press inside the selection arms a move", EditorState.pending_kind == EditorState.Pending.MOVE and EditorState.move_src.size() == 4)
 	fm._ghost_origin_pin = Vector2i(5, 6) # stands in for the cursor (see _pending_origin)
 	fm._drop_pending()
 	await get_tree().process_frame
 	_check("the move drag landed the region", _has_wall(obs, Vector2i(5, 6)) and not _has_wall(obs, Vector2i(2, 2)))
-	_check("the moved region stays selected (so it can be moved again)", fm._selection_cells().has(Vector2i(5, 6)))
+	_check("the moved region stays selected (so it can be moved again)", fm.selection.cells().has(Vector2i(5, 6)))
 	_check("the gesture cleared itself", EditorState.pending_clip.is_empty() and EditorState.move_src.is_empty())
 	EditHistory.undo()
 	await get_tree().process_frame
 	_check("one undo reverses the whole drag-move", _has_wall(obs, Vector2i(2, 2)) and not _has_wall(obs, Vector2i(5, 6)))
 
-	fm._select_cells(src)
+	fm.selection.select_cells(src)
 	fm._copy_selection()
 	fm._arm_paste(MapClipboard.clip())
 	fm._ghost_origin_pin = Vector2i(6, 6)
@@ -180,7 +180,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	_check("a paste click stamps at the ghost", _has_wall(obs, Vector2i(6, 6)) and _has_wall(obs, Vector2i(7, 6)))
 	_check("the paste left the source alone", _has_wall(obs, Vector2i(2, 2)))
-	_check("the pasted region becomes the selection", fm._selection_cells().size() == 4)
+	_check("the pasted region becomes the selection", fm.selection.cells().size() == 4)
 	fm._ghost_origin_pin = fm.INVALID_CELL
 
 	# --- spawn zones through copy / rotate / paste (pure data, no world) ---

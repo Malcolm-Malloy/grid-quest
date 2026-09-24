@@ -308,7 +308,7 @@ func _draw() -> void:
 	# the player is not standing in is otherwise dimmed, which distorts the picked colour. Copy the cache
 	# (never mutate it) and fold the selected cells in, so their wall neighbours light on that side too.
 	if _fm != null:
-		var sel: Dictionary = _fm.selection_lit_cells()
+		var sel: Dictionary = _fm.selection.lit_cells()
 		if not sel.is_empty():
 			lit = lit.duplicate()
 			for c in sel:

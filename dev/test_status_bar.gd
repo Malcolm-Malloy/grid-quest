@@ -45,31 +45,31 @@ func _ready() -> void:
 
 	# --- selection size, in the unit the selection was made in ---
 	_check("no selection field with nothing selected", not ("Sel " in sb._compose_left()))
-	_check("selection_summary is empty with nothing selected", fm.selection_summary() == "")
+	_check("selection_summary is empty with nothing selected", fm.selection.summary() == "")
 	# a floor selection is quarter-grained: whole cells report cells, a partial cell reports quads
 	# Each change goes through _refresh_selection_overlay, the real path that emits selection_changed --
 	# the bar CACHES the selection off that signal (recounting every selected quarter each frame would
 	# be the one expensive thing on a per-frame readout), so the signal is part of what is under test.
 	EditorState.sel_kind = EditorState.SelKind.FLOOR
 	EditorState.sel_quads = {Vector2i(4, 4): true, Vector2i(5, 4): true, Vector2i(4, 5): true, Vector2i(5, 5): true}
-	fm._refresh_selection_overlay()
-	_check("four quarters of one cell report 1 cell", fm.selection_summary() == "1 cell")
+	fm.selection.refresh()
+	_check("four quarters of one cell report 1 cell", fm.selection.summary() == "1 cell")
 	_check("the bar shows the selection", "Sel 1 cell" in sb._compose_left())
 	EditorState.sel_quads.erase(Vector2i(5, 5))
-	fm._refresh_selection_overlay()
-	_check("a partial cell reports quads, not a rounded-up cell", fm.selection_summary() == "3 quads")
+	fm.selection.refresh()
+	_check("a partial cell reports quads, not a rounded-up cell", fm.selection.summary() == "3 quads")
 	_check("the bar followed the change without being told twice", "Sel 3 quads" in sb._compose_left())
-	fm._clear_selection()
-	fm._refresh_selection_overlay()
+	fm.selection.clear()
+	fm.selection.refresh()
 	# a wall selection counts walls
 	EditorState.sel_kind = EditorState.SelKind.WALL
 	EditorState.sel_cells = {Vector2i(1, 1): true, Vector2i(2, 1): true}
-	fm._refresh_selection_overlay()
-	_check("a wall selection counts walls", fm.selection_summary() == "2 walls")
+	fm.selection.refresh()
+	_check("a wall selection counts walls", fm.selection.summary() == "2 walls")
 	_check("the bar shows walls too", "Sel 2 walls" in sb._compose_left())
-	fm._clear_selection()
-	fm._refresh_selection_overlay()
-	_check("clearing the selection drops the field", fm.selection_summary() == "")
+	fm.selection.clear()
+	fm.selection.refresh()
+	_check("clearing the selection drops the field", fm.selection.summary() == "")
 	_check("...and the bar drops it too", not ("Sel " in sb._compose_left()))
 
 	# --- map dimensions + zoom (the right half) ---

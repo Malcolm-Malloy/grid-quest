@@ -102,13 +102,10 @@ var _box_maybe := false       # SELECT: a press landed, but it is not yet a drag
 const DRAG_SLOP := 6.0        # px of movement that turns a press into a box drag
 var _box_press := Vector2.ZERO # where the press landed, to measure the slop
 var _box_active := false      # true while a box drag is in progress
-var _box_start := Vector2i.ZERO # the cell the drag began on
-var _box_op: EditorState.SelOp = EditorState.SelOp.REPLACE # captured from the modifier at press
-var _box_base := {}           # selection quads snapshot at drag start (the base add/subtract build on)
 var _cursor: Node2D          # the Cell/Fine square paint cursor (see paint_cursor.gd)
 var _preview: Node2D         # the lifted terrain drop-preview sprite (see terrain_preview.gd)
 var _ghosts: PlacementGhosts # the wall / door / bridge placement previews (placement_ghosts.gd)
-var _selection: Node2D       # marching-ants selection overlay (see selection_overlay.gd)
+var selection: SelectionTool # the wand / box selection and its marching ants (selection_tool.gd)
 var _clip_ghost: Node2D      # hover ghost for an armed paste / an in-flight move (clip_preview.gd)
 var _zone_active := false    # true while a zone rectangle is being dragged out
 var _zone_start := Vector2i.ZERO # the cell that drag began on
@@ -253,10 +250,9 @@ func _ready() -> void:
 	get_window().mouse_exited.connect(_on_window_mouse_exited)
 	get_window().mouse_entered.connect(_on_window_mouse_entered)
 	# the marching-ants selection overlay the Magic Wand builds and the menu fills
-	_selection = Node2D.new()
-	_selection.set_script(load("res://floors/selection_overlay.gd"))
-	_selection.z_index = 1000
-	add_child(_selection)
+	selection = SelectionTool.new()
+	add_child(selection)
+	selection.setup(self, _obs, room_light)
 	# the paste/move hover ghost: draws the armed clip over the cells it would land on. It borrows
 	# this manager's texture lookup so the ghost shows the real material art, and its bounds test so
 	# cells that would be clipped at the map edge read red before the click.
@@ -281,7 +277,7 @@ func _ready() -> void:
 # move, every hover highlight, and any obstacle dimmed under the cursor. Nothing is restored on the way
 # back to EDIT -- you return to a clean slate rather than a stale selection from before you played.
 func _exit_edit_state() -> void:
-	_clear_selection()
+	selection.clear()
 	_cancel_pending()
 	EditorState.armed = false      # an armed terrain brush would otherwise drop a tile on the first click back
 	_painting = false
@@ -382,8 +378,8 @@ func _on_right_press() -> void:
 	# a right-click off the map, or off the current selection, deselects (rather than opening the
 	# menu). A right-click INSIDE the selection falls through to open the menu, so it can still act
 	# on the selection. See ROADMAP "Editor UX revisions" -> deselect a Wand selection.
-	if _selection.has_selection() and (not _in_bounds(cell) or not _click_in_selection(local)):
-		_clear_selection()
+	if selection.overlay.has_selection() and (not _in_bounds(cell) or not selection.contains(local)):
+		selection.clear()
 		_handled()
 		return
 	if not _in_bounds(cell):
@@ -404,8 +400,8 @@ func _on_left_button(event: InputEventMouseButton) -> void:
 		return
 	# clicking off the map deselects the current selection (any mode), per "Editor UX revisions"
 	# -> deselect a Wand selection ("clicking off the map would logically deselect").
-	if event.pressed and _selection.has_selection() and not _in_bounds(Grid.cell_of(get_local_mouse_position())):
-		_clear_selection()
+	if event.pressed and selection.overlay.has_selection() and not _in_bounds(Grid.cell_of(get_local_mouse_position())):
+		selection.clear()
 		_handled()
 		return
 	# single-click tools: one press = one action at the mouse (= one undo entry where it edits). None drags:
@@ -423,13 +419,6 @@ func _on_left_button(event: InputEventMouseButton) -> void:
 		EditorState.Mode.WALL: _left_wall(event)
 		_: _left_paint(event) # Cell / Fine / Erase
 
-# start a (possible) box selection at `cell`. The modifier at press decides replace / add / subtract
-# against the current selection, whose floor quarters are snapshotted as the base to build on.
-func _begin_box(cell: Vector2i, event: InputEventMouseButton) -> void:
-	_box_start = cell
-	_box_op = _sel_op(event)
-	_box_base = EditorState.sel_quads.duplicate() if (EditorState.sel_kind == EditorState.SelKind.FLOOR and _box_op != EditorState.SelOp.REPLACE) else {}
-
 # ONE Select tool, two gestures (2026-09-05: Magic Wand and Box Select merged): a CLICK grows a
 # selection (patch -> room, run -> building), a DRAG boxes one. The press just arms both and waits to
 # see which happened. Shift adds / Alt subtracts either way ("Editor UX revisions" -> additive/
@@ -441,7 +430,7 @@ func _left_wand(event: InputEventMouseButton) -> void:
 		if _in_bounds(pc):
 			_box_maybe = true
 			_box_press = local
-			_begin_box(pc, event)
+			selection.begin_box(pc, event)
 			_handled()
 		return
 	if _box_active:
@@ -451,7 +440,7 @@ func _left_wand(event: InputEventMouseButton) -> void:
 		# properties inspector (the old separate Select tool, now folded in)
 		var lc := get_local_mouse_position()
 		if _in_bounds(Grid.cell_of(lc)):
-			_wand_click(lc, _box_op)
+			selection.wand_click(lc, selection.box_op)
 			_select_at(lc)
 	_box_maybe = false
 	_handled()
@@ -462,8 +451,8 @@ func _left_box(event: InputEventMouseButton) -> void:
 		var cell := _mouse_cell_clamped()
 		if _in_bounds(cell):
 			_box_active = true
-			_begin_box(cell, event)
-			_update_box(cell)
+			selection.begin_box(cell, event)
+			selection.update_box(cell)
 			_handled()
 	elif _box_active:
 		_box_active = false # selection already committed into EditorState.sel_quads during the drag
@@ -475,7 +464,7 @@ func _left_box(event: InputEventMouseButton) -> void:
 func _left_move(event: InputEventMouseButton) -> void:
 	if event.pressed:
 		var ml := get_local_mouse_position()
-		if _selection.has_selection() and _click_in_selection(ml):
+		if selection.overlay.has_selection() and selection.contains(ml):
 			_begin_move(Grid.cell_of(ml))
 			_handled()
 	elif EditorState.pending_kind == EditorState.Pending.MOVE:
@@ -541,7 +530,7 @@ func _on_mouse_motion() -> void:
 	if _painting:
 		_paint(get_local_mouse_position())
 	elif _box_active:
-		_update_box(_mouse_cell_clamped())
+		selection.update_box(_mouse_cell_clamped())
 	_update_hover()
 
 # Esc clears the current Magic Wand selection (also cleared by starting a new selection elsewhere).
@@ -578,10 +567,10 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if event.keycode == KEY_ESCAPE and not EditorState.pending_clip.is_empty():
 		_cancel_pending() # Esc drops the armed paste / aborts the move drag before it lands
 		get_viewport().set_input_as_handled()
-	elif event.keycode == KEY_ESCAPE and _selection.has_selection():
-		_clear_selection()
+	elif event.keycode == KEY_ESCAPE and selection.overlay.has_selection():
+		selection.clear()
 		get_viewport().set_input_as_handled()
-	elif event.keycode == KEY_DELETE and _selection.has_selection():
+	elif event.keycode == KEY_DELETE and selection.overlay.has_selection():
 		# Delete erases the current selection (ROADMAP "Editor UX revisions" -> Erase = also the Delete key)
 		_erase_selection()
 		get_viewport().set_input_as_handled()
@@ -719,7 +708,7 @@ func _on_menu_id(id: int) -> void:
 		EditorState.tool_kind = EditorState.Brush.WALL_MATERIAL
 		EditorState.wall_mat = WallSegment.MATERIAL_NAMES[id - WALL_MAT_BASE_ID][1]
 		var did_mat := false
-		if EditorState.sel_kind == EditorState.SelKind.WALL and _selection.has_selection():
+		if EditorState.sel_kind == EditorState.SelKind.WALL and selection.overlay.has_selection():
 			_fill_wall_material_selection(EditorState.wall_mat)
 			did_mat = true
 		else:
@@ -757,7 +746,7 @@ func _on_menu_id(id: int) -> void:
 		EditorState.tool_kind = EditorState.Brush.WALL_COLOR
 		EditorState.wall_color = WallSegment.COLORS[id - WALL_BASE_ID][1]
 		var did_edit := false
-		if EditorState.sel_kind == EditorState.SelKind.WALL and _selection.has_selection():
+		if EditorState.sel_kind == EditorState.SelKind.WALL and selection.overlay.has_selection():
 			_fill_wall_selection(EditorState.wall_color)
 			did_edit = true
 		else:
@@ -780,7 +769,7 @@ func _on_menu_id(id: int) -> void:
 	EditorState.brush = FloorMaterials.MATERIAL_NAMES[id][1]
 	EditorState.armed = true # a material was explicitly chosen: Cell/Fine may now drop it
 	EditorState.brush_changed.emit()
-	if EditorState.sel_kind == EditorState.SelKind.FLOOR and _selection.has_selection():
+	if EditorState.sel_kind == EditorState.SelKind.FLOOR and selection.overlay.has_selection():
 		var drop_rects := _selection_drop_rects() # capture the shape before the highlight resets
 		_fill_floor_selection(EditorState.brush)
 		EditHistory.commit("paint") # one menu fill = one undo step
@@ -869,20 +858,6 @@ func hovered_cell() -> Vector2i:
 	var cell := Grid.cell_of(local)
 	return cell if _in_bounds(cell) else INVALID_CELL
 
-# How big the committed selection is, in the unit it was actually made in ("" when nothing is
-# selected). A floor selection is QUARTER-grained, so it reports cells only when its quarters tile
-# whole cells and quads otherwise: half a cell must never read as a whole one.
-func selection_summary() -> String:
-	if has_floor_selection():
-		var cells: int = selection_lit_cells().size()
-		if EditorState.sel_quads.size() == cells * 4:
-			return "%d cell%s" % [cells, "" if cells == 1 else "s"]
-		return "%d quad%s" % [EditorState.sel_quads.size(), "" if EditorState.sel_quads.size() == 1 else "s"]
-	if has_wall_selection():
-		var n: int = EditorState.sel_cells.size()
-		return "%d wall%s" % [n, "" if n == 1 else "s"]
-	return ""
-
 # --- persistent Brush panel API (tool_strip.gd): read + set the armed floor brush without the menu ---
 
 func is_armed() -> bool:
@@ -904,27 +879,6 @@ func armed_brush_texture() -> Texture2D:
 		return FloorMaterials.GRASS
 	return FloorMaterials.texture(EditorState.brush, 0)
 
-# is there a committed FLOOR selection? Used by the panel to decide whether picking a material/colour
-# EDITS the selection (recolour/re-texture in place) rather than arming a brush to paint by hand.
-func has_floor_selection() -> bool:
-	return EditorState.sel_kind == EditorState.SelKind.FLOOR and _selection != null and _selection.has_selection()
-
-# mirror the current floor selection's material + colour into the armed brush, so the Brush panel
-# lights up the tile+colour the selection already has (e.g. red tiles -> Tile + Red). Uses the most
-# common value across the selected quarters, so a mostly-uniform room reflects its dominant look. Only
-# re-emits when something actually changed, so it is safe to call on every selection refresh.
-func _reflect_selection_brush() -> void:
-	if EditorState.sel_quads.is_empty():
-		return
-	var mat: String = _dominant(EditorState.sel_quads, _quad_mat, "")
-	var col: Color = _dominant(EditorState.sel_quads, _quad_tint, Color.WHITE)
-	if mat == EditorState.brush and col == EditorState.floor_color and EditorState.tool_kind == EditorState.Brush.FLOOR:
-		return
-	EditorState.tool_kind = EditorState.Brush.FLOOR
-	EditorState.brush = mat
-	EditorState.floor_color = col
-	EditorState.brush_changed.emit()
-
 # --- wall side of the Brush panel: read + set the armed wall material + colour (mirrors the floor API
 # above). A WALL selection reflects its look here, and picking here edits the wall selection in place.
 
@@ -937,13 +891,10 @@ func active_wall_color() -> Color:
 func armed_wall_texture() -> Texture2D:
 	return WallSegment.swatch_texture(EditorState.wall_mat)
 
-func has_wall_selection() -> bool:
-	return EditorState.sel_kind == EditorState.SelKind.WALL and _selection != null and _selection.has_selection()
-
 func arm_wall_material(mat: String) -> void:
 	EditorState.tool_kind = EditorState.Brush.WALL_MATERIAL
 	EditorState.wall_mat = mat
-	if has_wall_selection():
+	if selection.has_wall():
 		_fill_wall_material_selection(mat)
 		EditHistory.commit("wall material")
 	EditorState.brush_changed.emit()
@@ -951,48 +902,10 @@ func arm_wall_material(mat: String) -> void:
 func arm_wall_color(color: Color) -> void:
 	EditorState.tool_kind = EditorState.Brush.WALL_COLOR
 	EditorState.wall_color = color
-	if has_wall_selection():
+	if selection.has_wall():
 		_fill_wall_selection(color)
 		EditHistory.commit("wall colour")
 	EditorState.brush_changed.emit()
-
-# mirror the current wall selection's dominant material + colour into the armed wall brush, so the
-# panel lights up the wall's material + tint (like the floor reflect). Reads per-cell values via
-# Obstacles (which return the stone/white defaults), so a mostly-plain selection reflects Stone/Natural.
-func _reflect_wall_selection_brush() -> void:
-	if EditorState.sel_cells.is_empty():
-		return
-	if _obs == null:
-		return
-	var matmap := {}
-	var colmap := {}
-	for c in EditorState.sel_cells:
-		matmap[c] = _obs.get_wall_material(c)
-		colmap[c] = _obs.get_wall_color(c)
-	var mat: String = _dominant(EditorState.sel_cells, matmap, "stone")
-	var col: Color = _dominant(EditorState.sel_cells, colmap, Color.WHITE)
-	if mat == EditorState.wall_mat and col == EditorState.wall_color:
-		return
-	EditorState.wall_mat = mat
-	EditorState.wall_color = col
-	EditorState.brush_changed.emit()
-
-# the most common value in `store` (a quarter -> value map) across the quarters in `quads`, ignoring
-# quarters with no entry; `default_val` when none of them carry a value.
-func _dominant(quads: Dictionary, store: Dictionary, default_val: Variant) -> Variant:
-	var counts := {}
-	var best: Variant = default_val
-	var best_n := 0
-	for q in quads:
-		if not store.has(q):
-			continue
-		var v: Variant = store[q]
-		var n: int = int(counts.get(v, 0)) + 1
-		counts[v] = n
-		if n > best_n:
-			best_n = n
-			best = v
-	return best
 
 # arm a floor material from the panel (same as picking it in the Floor Textures menu in Cell/Fine: it
 # arms the brush; the user then paints/drops it). No selection-fill here (that stays a menu convenience).
@@ -1002,7 +915,7 @@ func arm_floor_material(mat: String) -> void:
 	EditorState.armed = true
 	# with a floor selection active, picking a material RE-TEXTURES the selection in place (the two-way
 	# panel binding), keeping its colour and the selection itself so the user can keep tweaking.
-	if has_floor_selection():
+	if selection.has_floor():
 		_fill_floor_selection(mat) # rebuilds
 		EditHistory.commit("paint")
 	EditorState.brush_changed.emit()
@@ -1018,7 +931,7 @@ func arm_floor_color(color: Color) -> void:
 	EditorState.armed = true
 	# with a floor selection active, picking a colour RE-TINTS the selection in place (the two-way panel
 	# binding), keeping its texture and the selection itself. White = Natural clears the tint.
-	if has_floor_selection():
+	if selection.has_floor():
 		if _write_quads(EditorState.sel_quads, func(q: Vector2i) -> bool: return _write_tint(q, color)):
 			_rebuild()
 			EditHistory.commit("floor colour")
@@ -1027,163 +940,15 @@ func arm_floor_color(color: Color) -> void:
 
 # --- Magic Wand selection ---
 
-# a wand click either starts a new selection or grows the current one (patch -> whole room for a
-# floor, run -> whole building for a wall). See ROADMAP "Magic Wand".
-func _wand_click(local: Vector2, op := EditorState.SelOp.REPLACE) -> void:
-	var cell := Grid.cell_of(local)
-	var q := Grid.quad_of(local)
-	var is_wall: bool = _obs != null and _obs.is_blocked(cell)
-	if op == EditorState.SelOp.REPLACE:
-		# plain click: new selection, or grow-on-repeat (patch -> room, run -> building)
-		if is_wall:
-			_wand_wall(_obs, cell)
-		else:
-			_wand_floor(cell, q)
-	elif is_wall:
-		# Shift/Alt: add or subtract the clicked wall run (no growing while compositing)
-		_modify_wall_selection(_obs.line_cells(cell), op)
-	else:
-		_modify_floor_selection(_with_ring(_patch_quads(cell, q)), op)
-	_refresh_selection_overlay()
-
-# the selection compositing op for a mouse event: Alt subtracts, Shift adds, plain replaces.
-func _sel_op(event: InputEvent) -> EditorState.SelOp:
-	if event.alt_pressed:
-		return EditorState.SelOp.SUBTRACT
-	if event.shift_pressed:
-		return EditorState.SelOp.ADD
-	return EditorState.SelOp.REPLACE
-
 # clamp a cell to the map so a box drag never runs off the edge
 func _clamp_cell(cell: Vector2i) -> Vector2i:
 	if _grid_bg == null:
 		return cell
 	return Vector2i(clampi(cell.x, 0, _grid_bg.grid_width - 1), clampi(cell.y, 0, _grid_bg.grid_height - 1))
 
-# union (add) or difference (subtract) a floor `region` (quarter set) into the current selection,
-# switching the selection kind to floor if it was a wall selection.
-func _modify_floor_selection(region: Dictionary, op: EditorState.SelOp) -> void:
-	if EditorState.sel_kind != EditorState.SelKind.FLOOR:
-		EditorState.sel_kind = EditorState.SelKind.FLOOR
-		EditorState.sel_quads = {}
-		EditorState.sel_cells = {}
-	EditorState.sel_level = 0 # a composited selection has no single grow level
-	if op == EditorState.SelOp.SUBTRACT:
-		for k in region:
-			EditorState.sel_quads.erase(k)
-	else:
-		for k in region:
-			EditorState.sel_quads[k] = true
-	if EditorState.sel_quads.is_empty():
-		EditorState.sel_kind = EditorState.SelKind.NONE
-
-func _modify_wall_selection(region: Dictionary, op: EditorState.SelOp) -> void:
-	if EditorState.sel_kind != EditorState.SelKind.WALL:
-		EditorState.sel_kind = EditorState.SelKind.WALL
-		EditorState.sel_cells = {}
-		EditorState.sel_quads = {}
-	EditorState.sel_level = 0
-	if op == EditorState.SelOp.SUBTRACT:
-		for k in region:
-			EditorState.sel_cells.erase(k)
-	else:
-		for k in region:
-			EditorState.sel_cells[k] = true
-	if EditorState.sel_cells.is_empty():
-		EditorState.sel_kind = EditorState.SelKind.NONE
-
-# box-select: set the selection to the rectangle from _box_start to `cur` (all quarters of every cell
-# inside), composited onto _box_base per _box_op. Called live during the drag.
-func _update_box(cur: Vector2i) -> void:
-	var lo := Vector2i(mini(_box_start.x, cur.x), mini(_box_start.y, cur.y))
-	var hi := Vector2i(maxi(_box_start.x, cur.x), maxi(_box_start.y, cur.y))
-	var region := {}
-	for cy in range(lo.y, hi.y + 1):
-		for cx in range(lo.x, hi.x + 1):
-			for cq in Grid.quads_of(Vector2i(cx, cy)):
-				region[cq] = true
-	var result: Dictionary = _box_base.duplicate()
-	if _box_op == EditorState.SelOp.SUBTRACT:
-		for k in region:
-			result.erase(k)
-	else: # add, or replace (whose base is empty)
-		for k in region:
-			result[k] = true
-	EditorState.sel_cells = {}
-	EditorState.sel_level = 0
-	EditorState.sel_quads = result
-	EditorState.sel_kind = EditorState.SelKind.FLOOR if not result.is_empty() else ""
-	_refresh_selection_overlay()
-
-func _wand_floor(cell: Vector2i, q: Vector2i) -> void:
-	# repeat click inside the patch grows it to the whole room floor (all materials, wall-bounded)
-	if EditorState.sel_kind == EditorState.SelKind.FLOOR and EditorState.sel_quads.has(q) and EditorState.sel_level == 1:
-		var cells: Dictionary = room_light.room_floor_cells(cell)
-		if not cells.is_empty():
-			EditorState.sel_quads = _room_quads(cells) # interior + under-wall ring (the overlay subtracts walls)
-			EditorState.sel_level = 2
-		return
-	# otherwise start a new patch: the connected same-material quarters touching the click, PLUS the
-	# ring around them, so the patch also hugs the visible wood on the adjacent wall tiles (the overlay
-	# subtracts the wall sprites), consistent with the whole-room grow.
-	EditorState.sel_kind = EditorState.SelKind.FLOOR
-	EditorState.sel_cells = {}
-	EditorState.sel_quads = _with_ring(_patch_quads(cell, q))
-	EditorState.sel_level = 1
-
-# add the room-facing wall/door ring quarters around a quarter set, so a selection reaches the
-# visible floor that shows on the surrounding wall tiles (the ants hug it, the fill reaches under).
-func _with_ring(quads: Dictionary) -> Dictionary:
-	var cells := {}
-	for q in quads:
-		cells[Grid.cell_of_quad(q)] = true
-	var out: Dictionary = quads.duplicate()
-	for r in room_light.wall_ring_quads(cells):
-		out[Grid.quad_of(r.position)] = true
-	return out
-
-func _wand_wall(obs, cell: Vector2i) -> void:
-	# repeat click on the run grows it to the whole building's connected walls
-	if EditorState.sel_kind == EditorState.SelKind.WALL and EditorState.sel_cells.has(cell) and EditorState.sel_level == 1:
-		EditorState.sel_cells = obs.building_cells(cell)
-		EditorState.sel_level = 2
-		return
-	EditorState.sel_kind = EditorState.SelKind.WALL
-	EditorState.sel_quads = {}
-	EditorState.sel_cells = obs.line_cells(cell)
-	EditorState.sel_level = 1
-
-# the connected same-material quarters touching `q`, bounded to the cells of `cell`'s room. In a
-# uniform room this already equals the whole room, so one click grabs the expected floor; grow-on-
-# repeat only matters in a mixed room. Outdoors (no enclosed room) the patch is just the cell.
-func _patch_quads(cell: Vector2i, q: Vector2i) -> Dictionary:
-	var room: Dictionary = room_light.room_floor_cells(cell)
-	if room.is_empty():
-		var single := {}
-		for cq in Grid.quads_of(cell):
-			single[cq] = true
-		return single
-	var allowed := {}
-	for c in room:
-		for cq in Grid.quads_of(c):
-			allowed[cq] = true
-	var seed_mat: String = _quad_mat.get(q, "")
-	var sel := {q: true}
-	var stack: Array = [q]
-	while not stack.is_empty():
-		var cur: Vector2i = stack.pop_back()
-		for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
-			var n: Vector2i = cur + d
-			if sel.has(n) or not allowed.has(n):
-				continue
-			if _quad_mat.get(n, "") == seed_mat:
-				sel[n] = true
-				stack.append(n)
-	return sel
-
 # every quarter of a room: the interior cells' quarters plus the wall-ring quarters, matching
 # _write_room so a whole-room selection fill reaches under the walls the same way a room fill does.
-func _room_quads(cells: Dictionary) -> Dictionary:
+func room_quads(cells: Dictionary) -> Dictionary:
 	var out := {}
 	for c in cells:
 		for cq in Grid.quads_of(c):
@@ -1192,73 +957,12 @@ func _room_quads(cells: Dictionary) -> Dictionary:
 		out[Grid.quad_of(rect.position)] = true
 	return out
 
-# the 32px CELLS covered by the active FLOOR selection, read by RoomLight so it lights them (skips its
-# dim overlay) while selected. Empty unless a floor selection is active. The marching ants still mark
-# the selection; lighting it just lets the true (lit) colour show while the user edits the colour.
-func selection_lit_cells() -> Dictionary:
-	if EditorState.sel_kind != EditorState.SelKind.FLOOR:
-		return {}
-	var out := {}
-	for q in EditorState.sel_quads:
-		out[Grid.cell_of_quad(q)] = true
-	return out
+# read-only views of the floor stores, for the selection (patch flood, brush reflection)
+func quad_materials() -> Dictionary:
+	return _quad_mat
 
-func _refresh_selection_overlay() -> void:
-	# a selection change doesn't move the player or alter the layout, so RoomLight won't redraw on its
-	# own; nudge it here so the "selection reads lit" overlay updates as the selection grows/clears.
-	if room_light != null:
-		room_light.queue_redraw()
-	if EditorState.sel_kind == EditorState.SelKind.FLOOR:
-		# trace the full fill set (interior + under-wall ring) MINUS the surrounding wall sprites, so
-		# the ants hug the VISIBLE wood exactly: interior plus the ring slivers that show on the wall
-		# tiles where the narrow cap doesn't cover them. Verified by rasterising the geometry.
-		_selection.set_floor(EditorState.sel_quads, _floor_occluders())
-		_reflect_selection_brush() # mirror the selection's material + colour into the Brush panel
-	elif EditorState.sel_kind == EditorState.SelKind.WALL:
-		var rects: Array = _obs.wall_piece_rects(EditorState.sel_cells) if _obs != null else []
-		_selection.set_wall(EditorState.sel_cells, rects)
-		_reflect_wall_selection_brush() # mirror the wall selection's material + colour into the panel
-	else:
-		_selection.clear()
-	EditorState.selection_changed.emit() # let the panel surface the section matching the current selection kind
-
-# the wall sprite rects that cover the floor selection, so the overlay can subtract them and trace
-# the visible floor. Gathers every wall in the selection's cell bounding box (expanded by one cell,
-# since a wall's front face droops down into the cell below), then their cap/face piece rects. Only
-# real walls occlude here (doors are separate nodes and keep their own handling).
-func _floor_occluders() -> Array:
-	if _obs == null or EditorState.sel_quads.is_empty():
-		return []
-	var minc := Vector2i(1 << 30, 1 << 30)
-	var maxc := Vector2i(-(1 << 30), -(1 << 30))
-	for q in EditorState.sel_quads:
-		var c := Grid.cell_of_quad(q) # quarter -> owning cell
-		minc.x = mini(minc.x, c.x); minc.y = mini(minc.y, c.y)
-		maxc.x = maxi(maxc.x, c.x); maxc.y = maxi(maxc.y, c.y)
-	var walls := {}
-	for cx in range(minc.x - 1, maxc.x + 2):
-		for cy in range(minc.y - 1, maxc.y + 2):
-			var cc := Vector2i(cx, cy)
-			if _obs.is_blocked(cc):
-				walls[cc] = true
-	return _obs.wall_piece_rects(walls)
-
-func _clear_selection() -> void:
-	EditorState.sel_kind = EditorState.SelKind.NONE
-	EditorState.sel_quads = {}
-	EditorState.sel_cells = {}
-	EditorState.sel_level = 0
-	_selection.clear()
-
-# does the world-local point `local` fall inside the current selection? Floor selections are keyed by
-# 16px quarter, wall selections by 32px cell. Used to decide whether a right-click acts on the
-# selection (inside) or deselects it (outside), per "Editor UX revisions" -> deselect a Wand selection.
-func _click_in_selection(local: Vector2) -> bool:
-	if EditorState.sel_kind == EditorState.SelKind.FLOOR:
-		return EditorState.sel_quads.has(Grid.quad_of(local))
-	elif EditorState.sel_kind == EditorState.SelKind.WALL:
-		return EditorState.sel_cells.has(Grid.cell_of(local))
-	return false
+func quad_tints() -> Dictionary:
+	return _quad_tint
 
 # --- Eyedropper (ROADMAP "Eyedropper"): load the brush from what is already on the map ---
 
@@ -1432,22 +1136,9 @@ func _cancel_zone_drag() -> void:
 # origin differs (a paste centres on the cursor, a move follows the grab point) and what happens on
 # drop (a paste stamps, a move stamps AND clears its source, in one undo entry).
 
-# the CELLS the current selection covers: every cell owning a selected floor quarter, or the selected
-# wall cells. This is the clip footprint, so magic-wand-selecting a room (floor + its wall ring) and
-# copying takes the room's floor AND the walls/doors around it.
-func _selection_cells() -> Dictionary:
-	var out := {}
-	if EditorState.sel_kind == EditorState.SelKind.FLOOR:
-		for q in EditorState.sel_quads:
-			out[Grid.cell_of_quad(q)] = true
-	elif EditorState.sel_kind == EditorState.SelKind.WALL:
-		for c in EditorState.sel_cells:
-			out[c] = true
-	return out
-
 # Ctrl+C: put the current selection's region on the (cross-map, disk-backed) clipboard.
 func _copy_selection() -> bool:
-	var cells := _selection_cells()
+	var cells := selection.cells()
 	if cells.is_empty():
 		return false
 	MapClipboard.set_clip(MapClipboard.build_clip(MapIO.serialize(), cells))
@@ -1466,7 +1157,7 @@ func _arm_paste(clip: Dictionary) -> void:
 
 # MOVE mode: grab the current selection at `grab` and start dragging it.
 func _begin_move(grab: Vector2i) -> void:
-	var cells := _selection_cells()
+	var cells := selection.cells()
 	if cells.is_empty():
 		return
 	var minc := Vector2i(1 << 30, 1 << 30)
@@ -1516,21 +1207,9 @@ func _drop_pending() -> void:
 		stamped = MapEdit.stamp_clip(EditorState.pending_clip, origin)
 	_cancel_pending()
 	if not stamped.is_empty():
-		_select_cells(stamped)
+		selection.select_cells(stamped)
 	_reset_highlight()
 	call_deferred("_update_hover")
-
-# make `cells` the current selection (every quarter of each), used after a paste/move so the landed
-# region is immediately actionable.
-func _select_cells(cells: Dictionary) -> void:
-	EditorState.sel_kind = EditorState.SelKind.FLOOR
-	EditorState.sel_cells = {}
-	EditorState.sel_level = 0
-	EditorState.sel_quads = {}
-	for c in cells:
-		for q in Grid.quads_of(c):
-			EditorState.sel_quads[q] = true
-	_refresh_selection_overlay()
 
 # drop the armed paste / abort the move drag without editing the map
 func _cancel_pending() -> void:
@@ -1888,12 +1567,12 @@ func _write_quads(quads, write: Callable) -> bool:
 # genuinely reaches under the walls. Empty outside a room.
 func _room_scope(cell: Vector2i) -> Array:
 	var cells: Dictionary = room_light.room_floor_cells(cell)
-	return [] if cells.is_empty() else _room_quads(cells).keys()
+	return [] if cells.is_empty() else room_quads(cells).keys()
 
 # what a right-click menu action targets at the current grain: the floor selection, else Wand -> the
 # clicked room, Fine -> the clicked quarter, Cell/Erase -> the clicked cell
 func _menu_scope() -> Array:
-	if EditorState.sel_kind == EditorState.SelKind.FLOOR and _selection.has_selection():
+	if EditorState.sel_kind == EditorState.SelKind.FLOOR and selection.overlay.has_selection():
 		return EditorState.sel_quads.keys()
 	if EditorState.mode == EditorState.Mode.WAND:
 		return _room_scope(Grid.cell_of(_pending))
@@ -2110,7 +1789,7 @@ func _edit_door(cell: Vector2i, id: int) -> void:
 # Erase acts on the current selection when there is one, else on the clicked target. Delete (see
 # _unhandled_key_input) is the selection-only entry point. See ROADMAP "Editor UX revisions" -> Erase.
 func _menu_erase(cell: Vector2i) -> void:
-	if _selection.has_selection():
+	if selection.overlay.has_selection():
 		_erase_selection()
 	else:
 		_erase_single(cell)
@@ -2130,7 +1809,7 @@ func _erase_selection() -> void:
 		if _warn_bound_keys(EditorState.sel_cells.keys(), _erase_wall_selection):
 			return
 		_erase_wall_selection()
-	_clear_selection()
+	selection.clear()
 	_reset_highlight()
 	call_deferred("_update_hover")
 
@@ -2195,7 +1874,7 @@ func _erase_wall_selection() -> void:
 	if any:
 		_rebuild_world(MapIO.REBUILD_STRUCTURES | MapIO.REBUILD_OBJECTS)
 		EditHistory.commit("erase")
-	_clear_selection()
+	selection.clear()
 	_reset_highlight()
 	call_deferred("_update_hover")
 
@@ -2385,7 +2064,7 @@ func set_room_style(cell: Vector2i, style: String) -> void:
 # there as real data. Cell/Quarter painting deliberately never touches the ring, so laying a tile
 # does not change the ground already stored under the walls.
 func _write_room(cells: Dictionary, style: String) -> void:
-	for q in _room_quads(cells):
+	for q in room_quads(cells):
 		_write_quad(q, style)
 
 # replace all floors from a v1 per-room style list (used by the MapIO v1->v2 load migration).

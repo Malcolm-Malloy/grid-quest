@@ -220,10 +220,10 @@ func _ready() -> void:
 			for pt in wand.split(";", false):
 				var wp := pt.split(",")
 				if wp.size() == 2:
-					fmw._wand_click(Vector2(float(wp[0]), float(wp[1])))
+					fmw.selection.wand_click(Vector2(float(wp[0]), float(wp[1])))
 			print("GQ_WAND kind=", EditorState.sel_kind, " quads=", EditorState.sel_quads.size(),
 				" cells=", EditorState.sel_cells.size(), " level=", EditorState.sel_level,
-				" overlay=", fmw._selection.has_selection())
+				" overlay=", fmw.selection.overlay.has_selection())
 			# frame the whole map by default; GQ_WAND_NOFIT=1 keeps the GQ_POS-centred view instead
 			if OS.get_environment("GQ_WAND_NOFIT") != "1":
 				var camw := main.get_node_or_null("Camera2D")
@@ -435,7 +435,7 @@ func _ready() -> void:
 			for cy in range(int(r[3])):
 				for cx in range(int(r[2])):
 					cells[Vector2i(int(r[0]) + cx, int(r[1]) + cy)] = true
-			fmc._select_cells(cells)
+			fmc.selection.select_cells(cells)
 			fmc._copy_selection()
 			var cl: Dictionary = MapClipboard.clip()
 			for _t in turns:

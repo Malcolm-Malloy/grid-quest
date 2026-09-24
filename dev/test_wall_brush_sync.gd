@@ -17,13 +17,13 @@ func _ready() -> void:
 
 	# select the wall run, then paint the whole run wood + red directly, then re-select to reflect it
 	fm.set_mode(0) # Mode.WAND
-	fm._wand_click(wallCenter)
-	_check("wand select: a wall selection exists", fm.has_wall_selection())
+	fm.selection.wand_click(wallCenter)
+	_check("wand select: a wall selection exists", fm.selection.has_wall())
 	var wcell: Vector2i = EditorState.sel_cells.keys()[0]
 	obs.material_cells(EditorState.sel_cells, "wood")
 	obs.color_cells(EditorState.sel_cells, Color.RED)
-	fm._clear_selection()
-	fm._wand_click(wallCenter) # re-select the now wood+red run -> reflect into the panel
+	fm.selection.clear()
+	fm.selection.wand_click(wallCenter) # re-select the now wood+red run -> reflect into the panel
 	_check("panel reflects wall material (wood)", fm.armed_wall_material() == "wood")
 	_check("panel reflects wall colour (red)", fm.active_wall_color().is_equal_approx(Color.RED))
 
@@ -31,12 +31,12 @@ func _ready() -> void:
 	fm.arm_wall_color(Color.GREEN)
 	_check("panel colour re-tints the wall selection", obs.get_wall_color(wcell).is_equal_approx(Color.GREEN))
 	_check("re-tint keeps the wall material", obs.get_wall_material(wcell) == "wood")
-	_check("re-tint keeps the wall selection", fm.has_wall_selection())
+	_check("re-tint keeps the wall selection", fm.selection.has_wall())
 
 	# pick a material in the panel -> re-materials the SELECTION in place, colour + selection kept
 	fm.arm_wall_material("slate")
 	_check("panel material re-materials the wall selection", obs.get_wall_material(wcell) == "slate")
 	_check("re-material keeps the wall colour", obs.get_wall_color(wcell).is_equal_approx(Color.GREEN))
-	_check("re-material keeps the wall selection", fm.has_wall_selection())
+	_check("re-material keeps the wall selection", fm.selection.has_wall())
 
 	finish()

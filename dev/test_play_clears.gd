@@ -18,8 +18,8 @@ func _ready() -> void:
 
 	# --- set the editor up with as much live state as it can hold ---
 	fm.set_mode(EditorState.Mode.WAND)
-	fm._wand_click(_mid(Vector2i(8, 9))) # a floor selection (the seeded wooden room)
-	_check("setup: there is a selection", fm._selection.has_selection() and fm.has_floor_selection())
+	fm.selection.wand_click(_mid(Vector2i(8, 9))) # a floor selection (the seeded wooden room)
+	_check("setup: there is a selection", fm.selection.overlay.has_selection() and fm.selection.has_floor())
 	fm._copy_selection()
 	fm._arm_paste(MapClipboard.clip())
 	_check("setup: a paste is armed", EditorState.pending_kind == EditorState.Pending.PASTE)
@@ -32,7 +32,7 @@ func _ready() -> void:
 	EditorMode.set_mode(EditorMode.Mode.PLAY)
 	await get_tree().process_frame
 
-	_check("the selection is cleared", not fm._selection.has_selection())
+	_check("the selection is cleared", not fm.selection.overlay.has_selection())
 	_check("...and its model with it", EditorState.sel_kind == EditorState.SelKind.NONE and EditorState.sel_quads.is_empty() and EditorState.sel_cells.is_empty())
 	_check("the armed paste is dropped", EditorState.pending_clip.is_empty() and EditorState.pending_kind == EditorState.Pending.NONE)
 	_check("the terrain brush is disarmed (no stray drop on the first click back)", not fm.is_armed())
@@ -55,8 +55,8 @@ func _ready() -> void:
 	# --- back to EDIT: a clean slate, not a restored selection ---
 	EditorMode.set_mode(EditorMode.Mode.EDIT)
 	await get_tree().process_frame
-	_check("returning to EDIT does not resurrect the old selection", not fm._selection.has_selection())
+	_check("returning to EDIT does not resurrect the old selection", not fm.selection.overlay.has_selection())
 	_check("the editor is usable again (a fresh selection works)",
-		fm._wand_click(_mid(Vector2i(8, 9))) == null and fm._selection.has_selection())
+		fm.selection.wand_click(_mid(Vector2i(8, 9))) == null and fm.selection.overlay.has_selection())
 
 	finish()
