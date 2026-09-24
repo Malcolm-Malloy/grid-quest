@@ -57,8 +57,8 @@ func _ready() -> void:
 
 	# right-click menu entries, which the spec names explicitly alongside the strip
 	var fm = main.get_node("World/FloorManager")
-	fm._apply_menu_context(Vector2i(20, 20))
-	var erase_idx: int = fm._menu.get_item_index(fm.ERASE_ID)
-	_check("the right-click Erase entry is tipped", "Shortcut: E" in fm._menu.get_item_tooltip(erase_idx))
+	fm.menu.apply_context(Vector2i(20, 20))
+	var erase_idx: int = fm.menu.popup.get_item_index(ContextMenu.ERASE_ID)
+	_check("the right-click Erase entry is tipped", "Shortcut: E" in fm.menu.popup.get_item_tooltip(erase_idx))
 
 	finish()

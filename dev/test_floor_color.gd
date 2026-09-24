@@ -117,9 +117,9 @@ func _ready() -> void:
 	# --- slice 2: the shared _apply_floor_tint helper (used by swatches AND the picker) ---
 	fm._quad_tint.clear(); fm._rebuild()
 	EditorState.mode = 1 # Mode.CELL
-	fm._pending = Vector2(cell.x * 32 + 16, cell.y * 32 + 16)
+	fm.menu.target = Vector2(cell.x * 32 + 16, cell.y * 32 + 16)
 	EditorState.sel_kind = EditorState.SelKind.NONE # no active selection
-	var applied: bool = fm._apply_floor_tint(red)
+	var applied: bool = fm.tint_target(red, fm.menu.target)
 	_check("apply-helper (Cell): reports a change", applied)
 	var cell_all_red := true
 	for q2 in Grid.quads_of(cell):
@@ -130,13 +130,13 @@ func _ready() -> void:
 	# --- slice 2: the colour picker live-preview + guarded start colour ---
 	fm._quad_tint.clear(); fm._rebuild()
 	var blue := Color(0.2, 0.4, 0.9)
-	fm._suppress_picker = true
-	fm._on_floor_picker_changed(blue) # while suppressed: must NOT apply (setting the start colour)
+	fm.menu._suppress_picker = true
+	fm.menu._on_picker_changed(blue) # while suppressed: must NOT apply (setting the start colour)
 	_check("picker: suppressed change does not tint", fm._quad_tint.is_empty())
-	fm._suppress_picker = false
-	fm._picker_applied = false
-	fm._on_floor_picker_changed(blue) # a real drag: applies live and flags for commit-on-close
+	fm.menu._suppress_picker = false
+	fm.menu._picker_applied = false
+	fm.menu._on_picker_changed(blue) # a real drag: applies live and flags for commit-on-close
 	_check("picker: live change tints the target", fm.floor_tint_at_quad(Grid.quads_of(cell)[0]) == blue)
-	_check("picker: flags applied for commit-on-close", fm._picker_applied)
+	_check("picker: flags applied for commit-on-close", fm.menu._picker_applied)
 
 	finish()

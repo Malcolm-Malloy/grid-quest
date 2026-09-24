@@ -27,9 +27,9 @@ func _ready() -> void:
 	_check("enter Cell: no material armed", not EditorState.armed)
 
 	# arming via the menu (Cell mode, no selection -> arm-only, nothing placed yet)
-	fm._pending = _center(cellA)
+	fm.menu.target = _center(cellA)
 	EditorState.sel_kind = EditorState.SelKind.NONE
-	fm._on_menu_id(TILE_ID)
+	fm.menu.on_id(TILE_ID)
 	_check("pick material: now armed", EditorState.armed and EditorState.brush == "tile")
 	_check("pick material (Cell, no sel): nothing placed yet", fm._quad_mat.get(qA0, "") == "wood")
 
@@ -45,17 +45,17 @@ func _ready() -> void:
 	_check("un-armed Fine paint: no-op (cell unchanged)", fm._quad_mat.get(qB0, "") == beforeB)
 
 	# re-arming re-enables placement (Fine mode paints the quarter under the cursor)
-	fm._pending = _center(cellB)
-	fm._on_menu_id(TILE_ID)
+	fm.menu.target = _center(cellB)
+	fm.menu.on_id(TILE_ID)
 	fm._paint(_center(cellB), true)
 	var paintedQ := Vector2i(floori(_center(cellB).x / 16), floori(_center(cellB).y / 16))
 	_check("re-armed paint: places again", fm._quad_mat.get(paintedQ, "") == "tile")
 
 	# --- right-click while armed in Cell/Fine disarms the brush (removes the hover graphic), no menu ---
 	fm.set_mode(1) # Mode.CELL
-	fm._pending = _center(cellA)
+	fm.menu.target = _center(cellA)
 	EditorState.sel_kind = EditorState.SelKind.NONE
-	fm._on_menu_id(TILE_ID) # arm
+	fm.menu.on_id(TILE_ID) # arm
 	_check("armed before right-click", EditorState.armed)
 	var rc := InputEventMouseButton.new()
 	rc.button_index = MOUSE_BUTTON_RIGHT
@@ -69,8 +69,8 @@ func _ready() -> void:
 	var drop_rects: Array = fm._selection_drop_rects()
 	_check("shape-drop rects: >0 and <= selected quarters (excludes under-wall ring)",
 		drop_rects.size() > 0 and drop_rects.size() <= EditorState.sel_quads.size())
-	fm._pending = _center(cellA)
-	fm._on_menu_id(TILE_ID) # selection-fill path -> fills + plays the shape drop
+	fm.menu.target = _center(cellA)
+	fm.menu.on_id(TILE_ID) # selection-fill path -> fills + plays the shape drop
 	_check("shape-drop: preview holds the shape rects after a selection fill", fm._preview._shape_rects.size() > 0)
 
 	# --- (1) deselect helpers: a Wand selection, then the off-selection / off-map decisions ---

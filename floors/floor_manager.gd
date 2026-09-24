@@ -32,36 +32,11 @@ const CELL := Grid.CELL
 const HALF := Grid.HALF # a quarter is 16px; a cell is four independently-set quarters
 
 # reference grid: a distinct-but-restrained blue, toggled from the menu (off by default)
-const GRID_ID := 100
-# right-click-menu ACTION ids (single items, not swatch ranges). All < 300 so they are matched by
-# explicit equality in _on_menu_id BEFORE the range branches (and before the FloorMaterials.MATERIAL_NAMES-index fallthrough).
-const ERASE_ID := 101       # erase the selection if one exists, else the clicked target
-const BUILD_WALL_ID := 102  # build a wall on the clicked (empty) cell
-const BUILD_DOOR_ID := 103  # build a door on the clicked (empty) cell
-const DOOR_FLIP_ID := 104   # flip a door's orientation
-const DOOR_OPEN_ID := 105   # toggle a door's open-by-default
-const DOOR_SWING_ID := 106  # toggle a door's swing side
 const GRID_COLOR := Color(0.38, 0.64, 0.95, 0.4)
 
 
-# floor patterns: a per-quarter pattern index into the material's `FloorMaterials.TEXTURES` variant array, separate
-# from the colour tint. Menu id is PATTERN_BASE_ID + index. Base is 700 so it sits above every other
-# id range and is matched FIRST in _on_menu_id. The submenu is rebuilt per right-click (material-aware).
-const PATTERN_BASE_ID := 700
-
-# wall materials (WallSegment.MATERIAL_NAMES; the face/cap pair, separate from the tint). Menu id is WALL_MAT_BASE_ID + index. Base is 600 so it sits above every other id range (floor 0-4,
-# scopes 200+, walls 300+, floor colours 400+, picker 500), and is matched BEFORE them in _on_menu_id.
-const WALL_MAT_BASE_ID := 600
-# wall colours (WallSegment.COLORS, a tint over the stone). Menu id is WALL_BASE_ID + index.
-const WALL_BASE_ID := 300
-
-# floor colours: a multiply TINT over whatever texture (or grass) is at the quarter, parallel to
-# WallSegment.COLORS. Natural = white = reset (erases the tint). Menu id is FLOOR_COLOR_BASE_ID + index.
-# Slice 1 = the 8 fixed "fun" swatches; slice 2 adds the full colour PICKER (arbitrary tint, below).
-# Still deferred: the 8 material-aware swatches (a per-material colour table; wants a design pass).
-# The colour values match WallSegment.COLORS where they overlap so the two palettes read as one system.
-const FLOOR_COLOR_BASE_ID := 400
-const FLOOR_PICKER_ID := 500 # "Custom..." opens the colour picker; checked before the 400+ swatches
+# how a right-click Door edit changes the door (see edit_door)
+enum DoorEdit { FLIP, TOGGLE_OPEN, TOGGLE_SWING }
 
 @onready var room_light: RoomLight = get_node("../RoomLight")
 
@@ -83,13 +58,6 @@ var _base_fills: Array = [] # [Rect2, Texture2D, Color, (src_override), (animate
 							# truthy element flags an ANIMATED water fill (grid_background shimmers it).
 var _has_water := false # any water fill emitted this _rebuild, so grid_background knows to run the shimmer
 var _fills_dirty := false # the floor stores changed since _base_fills was built (rebuilt lazily on read)
-var _menu: PopupMenu
-var _pending := Vector2.ZERO # local (World-space) position of the last right-click, for the menu
-var _build_wall_sub: PopupMenu # the Build Wall configurator (colour + material + Start), built in _ready
-var _picker_popup: PopupPanel   # the "Custom..." floor-colour picker popup
-var _color_picker: ColorPicker  # its ColorPicker (live-previews the tint as you drag)
-var _picker_applied := false    # a preview was applied during the current picker session (commit on close)
-var _suppress_picker := false   # guard so setting the picker's start colour doesn't count as an edit
 var _click_tools := {} # single-click modes -> the method a press calls at the mouse (see _on_left_button)
 var _painting := false       # true while the left button is held, for drag painting
 var _walls_dirty := false    # a wall drag added cells this frame; rebuild ONCE in _process instead of
@@ -105,6 +73,7 @@ var _box_active := false      # true while a box drag is in progress
 var _cursor: Node2D          # the Cell/Fine square paint cursor (see paint_cursor.gd)
 var _preview: Node2D         # the lifted terrain drop-preview sprite (see terrain_preview.gd)
 var _ghosts: PlacementGhosts # the wall / door / bridge placement previews (placement_ghosts.gd)
+var menu: ContextMenu # the right-click menu (context_menu.gd)
 var selection: SelectionTool # the wand / box selection and its marching ants (selection_tool.gd)
 var _clip_ghost: Node2D      # hover ghost for an armed paste / an in-flight move (clip_preview.gd)
 var _zone_active := false    # true while a zone rectangle is being dragged out
@@ -141,96 +110,9 @@ func _ready() -> void:
 	# default priority 0), so the highlight stays under the mouse while the player walks and the
 	# world scrolls, not just when the mouse itself moves. Same rationale as FloorHighlightMask.
 	process_priority = 100
-	_menu = PopupMenu.new()
-	# Floor materials and wall colours sit in submenus so the top menu stays short (a flat list
-	# of all of them plus scopes overflowed the screen). Submenu items share _on_menu_id since
-	# every id is namespaced (floor 0-4, walls 300+, scopes 200+, grid 100).
-	# The two section submenus are built once as children of _menu. The TOP-LEVEL items are (re)built
-	# per right-click in _apply_menu_context so only the section for the clicked target shows (Godot's
-	# PopupMenu has no set_item_hidden, so contextual = rebuild the top level). See ROADMAP item 4.
-	var floor_sub := PopupMenu.new()
-	floor_sub.name = "floor_sub"
-	for i in FloorMaterials.MATERIAL_NAMES.size():
-		floor_sub.add_item(FloorMaterials.MATERIAL_NAMES[i][0], i)
-	floor_sub.id_pressed.connect(_on_menu_id)
-	_menu.add_child(floor_sub)
-
-	var wall_sub := PopupMenu.new()
-	wall_sub.name = "wall_sub"
-	for i in WallSegment.COLORS.size():
-		wall_sub.add_item(WallSegment.COLORS[i][0], WALL_BASE_ID + i)
-	wall_sub.id_pressed.connect(_on_menu_id)
-	_menu.add_child(wall_sub)
-
-	# Wall Material: the face/cap texture swap (Stone/Wood/Slate), shown beside Wall Colour on a
-	# structure cell. Ids namespaced at WALL_MAT_BASE_ID+, routed through the shared _on_menu_id.
-	var wall_mat_sub := PopupMenu.new()
-	wall_mat_sub.name = "wall_mat_sub"
-	for i in WallSegment.MATERIAL_NAMES.size():
-		wall_mat_sub.add_item(WallSegment.MATERIAL_NAMES[i][0], WALL_MAT_BASE_ID + i)
-	wall_mat_sub.id_pressed.connect(_on_menu_id)
-	_menu.add_child(wall_mat_sub)
-
-	# Pattern: a MATERIAL-AWARE submenu shown beside Floor Textures/Colours on a floor cell. Its items
-	# are rebuilt per right-click from the clicked quarter's material (see _apply_menu_context), so it
-	# lists that material's pattern variants (e.g. wood -> Planks/Diagonal). Ids namespaced at
-	# PATTERN_BASE_ID+, routed through the shared _on_menu_id.
-	var pattern_sub := PopupMenu.new()
-	pattern_sub.name = "pattern_sub"
-	pattern_sub.id_pressed.connect(_on_menu_id)
-	_menu.add_child(pattern_sub)
-
-	# Door: shown on a door cell (rebuilt per right-click from the door's state, see
-	# _rebuild_door_submenu). Mirrors the inspector's door controls. Ids are the DOOR_* action ids.
-	var door_sub := PopupMenu.new()
-	door_sub.name = "door_sub"
-	door_sub.id_pressed.connect(_on_menu_id)
-	_menu.add_child(door_sub)
-
-	# Build Wall configurator: pick a colour + material (radio checkables that KEEP the menu open), then
-	# "Start Building" arms a draggable wall brush and closes. Local id scheme (colour i, material 100+j,
-	# start 999), routed to _on_build_wall_id, NOT _on_menu_id, so it needs no global id range.
-	var build_wall_sub := PopupMenu.new()
-	build_wall_sub.name = "build_wall_sub"
-	build_wall_sub.hide_on_checkable_item_selection = false # picking colour/material keeps it open
-	build_wall_sub.add_separator("Colour")
-	for i in WallSegment.COLORS.size():
-		build_wall_sub.add_radio_check_item(WallSegment.COLORS[i][0], i)
-	build_wall_sub.add_separator("Material")
-	for j in WallSegment.MATERIAL_NAMES.size():
-		build_wall_sub.add_radio_check_item(WallSegment.MATERIAL_NAMES[j][0], 100 + j)
-	build_wall_sub.add_separator()
-	build_wall_sub.add_item("Start Building (drag to place)", 999)
-	build_wall_sub.id_pressed.connect(_on_build_wall_id)
-	_menu.add_child(build_wall_sub)
-	_build_wall_sub = build_wall_sub
-	_sync_build_wall_checks() # show the current brush as checked
-
-	# Floor Colours: a tint submenu shown beside Floor Textures on a floor cell (the two share the
-	# floor-cell branch of _apply_menu_context). Ids are namespaced (FLOOR_COLOR_BASE_ID+), so it
-	# routes through the same _on_menu_id like the other submenus.
-	var floor_color_sub := PopupMenu.new()
-	floor_color_sub.name = "floor_color_sub"
-	for i in FloorMaterials.COLORS.size():
-		floor_color_sub.add_item(FloorMaterials.COLORS[i][0], FLOOR_COLOR_BASE_ID + i)
-	floor_color_sub.add_separator()
-	floor_color_sub.add_item("Custom...", FLOOR_PICKER_ID) # opens the full colour picker
-	floor_color_sub.id_pressed.connect(_on_menu_id)
-	_menu.add_child(floor_color_sub)
-
-	# the "Custom..." floor-colour picker: a ColorPicker in a popup that live-previews the tint on the
-	# clicked target as you drag, committing one undo entry when it closes (see _open_floor_picker).
-	_picker_popup = PopupPanel.new()
-	_color_picker = ColorPicker.new()
-	_color_picker.edit_alpha = false # tints are opaque multiplies; alpha would just dim confusingly
-	_color_picker.custom_minimum_size = Vector2(280, 0)
-	_picker_popup.add_child(_color_picker)
-	_color_picker.color_changed.connect(_on_floor_picker_changed)
-	_picker_popup.popup_hide.connect(_on_floor_picker_closed)
-	add_child(_picker_popup)
-
-	_menu.id_pressed.connect(_on_menu_id)
-	add_child(_menu)
+	menu = ContextMenu.new()
+	add_child(menu)
+	menu.setup(self, _obs)
 	# the Cell/Fine square paint cursor; Wand uses the mask preview + selection overlay instead
 	_cursor = Node2D.new()
 	_cursor.set_script(load("res://floors/paint_cursor.gd"))
@@ -284,7 +166,7 @@ func _exit_edit_state() -> void:
 	_box_active = false
 	_box_maybe = false
 	_cancel_zone_drag() # a half-dragged zone rectangle is live editor state like any other
-	_reset_highlight()
+	reset_highlight()
 	_restore_faded()
 	var inspector := get_tree().get_first_node_in_group("inspector") as Inspector
 	if inspector != null:
@@ -298,7 +180,7 @@ func _seed() -> void:
 # lingers under an absent pointer, and stop recomputing the hover until it returns.
 func _on_window_mouse_exited() -> void:
 	_mouse_inside = false
-	_reset_highlight()
+	reset_highlight()
 	_restore_faded()
 
 func _on_window_mouse_entered() -> void:
@@ -321,7 +203,7 @@ func _process(_delta: float) -> void:
 	if _pointer_over_ui():
 		if not _ui_hid:
 			_ui_hid = true
-			_reset_highlight()
+			reset_highlight()
 			_restore_faded()
 		return
 	elif _ui_hid:
@@ -384,11 +266,7 @@ func _on_right_press() -> void:
 		return
 	if not _in_bounds(cell):
 		return # right-clicked off the map
-	_pending = local
-	_apply_menu_context(cell) # rebuilds the top level for the clicked target + sets Grid's check
-	_menu.position = Vector2i(get_viewport().get_mouse_position())
-	_menu.reset_size() # re-fit after the rebuild so the popup isn't sized for a stale menu
-	_menu.popup()
+	menu.open_at(local) # rebuilt for the clicked target, at the mouse
 	_handled()
 
 func _on_left_button(event: InputEventMouseButton) -> void:
@@ -583,241 +461,6 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		call_deferred("_update_hover")
 		get_viewport().set_input_as_handled()
 
-# contextual right-click menu: rebuild the top level so ONLY the section for what was clicked shows.
-# A wall/door cell (the structure layer) gets the Wall Colour submenu; any other cell is floor, so
-# gets Floor Textures (descriptive heading, kept distinct from the future "Floor Colours" tint). The
-# Grid toggle is a tool setting and stays regardless. PopupMenu has no set_item_hidden in Godot 4, so
-# contextual visibility = clear + re-add the relevant items each right-click.
-func _apply_menu_context(cell: Vector2i) -> void:
-	var is_door: bool = _obs != null and not _obs.door_at(cell).is_empty()
-	var is_wall: bool = _obs != null and _obs.is_blocked(cell) # a real wall (doors are not blocked)
-	_menu.clear()
-	# ONE submenu per target, not one per axis (merged 2026-09-05). The menu had grown to seven
-	# top-level entries by listing every axis separately (Floor Textures / Floor Colours / Pattern /
-	# Wall Colour / Wall Material / Build Wall / Build Door) while the persistent left panel offered the
-	# same choices -- the duplication ROADMAP "Optimise the right menu" warned about, and the
-	# reconciliation the Build Wall configurator note asked for. Now:
-	#   - STYLE of the clicked thing collapses into one submenu per target ("Floor", "Wall", "Door"),
-	#     grouped inside by separator headings, so it is still one level deep, never two.
-	#   - BUILDING moved out entirely: the Place tool drops walls/doors/bridges/items/spawns and can
-	#     DRAG a wall line, which the menu items never could.
-	# What is left is what a context menu is for: act on the thing under the cursor.
-	if is_door:
-		_rebuild_door_submenu(cell)
-		_menu.add_submenu_item("Door", "door_sub")
-	elif is_wall:
-		_rebuild_wall_submenu()
-		_menu.add_submenu_item("Wall", "wall_sub")
-	# the ground under a wall/door is editable too, so Floor shows on EVERY cell (the "terrain option"
-	# the notes ask for on walls and doors), not only on bare floor cells.
-	_rebuild_floor_submenu()
-	_menu.add_submenu_item("Floor", "floor_sub")
-	_menu.add_item("Erase", ERASE_ID) # acts on the selection if there is one, else the clicked target
-	# right-click entries carry tooltips too (ROADMAP "Tooltips on menu and tool options": the sweep
-	# covers "right-click menu entries", not only the tool strip), composed from the one hotkey table
-	_menu.set_item_tooltip(_menu.get_item_index(ERASE_ID),
-		Hotkeys.tip("erase", "Acts on the selection if there is one, else the clicked target."))
-	_menu.add_separator()
-	_menu.add_check_item("Grid", GRID_ID)
-	_menu.set_item_checked(_menu.get_item_index(GRID_ID), EditorState.grid_on)
-	_menu.set_item_tooltip(_menu.get_item_index(GRID_ID), "Show the reference grid over the map")
-
-# The Floor submenu: texture, colour and pattern for the clicked ground, in one list with separator
-# headings. Rebuilt per right-click because the PATTERN entries are material-aware (they depend on what
-# the clicked quarter is made of, which is exactly why patterns stayed in the contextual menu rather
-# than moving to the brush panel).
-func _rebuild_floor_submenu() -> void:
-	var sub: PopupMenu = _menu.get_node("floor_sub")
-	sub.clear()
-	sub.add_separator("Texture")
-	for i in FloorMaterials.MATERIAL_NAMES.size():
-		sub.add_item(FloorMaterials.MATERIAL_NAMES[i][0], i)
-	sub.add_separator("Colour")
-	for i in FloorMaterials.COLORS.size():
-		sub.add_item(FloorMaterials.COLORS[i][0], FLOOR_COLOR_BASE_ID + i)
-	sub.add_item("Custom...", FLOOR_PICKER_ID)
-	var pq := Grid.quad_of(_pending)
-	var mat: String = _quad_mat.get(pq, "")
-	var variants: int = FloorMaterials.TEXTURES[mat].size() if FloorMaterials.TEXTURES.has(mat) else 0
-	if variants > 1:
-		sub.add_separator("Pattern")
-		var names: Array = FloorMaterials.PATTERN_NAMES.get(mat, [])
-		for i in variants:
-			sub.add_item(names[i] if i < names.size() else "Pattern %d" % (i + 1), PATTERN_BASE_ID + i)
-
-# The Wall submenu: colour and material for the clicked wall, in one list with separator headings
-# (they were two top-level entries offering the two axes of the same brush).
-func _rebuild_wall_submenu() -> void:
-	var sub: PopupMenu = _menu.get_node("wall_sub")
-	sub.clear()
-	sub.add_separator("Colour")
-	for i in WallSegment.COLORS.size():
-		sub.add_item(WallSegment.COLORS[i][0], WALL_BASE_ID + i)
-	sub.add_separator("Material")
-	for i in WallSegment.MATERIAL_NAMES.size():
-		sub.add_item(WallSegment.MATERIAL_NAMES[i][0], WALL_MAT_BASE_ID + i)
-
-# rebuild the Door submenu from the door on `cell` (state-reflecting check items, like the inspector)
-func _rebuild_door_submenu(cell: Vector2i) -> void:
-	var d: Dictionary = _obs.door_at(cell) if _obs != null else {}
-	var ds: PopupMenu = _menu.get_node("door_sub")
-	ds.clear()
-	ds.add_item("Flip Orientation", DOOR_FLIP_ID)
-	ds.add_check_item("Open by default", DOOR_OPEN_ID)
-	ds.set_item_checked(ds.get_item_index(DOOR_OPEN_ID), bool(d.get("open", false)))
-	ds.add_check_item("Swing (alt side)", DOOR_SWING_ID)
-	ds.set_item_checked(ds.get_item_index(DOOR_SWING_ID), bool(d.get("swing", false)))
-
-func _on_menu_id(id: int) -> void:
-	if id == GRID_ID:
-		set_grid(not EditorState.grid_on)
-		return
-	var cell := Grid.cell_of(_pending)
-	# action items (all < 300, matched here before the swatch-range branches and the FloorMaterials.MATERIAL_NAMES fallthrough)
-	if id == ERASE_ID:
-		_menu_erase(cell)
-		return
-	if id == BUILD_WALL_ID:
-		if _obs != null and _obs.add_wall(cell):
-			_rebuild_world(MapIO.REBUILD_STRUCTURES)
-			EditHistory.commit("wall")
-		_reset_highlight()
-		return
-	if id == BUILD_DOOR_ID:
-		_place_door_at(_pending) # commits internally, no-ops if a door is already there
-		_reset_highlight()
-		return
-	if id == DOOR_FLIP_ID or id == DOOR_OPEN_ID or id == DOOR_SWING_ID:
-		_edit_door(cell, id)
-		return
-	if id >= PATTERN_BASE_ID:
-		# a floor pattern. Mirrors the floor-tint branch: apply to the active floor selection, else the
-		# clicked target at the current grain (Wand -> room, Cell -> cell, Fine -> quarter). Arms
-		# EditorState.tool_kind = EditorState.Brush.PATTERN so a left-drag keeps applying it (see _paint -> _paint_floor_pattern).
-		EditorState.tool_kind = EditorState.Brush.PATTERN
-		EditorState.pattern = id - PATTERN_BASE_ID
-		if _apply_floor_pattern(EditorState.pattern):
-			_rebuild()
-			EditHistory.commit("floor pattern") # one menu apply = one undo step
-		_reset_highlight()
-		return
-	if id >= WALL_MAT_BASE_ID:
-		# a wall material. Mirrors the wall-colour branch below: fill the active wall selection if one
-		# exists; otherwise material the wall under the click (whole building in Wand, single segment in
-		# Cell/Fine). Arms EditorState.tool_kind = EditorState.Brush.WALL_MATERIAL so a left-drag keeps applying it (see _paint).
-		EditorState.tool_kind = EditorState.Brush.WALL_MATERIAL
-		EditorState.wall_mat = WallSegment.MATERIAL_NAMES[id - WALL_MAT_BASE_ID][1]
-		var did_mat := false
-		if EditorState.sel_kind == EditorState.SelKind.WALL and selection.overlay.has_selection():
-			_fill_wall_material_selection(EditorState.wall_mat)
-			did_mat = true
-		else:
-			# is_blocked (a real wall), not has_structure: doors keep stone (their own art), so on a
-			# door this is a no-op.
-			if _obs != null and _obs.is_blocked(cell):
-				if EditorState.mode == EditorState.Mode.WAND:
-					_obs.material_building(cell, EditorState.wall_mat)
-				else:
-					_obs.set_wall_material(cell, EditorState.wall_mat)
-				did_mat = true
-		if did_mat:
-			EditHistory.commit("wall material") # one menu apply = one undo step
-		_reset_highlight()
-		return
-	if id == FLOOR_PICKER_ID:
-		_open_floor_picker() # "Custom..." -> the full colour picker (arbitrary tint)
-		return
-	if id >= FLOOR_COLOR_BASE_ID:
-		# a floor tint. Fill the active floor selection if one exists; otherwise tint what was
-		# clicked at the current grain (Wand -> whole room, Cell -> the cell, Fine -> the quarter).
-		# Mirrors the wall-colour branch below. Leaves EditorState.tool_kind = EditorState.Brush.FLOOR_COLOR armed so a
-		# left-drag keeps tinting (see _paint) with the orange ground cursor (see _update_hover).
-		EditorState.tool_kind = EditorState.Brush.FLOOR_COLOR
-		EditorState.floor_color = FloorMaterials.COLORS[id - FLOOR_COLOR_BASE_ID][1]
-		EditorState.brush_changed.emit()
-		if _apply_floor_tint(EditorState.floor_color):
-			_rebuild()
-			EditHistory.commit("floor colour") # one menu tint = one undo step
-		_reset_highlight()
-		return
-	if id >= WALL_BASE_ID:
-		# a wall colour. Fill the active wall selection if one exists; otherwise colour the wall
-		# under the click (the whole building in Wand mode, a single segment in Cell/Fine).
-		EditorState.tool_kind = EditorState.Brush.WALL_COLOR
-		EditorState.wall_color = WallSegment.COLORS[id - WALL_BASE_ID][1]
-		var did_edit := false
-		if EditorState.sel_kind == EditorState.SelKind.WALL and selection.overlay.has_selection():
-			_fill_wall_selection(EditorState.wall_color)
-			did_edit = true
-		else:
-			# is_blocked (a real wall), not has_structure: doors keep their own independent colour
-			# (unbuilt), so the wall tint only applies to walls. On a door this is a no-op.
-			if _obs != null and _obs.is_blocked(cell):
-				if EditorState.mode == EditorState.Mode.WAND:
-					_obs.color_building(cell, EditorState.wall_color)
-				else:
-					_obs.set_wall_color(cell, EditorState.wall_color)
-				did_edit = true
-		if did_edit:
-			EditHistory.commit("wall colour") # one menu paint = one undo step
-		_reset_highlight()
-		return
-	# a floor material. Fill the active floor selection if one exists; otherwise, in Wand mode fill
-	# the clicked room. In Cell/Fine, selecting a terrain no longer auto-places: it just arms the
-	# brush and the user clicks the target to drop it (ROADMAP "Terrain placement UX").
-	EditorState.tool_kind = EditorState.Brush.FLOOR
-	EditorState.brush = FloorMaterials.MATERIAL_NAMES[id][1]
-	EditorState.armed = true # a material was explicitly chosen: Cell/Fine may now drop it
-	EditorState.brush_changed.emit()
-	if EditorState.sel_kind == EditorState.SelKind.FLOOR and selection.overlay.has_selection():
-		var drop_rects := _selection_drop_rects() # capture the shape before the highlight resets
-		_fill_floor_selection(EditorState.brush)
-		EditHistory.commit("paint") # one menu fill = one undo step
-		if EditorState.brush != "" and FloorMaterials.TEXTURES.has(EditorState.brush):
-			_preview.play_shape_drop(drop_rects, FloorMaterials.texture(EditorState.brush, 0)) # animate the whole shape dropping in
-		_reset_highlight()
-	elif EditorState.mode == EditorState.Mode.WAND:
-		set_room_style(cell, EditorState.brush) # convenience room fill; may no-op outside a room
-		EditHistory.commit("paint")
-		_reset_highlight()
-	else:
-		# arm only: nothing changed yet (no undo entry). Refresh the hover so the lifted drop-
-		# preview of the freshly-armed material appears over the cursor immediately.
-		call_deferred("_update_hover")
-
-# --- floor colour: shared apply + the "Custom..." picker ---
-
-# apply `color` as the floor tint to the right-clicked target, at the current grain: the active
-# floor selection, else the clicked room (Wand) / quarter (Fine) / cell (Cell). Returns whether any
-# quarter changed. Shared by the preset swatches and the live colour picker.
-func _apply_floor_tint(color: Color) -> bool:
-	return _write_quads(_menu_scope(), func(q: Vector2i) -> bool: return _write_tint(q, color))
-
-# open the colour picker seeded from the current tint (or a default), previewing live on the target
-func _open_floor_picker() -> void:
-	EditorState.tool_kind = EditorState.Brush.FLOOR_COLOR
-	_picker_applied = false
-	_suppress_picker = true # setting .color must not count as a user edit
-	_color_picker.color = EditorState.floor_color if EditorState.floor_color != Color.WHITE else Color(0.85, 0.3, 0.28)
-	_suppress_picker = false
-	_picker_popup.popup_centered()
-
-# live preview: each drag in the picker re-tints the target with the new colour
-func _on_floor_picker_changed(c: Color) -> void:
-	if _suppress_picker:
-		return
-	EditorState.floor_color = c
-	if _apply_floor_tint(c):
-		_rebuild()
-		_picker_applied = true
-
-# picker closed: the whole session commits as ONE undo entry (or nothing if never previewed)
-func _on_floor_picker_closed() -> void:
-	if _picker_applied:
-		EditHistory.commit("floor colour")
-		_picker_applied = false
-	_reset_highlight()
-
 # --- authoring mode (driven by the tool strip) ---
 
 # called by the tool strip. Switching mode drops transient hover; leaving the wand re-arms the floor
@@ -837,7 +480,7 @@ func set_mode(mode: int) -> void:
 	if EditorState.mode == EditorState.Mode.CELL or EditorState.mode == EditorState.Mode.FINE:
 		EditorState.armed = false
 	EditorState.brush_changed.emit()
-	_reset_highlight()
+	reset_highlight()
 	call_deferred("_update_hover")
 
 func mode() -> int:
@@ -895,7 +538,7 @@ func arm_wall_material(mat: String) -> void:
 	EditorState.tool_kind = EditorState.Brush.WALL_MATERIAL
 	EditorState.wall_mat = mat
 	if selection.has_wall():
-		_fill_wall_material_selection(mat)
+		_obs.material_cells(EditorState.sel_cells, mat)
 		EditHistory.commit("wall material")
 	EditorState.brush_changed.emit()
 
@@ -903,7 +546,7 @@ func arm_wall_color(color: Color) -> void:
 	EditorState.tool_kind = EditorState.Brush.WALL_COLOR
 	EditorState.wall_color = color
 	if selection.has_wall():
-		_fill_wall_selection(color)
+		_obs.color_cells(EditorState.sel_cells, color)
 		EditHistory.commit("wall colour")
 	EditorState.brush_changed.emit()
 
@@ -1152,7 +795,7 @@ func _arm_paste(clip: Dictionary) -> void:
 	EditorState.pending_kind = EditorState.Pending.PASTE
 	EditorState.pending_changed = false
 	EditorState.pending_id += 1
-	_reset_highlight()
+	reset_highlight()
 	call_deferred("_update_hover")
 
 # MOVE mode: grab the current selection at `grab` and start dragging it.
@@ -1208,7 +851,7 @@ func _drop_pending() -> void:
 	_cancel_pending()
 	if not stamped.is_empty():
 		selection.select_cells(stamped)
-	_reset_highlight()
+	reset_highlight()
 	call_deferred("_update_hover")
 
 # drop the armed paste / abort the move drag without editing the map
@@ -1242,16 +885,8 @@ func _selection_drop_rects() -> Array:
 		out.append(Grid.quad_rect(q))
 	return out
 
-func _fill_wall_selection(color: Color) -> void:
-	if _obs != null:
-		_obs.color_cells(EditorState.sel_cells, color)
-
-func _fill_wall_material_selection(material: String) -> void:
-	if _obs != null:
-		_obs.material_cells(EditorState.sel_cells, material)
-
 # hide every highlight so a fresh edit reads clearly; they return on the next mouse move
-func _reset_highlight() -> void:
+func reset_highlight() -> void:
 	_hover_cell = INVALID_CELL
 	_wall_hover = INVALID_CELL
 	_whole_hover_key = ""
@@ -1283,7 +918,7 @@ func grid_color() -> Color:
 # (that building's walls over a wall, that room's floor over a floor); a wall tool at Cell/Line
 # outlines the wall geometry; a floor tool at Cell/Quarter shows the plain square paint cursor.
 func _update_hover() -> void:
-	if _menu.visible:
+	if menu.is_open():
 		return # keep the highlight put while the menu is open
 	if not _mouse_inside:
 		return # cursor is off the game window; highlights were cleared on exit
@@ -1571,14 +1206,14 @@ func _room_scope(cell: Vector2i) -> Array:
 
 # what a right-click menu action targets at the current grain: the floor selection, else Wand -> the
 # clicked room, Fine -> the clicked quarter, Cell/Erase -> the clicked cell
-func _menu_scope() -> Array:
+func _menu_scope(at: Vector2) -> Array:
 	if EditorState.sel_kind == EditorState.SelKind.FLOOR and selection.overlay.has_selection():
 		return EditorState.sel_quads.keys()
 	if EditorState.mode == EditorState.Mode.WAND:
-		return _room_scope(Grid.cell_of(_pending))
+		return _room_scope(Grid.cell_of(at))
 	if EditorState.mode == EditorState.Mode.FINE:
-		return [Grid.quad_of(_pending)]
-	return Grid.quads_of(Grid.cell_of(_pending))
+		return [Grid.quad_of(at)]
+	return Grid.quads_of(Grid.cell_of(at))
 
 # what a drag stroke at `local` covers: Fine -> the quarter, else the cell (nothing off the map)
 func _stroke_scope(local: Vector2) -> Array:
@@ -1600,10 +1235,6 @@ func _pattern_cell(cell: Vector2i, idx: int) -> bool:
 func _pattern_room(cell: Vector2i, idx: int) -> bool:
 	return _write_quads(_room_scope(cell), func(q: Vector2i) -> bool: return _write_pattern(q, idx))
 
-# apply pattern `idx` to the right-clicked target at the current grain (see _menu_scope)
-func _apply_floor_pattern(idx: int) -> bool:
-	return _write_quads(_menu_scope(), func(q: Vector2i) -> bool: return _write_pattern(q, idx))
-
 # Erase mode: remove the wall or door on the clicked cell (the structure layer, topmost after any
 # object). Rebuilds the level through the same MapIO path load/resize use, so lighting, floors and
 # shadows recompute consistently after a wall opens a room up. Returns true if a structure was
@@ -1621,7 +1252,7 @@ func _erase_structure_at(local: Vector2) -> bool:
 		return false
 	_rebuild_world(MapIO.REBUILD_STRUCTURES) # respawn walls/doors/bridges + lighting + shadows
 	EditHistory.commit("erase")
-	_reset_highlight()
+	reset_highlight()
 	call_deferred("_update_hover") # re-detect the hover now the structure is gone
 	return true
 
@@ -1641,37 +1272,6 @@ func _place_wall_at(local: Vector2) -> void:
 	if EditorState.wall_mat != "stone":
 		_obs.wall_materials[cell] = EditorState.wall_mat
 	_walls_dirty = true # rebuild once in _process (coalesces a fast drag's many cells into one rebuild/frame)
-
-# --- Build Wall configurator (right-click "Build Wall" submenu) ---
-
-# reflect the current wall brush (EditorState.wall_color / EditorState.wall_mat) as the checked radio items
-func _sync_build_wall_checks() -> void:
-	if _build_wall_sub == null:
-		return
-	for i in WallSegment.COLORS.size():
-		_build_wall_sub.set_item_checked(_build_wall_sub.get_item_index(i), WallSegment.COLORS[i][1] == EditorState.wall_color)
-	for j in WallSegment.MATERIAL_NAMES.size():
-		_build_wall_sub.set_item_checked(_build_wall_sub.get_item_index(100 + j), WallSegment.MATERIAL_NAMES[j][1] == EditorState.wall_mat)
-
-func _on_build_wall_id(id: int) -> void:
-	if id == 999:
-		_arm_wall_build() # done configuring: enter Wall mode with the brush, close the menu
-		return
-	if id >= 100:
-		EditorState.wall_mat = WallSegment.MATERIAL_NAMES[id - 100][1]
-	else:
-		EditorState.wall_color = WallSegment.COLORS[id][1]
-	EditorState.brush_changed.emit() # keep the left Brush panel's Wall section in sync with the configurator
-	_sync_build_wall_checks() # update the ticks in place (the menu stays open for more options)
-
-# arm the draggable wall brush: switch to Wall mode (so a drag draws a wall line carrying the brush),
-# light the strip's Wall radio to match, and close the menu so the user can drop tiles in place.
-func _arm_wall_build() -> void:
-	set_mode(EditorState.Mode.WALL)
-	var ts := get_tree().get_first_node_in_group("tool_strip") as ToolStrip
-	if ts != null and ts.has_method("reflect_mode"):
-		ts.reflect_mode(EditorState.Mode.WALL)
-	_menu.hide()
 
 # Door mode: add a door on the clicked cell, orienting it to the wall run it bridges (falling back to
 # the R-toggled default in open space). A wall on the cell becomes a doorway. One click = one undo.
@@ -1768,27 +1368,105 @@ func _rebuild_world(parts: int) -> void:
 	MapIO.rebuild_live(parts)
 	call_deferred("_update_hover")
 
-# --- right-click menu: Door edits (mirror the inspector, one undo each) ---
-func _edit_door(cell: Vector2i, id: int) -> void:
+# --- right-click menu actions (ContextMenu decodes the item; these do the edit at World point `at`) ---
+
+# apply `color` as the floor tint to the menu target at the current grain (see _menu_scope), redrawing
+# if anything changed. The colour picker calls this live on every drag; returns whether it changed.
+func tint_target(color: Color, at: Vector2) -> bool:
+	var changed := _write_quads(_menu_scope(at), func(q: Vector2i) -> bool: return _write_tint(q, color))
+	if changed:
+		_rebuild()
+	return changed
+
+# a floor colour swatch: arm it as the colour brush (a left-drag keeps tinting) and tint the target
+func apply_floor_color(color: Color, at: Vector2) -> void:
+	EditorState.tool_kind = EditorState.Brush.FLOOR_COLOR
+	EditorState.floor_color = color
+	EditorState.brush_changed.emit()
+	if tint_target(color, at):
+		EditHistory.commit("floor colour") # one menu tint = one undo step
+	reset_highlight()
+
+# a floor pattern: arm it (a left-drag keeps applying it) and re-pattern the target
+func apply_floor_pattern(idx: int, at: Vector2) -> void:
+	EditorState.tool_kind = EditorState.Brush.PATTERN
+	EditorState.pattern = idx
+	if _write_quads(_menu_scope(at), func(q: Vector2i) -> bool: return _write_pattern(q, idx)):
+		_rebuild()
+		EditHistory.commit("floor pattern")
+	reset_highlight()
+
+# a floor material: fill the active floor selection if one exists; otherwise, in Wand mode fill the
+# clicked room. In Cell/Fine, picking a terrain does not auto-place: it arms the brush and the user
+# clicks the target to drop it (ROADMAP "Terrain placement UX").
+func apply_floor_material(mat: String, at: Vector2) -> void:
+	EditorState.tool_kind = EditorState.Brush.FLOOR
+	EditorState.brush = mat
+	EditorState.armed = true # a material was explicitly chosen: Cell/Fine may now drop it
+	EditorState.brush_changed.emit()
+	if EditorState.sel_kind == EditorState.SelKind.FLOOR and selection.overlay.has_selection():
+		var drop_rects := _selection_drop_rects() # capture the shape before the highlight resets
+		_fill_floor_selection(mat)
+		EditHistory.commit("paint")
+		if mat != "" and FloorMaterials.TEXTURES.has(mat):
+			_preview.play_shape_drop(drop_rects, FloorMaterials.texture(mat, 0)) # the whole shape drops in
+		reset_highlight()
+	elif EditorState.mode == EditorState.Mode.WAND:
+		set_room_style(Grid.cell_of(at), mat) # convenience room fill; may no-op outside a room
+		EditHistory.commit("paint")
+		reset_highlight()
+	else:
+		# arm only: nothing changed yet (no undo entry). Refresh the hover so the lifted drop-preview of
+		# the freshly-armed material appears over the cursor immediately.
+		call_deferred("_update_hover")
+
+# a wall colour / material: fill the active wall selection if one exists, otherwise the wall under the
+# click (the whole building in Wand mode, a single segment in Cell/Fine). Armed either way, so a
+# left-drag keeps applying it. A door is not a wall (it keeps its own look), so on a door this no-ops.
+func apply_wall_color(color: Color, at: Vector2) -> void:
+	EditorState.tool_kind = EditorState.Brush.WALL_COLOR
+	EditorState.wall_color = color
+	_apply_to_walls(at, func(cells) -> void: _obs.color_cells(cells, color), "wall colour")
+
+func apply_wall_material(mat: String, at: Vector2) -> void:
+	EditorState.tool_kind = EditorState.Brush.WALL_MATERIAL
+	EditorState.wall_mat = mat
+	_apply_to_walls(at, func(cells) -> void: _obs.material_cells(cells, mat), "wall material")
+
+func _apply_to_walls(at: Vector2, apply: Callable, label: String) -> void:
+	var cell := Grid.cell_of(at)
+	var cells = null
+	if EditorState.sel_kind == EditorState.SelKind.WALL and selection.overlay.has_selection():
+		cells = EditorState.sel_cells
+	elif _obs != null and _obs.is_blocked(cell):
+		cells = _obs.building_cells(cell) if EditorState.mode == EditorState.Mode.WAND else [cell]
+	if cells != null and _obs != null:
+		apply.call(cells)
+		EditHistory.commit(label) # one menu apply = one undo step
+	reset_highlight()
+
+# the Door submenu's edits (they mirror the inspector's door controls), one undo entry each
+func edit_door(cell: Vector2i, edit: DoorEdit) -> void:
 	var d: Dictionary = _obs.door_at(cell) if _obs != null else {}
 	if d.is_empty():
 		return
-	if id == DOOR_FLIP_ID:
-		var flipped := "vertical" if d["orientation"] == "horizontal" else "horizontal"
-		_obs.set_door_orientation(cell, flipped)
-		_rebuild_world(MapIO.REBUILD_STRUCTURES) # structural: respawn the gate
-		EditHistory.commit("door orientation")
-	elif id == DOOR_OPEN_ID:
-		_obs.set_door_open(cell, not bool(d.get("open", false)))
-		EditHistory.commit("door open")
-	elif id == DOOR_SWING_ID:
-		_obs.set_door_swing(cell, not bool(d.get("swing", false)))
-		EditHistory.commit("door swing")
+	match edit:
+		DoorEdit.FLIP:
+			var flipped := "vertical" if d["orientation"] == "horizontal" else "horizontal"
+			_obs.set_door_orientation(cell, flipped)
+			_rebuild_world(MapIO.REBUILD_STRUCTURES) # structural: respawn the gate
+			EditHistory.commit("door orientation")
+		DoorEdit.TOGGLE_OPEN:
+			_obs.set_door_open(cell, not bool(d.get("open", false)))
+			EditHistory.commit("door open")
+		DoorEdit.TOGGLE_SWING:
+			_obs.set_door_swing(cell, not bool(d.get("swing", false)))
+			EditHistory.commit("door swing")
 
 # --- right-click menu / Delete key: Erase ---
 # Erase acts on the current selection when there is one, else on the clicked target. Delete (see
 # _unhandled_key_input) is the selection-only entry point. See ROADMAP "Editor UX revisions" -> Erase.
-func _menu_erase(cell: Vector2i) -> void:
+func erase_target(cell: Vector2i) -> void:
 	if selection.overlay.has_selection():
 		_erase_selection()
 	else:
@@ -1810,7 +1488,7 @@ func _erase_selection() -> void:
 			return
 		_erase_wall_selection()
 	selection.clear()
-	_reset_highlight()
+	reset_highlight()
 	call_deferred("_update_hover")
 
 # The keys bound to any door in `cells`. Deleting such a door deletes its Unique key too (the key
@@ -1857,7 +1535,7 @@ func _delete_structure_with_keys(cell: Vector2i) -> void:
 			_pickups.remove_pickup(k["cell"])
 	_rebuild_world(MapIO.REBUILD_STRUCTURES | MapIO.REBUILD_OBJECTS)
 	EditHistory.commit("erase")
-	_reset_highlight()
+	reset_highlight()
 	call_deferred("_update_hover")
 
 # remove every wall/door in the selection, plus any Unique keys bound to those doors, as one entry
@@ -1875,7 +1553,7 @@ func _erase_wall_selection() -> void:
 		_rebuild_world(MapIO.REBUILD_STRUCTURES | MapIO.REBUILD_OBJECTS)
 		EditHistory.commit("erase")
 	selection.clear()
-	_reset_highlight()
+	reset_highlight()
 	call_deferred("_update_hover")
 
 # erase the single clicked target: remove a wall/door if one is there, else clear the cell's ground.
@@ -1891,7 +1569,7 @@ func _erase_single(cell: Vector2i) -> void:
 		_pickups.remove_pickup(cell)
 		_rebuild_world(MapIO.REBUILD_OBJECTS)
 		EditHistory.commit("erase")
-		_reset_highlight()
+		reset_highlight()
 		call_deferred("_update_hover")
 		return
 	# a placed creature shares that object layer, so it erases at the same depth as an item
@@ -1899,7 +1577,7 @@ func _erase_single(cell: Vector2i) -> void:
 		_creatures.remove_creature(cell)
 		_rebuild_world(MapIO.REBUILD_OBJECTS)
 		EditHistory.commit("erase")
-		_reset_highlight()
+		reset_highlight()
 		call_deferred("_update_hover")
 		return
 	# a bridge is the next layer down (over the water floor): erase it before the ground beneath
@@ -1907,7 +1585,7 @@ func _erase_single(cell: Vector2i) -> void:
 		_obs.remove_bridge(cell)
 		_rebuild_world(MapIO.REBUILD_STRUCTURES)
 		EditHistory.commit("erase")
-		_reset_highlight()
+		reset_highlight()
 		call_deferred("_update_hover")
 		return
 	var changed := false
@@ -1920,7 +1598,7 @@ func _erase_single(cell: Vector2i) -> void:
 	if changed:
 		_rebuild()
 		EditHistory.commit("erase")
-		_reset_highlight()
+		reset_highlight()
 		return
 	# A ZONE is the LAST thing erase can mean: it is a rule about the region, sitting under every
 	# object, structure and terrain in it, so it only goes once there is nothing else on the cell to
@@ -1928,7 +1606,7 @@ func _erase_single(cell: Vector2i) -> void:
 	if _creatures != null and _creatures.remove_zone_at(cell):
 		_rebuild_world(MapIO.REBUILD_OBJECTS)
 		EditHistory.commit("erase")
-	_reset_highlight()
+	reset_highlight()
 
 # Wall/Door placement hover: a plain green cell cursor over any in-bounds cell showing where the next
 # wall or door lands. No drop-preview sprite yet (walls/doors have no lifted tile art), just the cell.
