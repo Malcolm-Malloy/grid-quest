@@ -6,7 +6,7 @@ extends Node2D
 # hover. It lives under World so it shares the ground's transform and lines up with the cells.
 # Green = add and red = remove follow the coloured-highlight palette (ROADMAP).
 
-const CELL := 32
+const CELL := Grid.CELL
 const ADD_FILL := Color(0.35, 0.85, 0.4, 0.35)
 const ADD_LINE := Color(0.4, 0.95, 0.5, 0.95)
 const DEL_FILL := Color(0.9, 0.32, 0.28, 0.35)
@@ -52,7 +52,7 @@ func show_band(edge: String, mode: String) -> void:
 # the band's draw + clear path, so only one highlight shows at a time.
 func show_cell(cell: Vector2i, mode: String) -> void:
 	var add := mode == "add"
-	_rect = Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL)
+	_rect = Grid.cell_rect(cell)
 	_fill = ADD_FILL if add else DEL_FILL
 	_line = ADD_LINE if add else DEL_LINE
 	_add = add

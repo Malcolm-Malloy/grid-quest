@@ -8,7 +8,7 @@ extends Camera2D
 
 enum Mode { FOLLOW, FREE }
 
-const CELL := 32
+const CELL := Grid.CELL
 const ZOOM_MIN := 0.4
 const ZOOM_MAX := 5.0
 const ZOOM_STEP := 1.1

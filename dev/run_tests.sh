@@ -7,6 +7,8 @@
 GODOT="${GODOT:-/Applications/Godot.app/Contents/MacOS/Godot}"
 TIMEOUT="${TIMEOUT:-60}" # seconds per suite
 cd "$(dirname "$0")/.." || exit 99
+# refresh the global class cache first, so a newly added class_name resolves in the suites
+"$GODOT" --headless --path . --import >/dev/null 2>&1
 
 if [ $# -gt 0 ]; then
 	scenes=(); for n in "$@"; do scenes+=("dev/test_$n.tscn"); done

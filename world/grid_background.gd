@@ -1,7 +1,7 @@
 extends Node2D
 class_name GridBackground
 
-const CELL_SIZE := 32
+const CELL_SIZE := Grid.CELL
 const FLOOR_TEX := 128 # floor textures are 128x128, tiled by world position
 
 # grid size (vars, not consts, so a loaded map can resize the grid). This is the SINGLE

@@ -38,7 +38,7 @@ func _ready() -> void:
 
 	# --- Erase a single floor cell (no selection) -> grass ---
 	var fcell := Vector2i(9, 9) # wood room A
-	var fq: Vector2i = fm._cell_quads(fcell)[0]
+	var fq: Vector2i = Grid.quads_of(fcell)[0]
 	_check("setup: (9,9) has a floor material", fm._quad_mat.has(fq))
 	_click(fm, fcell, fm.ERASE_ID)
 	_check("Erase (floor cell): the ground is cleared to grass", not fm._quad_mat.has(fq))

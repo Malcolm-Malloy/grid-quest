@@ -23,7 +23,7 @@ func _ready() -> void:
 	fm._update_box(Vector2i(7, 7)) # cells (5..7)x(5..7) = 9 cells x 4 quarters
 	_check("box replace: 3x3 box selects 36 quarters", fm._sel_quads.size() == 36)
 	_check("box replace: selection kind is floor", fm._sel_kind == "floor")
-	var probe: Vector2i = fm._cell_quads(Vector2i(6, 6))[0]
+	var probe: Vector2i = Grid.quads_of(Vector2i(6, 6))[0]
 	_check("box replace: an interior quarter is selected", fm._sel_quads.has(probe))
 
 	# --- box add: a second box UNIONs onto the first ---
@@ -33,7 +33,7 @@ func _ready() -> void:
 	fm._update_box(Vector2i(8, 7)) # adds cells (8,5),(8,6),(8,7) = 3 cells x 4 = 12 quarters
 	_check("box add: union grows the selection to 48", fm._sel_quads.size() == 48)
 	_check("box add: kept the original region", fm._sel_quads.has(probe))
-	_check("box add: added the new region", fm._sel_quads.has(fm._cell_quads(Vector2i(8, 6))[0]))
+	_check("box add: added the new region", fm._sel_quads.has(Grid.quads_of(Vector2i(8, 6))[0]))
 
 	# --- box subtract: a box removes an overlapping region ---
 	fm._box_base = fm._sel_quads.duplicate()
@@ -41,8 +41,8 @@ func _ready() -> void:
 	fm._box_start = Vector2i(5, 5)
 	fm._update_box(Vector2i(5, 7)) # removes cells (5,5),(5,6),(5,7) = 12 quarters
 	_check("box subtract: removed 12 quarters (48 -> 36)", fm._sel_quads.size() == 36)
-	_check("box subtract: the removed column is gone", not fm._sel_quads.has(fm._cell_quads(Vector2i(5, 6))[0]))
-	_check("box subtract: untouched region remains", fm._sel_quads.has(fm._cell_quads(Vector2i(8, 6))[0]))
+	_check("box subtract: the removed column is gone", not fm._sel_quads.has(Grid.quads_of(Vector2i(5, 6))[0]))
+	_check("box subtract: untouched region remains", fm._sel_quads.has(Grid.quads_of(Vector2i(8, 6))[0]))
 
 	# --- _clamp_cell keeps a box inside the map ---
 	_check("_clamp_cell clamps off-map to the edge", fm._clamp_cell(Vector2i(-5, 999)) == Vector2i(0, gb.grid_height - 1))
@@ -65,9 +65,9 @@ func _ready() -> void:
 	_check("wand replace: a single outdoor cell selects its quarters", s0 == 4 and fm._sel_kind == "floor")
 	fm._wand_click(_center(Vector2i(4, 2)), "add")
 	_check("wand add: a second cell unions in", fm._sel_quads.size() == 8)
-	_check("wand add: both cells present", fm._sel_quads.has(fm._cell_quads(Vector2i(2, 2))[0]) and fm._sel_quads.has(fm._cell_quads(Vector2i(4, 2))[0]))
+	_check("wand add: both cells present", fm._sel_quads.has(Grid.quads_of(Vector2i(2, 2))[0]) and fm._sel_quads.has(Grid.quads_of(Vector2i(4, 2))[0]))
 	fm._wand_click(_center(Vector2i(2, 2)), "subtract")
-	_check("wand subtract: the first cell is removed", not fm._sel_quads.has(fm._cell_quads(Vector2i(2, 2))[0]))
+	_check("wand subtract: the first cell is removed", not fm._sel_quads.has(Grid.quads_of(Vector2i(2, 2))[0]))
 	_check("wand subtract: selection still floor with the other cell", fm._sel_kind == "floor" and fm._sel_quads.size() == 4)
 
 	finish()

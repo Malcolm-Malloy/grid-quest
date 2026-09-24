@@ -27,8 +27,8 @@ extends Node2D
 # The reference grid is off by default and toggled from the popup (a check item). When on,
 # grid_background and shadow_manager draw the grid in GRID_COLOR instead of leaving it off.
 
-const CELL := 32
-const HALF := 16 # a quarter is 16px; a cell is four independently-set quarters
+const CELL := Grid.CELL
+const HALF := Grid.HALF # a quarter is 16px; a cell is four independently-set quarters
 
 # reference grid: a distinct-but-restrained blue, toggled from the menu (off by default)
 const GRID_ID := 100
@@ -396,9 +396,9 @@ var _sel_quads := {}         # floor selection FILL set: quarter Vector2i (16px 
 var _sel_cells := {}         # wall selection: cell Vector2i (32px grid) -> true
 var _sel_level := 0          # grow level: floor 1=patch 2=room; wall 1=run 2=building
 var _faded: Array = []       # [node, original_modulate] of obstacles dimmed under the cursor
-var _faded_cell := Vector2i(-9999, -9999) # cell the current fade is for (dedupe)
+var _faded_cell := Grid.INVALID_CELL # cell the current fade is for (dedupe)
 var _grid_on := false
-const INVALID_CELL := Vector2i(-9999, -9999) # "no cell" sentinel for the dedupe trackers below
+const INVALID_CELL := Grid.INVALID_CELL # "no cell" sentinel for the dedupe trackers below
 var _hover_cell := INVALID_CELL   # raw mouse cell last seen (room-mask dedupe)
 var _wall_hover := INVALID_CELL   # wall cell currently highlighted (dedupe)
 var _whole_hover_key := ""        # descriptor of the current Whole highlight target (sub-cell dedupe):
@@ -635,7 +635,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 		var local := get_local_mouse_position()
-		var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+		var cell := Grid.cell_of(local)
 		# a right-click cancels an armed paste (the standard "drop the loaded brush" gesture, matching
 		# the Cell/Fine right-click-disarms rule); the clipboard keeps the clip for the next Ctrl+V.
 		if _pending_kind == "paste":
@@ -677,7 +677,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		# -> deselect a Wand selection ("clicking off the map would logically deselect").
 		if event.pressed and _selection.has_selection():
 			var lc := get_local_mouse_position()
-			if not _in_bounds(Vector2i(floori(lc.x / CELL), floori(lc.y / CELL))):
+			if not _in_bounds(Grid.cell_of(lc)):
 				_clear_selection()
 				get_viewport().set_input_as_handled()
 				return
@@ -688,7 +688,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			# additive/subtractive selection). Selecting never paints.
 			if event.pressed:
 				var local := get_local_mouse_position()
-				var pc := _clamp_cell(Vector2i(floori(local.x / CELL), floori(local.y / CELL)))
+				var pc := _clamp_cell(Grid.cell_of(local))
 				if _in_bounds(pc):
 					_box_maybe = true
 					_box_press = local
@@ -703,7 +703,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					# released without dragging: a wand click, and it also loads whatever was clicked into
 					# the properties inspector (the old separate Select tool, now folded in)
 					var lc := get_local_mouse_position()
-					if _in_bounds(Vector2i(floori(lc.x / CELL), floori(lc.y / CELL))):
+					if _in_bounds(Grid.cell_of(lc)):
 						_wand_click(lc, _box_op)
 						_select_at(lc)
 				_box_maybe = false
@@ -714,7 +714,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			# at press decides replace / add / subtract against the current selection.
 			if event.pressed:
 				var local := get_local_mouse_position()
-				var cell := _clamp_cell(Vector2i(floori(local.x / CELL), floori(local.y / CELL)))
+				var cell := _clamp_cell(Grid.cell_of(local))
 				if _in_bounds(cell):
 					_box_active = true
 					_box_start = cell
@@ -733,7 +733,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			if event.pressed:
 				var ml := get_local_mouse_position()
 				if _selection.has_selection() and _click_in_selection(ml):
-					_begin_move(Vector2i(floori(ml.x / CELL), floori(ml.y / CELL)))
+					_begin_move(Grid.cell_of(ml))
 					get_viewport().set_input_as_handled()
 			elif _pending_kind == "move":
 				_drop_pending()
@@ -752,7 +752,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			if _creature_kind == Bestiary.ZONE:
 				if event.pressed:
 					var zl := get_local_mouse_position()
-					var zc := _clamp_cell(Vector2i(floori(zl.x / CELL), floori(zl.y / CELL)))
+					var zc := _clamp_cell(Grid.cell_of(zl))
 					if _in_bounds(zc):
 						_zone_active = true
 						_zone_start = zc
@@ -760,7 +760,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				elif _zone_active:
 					_zone_active = false
 					var rl := get_local_mouse_position()
-					_commit_zone(_clamp_cell(Vector2i(floori(rl.x / CELL), floori(rl.y / CELL))))
+					_commit_zone(_clamp_cell(Grid.cell_of(rl)))
 				get_viewport().set_input_as_handled()
 				return
 			# one click = one placed creature = one undo entry (same shape as the item tool)
@@ -838,12 +838,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			_box_active = true # far enough to mean "drag a box", not "click that thing"
 		if _zone_active:
 			var zl2 := get_local_mouse_position()
-			_update_zone_drag(_clamp_cell(Vector2i(floori(zl2.x / CELL), floori(zl2.y / CELL))))
+			_update_zone_drag(_clamp_cell(Grid.cell_of(zl2)))
 		if _painting:
 			_paint(get_local_mouse_position())
 		elif _box_active:
 			var l := get_local_mouse_position()
-			_update_box(_clamp_cell(Vector2i(floori(l.x / CELL), floori(l.y / CELL))))
+			_update_box(_clamp_cell(Grid.cell_of(l)))
 		_update_hover()
 
 # Esc clears the current Magic Wand selection (also cleared by starting a new selection elsewhere).
@@ -950,7 +950,7 @@ func _rebuild_floor_submenu() -> void:
 	for i in FLOOR_COLORS.size():
 		sub.add_item(FLOOR_COLORS[i][0], FLOOR_COLOR_BASE_ID + i)
 	sub.add_item("Custom...", FLOOR_PICKER_ID)
-	var pq := Vector2i(floori(_pending.x / HALF), floori(_pending.y / HALF))
+	var pq := Grid.quad_of(_pending)
 	var mat: String = _quad_mat.get(pq, "")
 	var variants: int = textures[mat].size() if textures.has(mat) else 0
 	if variants > 1:
@@ -987,7 +987,7 @@ func _on_menu_id(id: int) -> void:
 	if id == GRID_ID:
 		set_grid(not _grid_on)
 		return
-	var cell := Vector2i(floori(_pending.x / CELL), floori(_pending.y / CELL))
+	var cell := Grid.cell_of(_pending)
 	# action items (all < 300, matched here before the swatch-range branches and the MENU fallthrough)
 	if id == ERASE_ID:
 		_menu_erase(cell)
@@ -1109,13 +1109,13 @@ func _on_menu_id(id: int) -> void:
 # floor selection, else the clicked room (Wand) / quarter (Fine) / cell (Cell). Returns whether any
 # quarter changed. Shared by the preset swatches and the live colour picker.
 func _apply_floor_tint(color: Color) -> bool:
-	var cell := Vector2i(floori(_pending.x / CELL), floori(_pending.y / CELL))
+	var cell := Grid.cell_of(_pending)
 	if _sel_kind == "floor" and _selection.has_selection():
 		return _tint_selection(color)
 	elif _mode == Mode.WAND:
 		return _tint_room(cell, color)
 	elif _mode == Mode.FINE:
-		return _write_tint(Vector2i(floori(_pending.x / HALF), floori(_pending.y / HALF)), color)
+		return _write_tint(Grid.quad_of(_pending), color)
 	else: # Cell / Erase -> the whole cell
 		return _tint_cell(cell, color)
 
@@ -1181,7 +1181,7 @@ func hovered_cell() -> Vector2i:
 	if EditorMode.is_play() or not _mouse_inside or _pointer_over_ui():
 		return INVALID_CELL
 	var local := get_local_mouse_position()
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var cell := Grid.cell_of(local)
 	var gb = get_node_or_null("../GridBackground")
 	if gb != null and not gb.cell_present(cell.x, cell.y):
 		return INVALID_CELL
@@ -1349,8 +1349,8 @@ func arm_floor_color(color: Color) -> void:
 # a wand click either starts a new selection or grows the current one (patch -> whole room for a
 # floor, run -> whole building for a wall). See ROADMAP "Magic Wand".
 func _wand_click(local: Vector2, op := "replace") -> void:
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
-	var q := Vector2i(floori(local.x / HALF), floori(local.y / HALF))
+	var cell := Grid.cell_of(local)
+	var q := Grid.quad_of(local)
 	var obs = get_node_or_null("../Obstacles")
 	var is_wall: bool = obs != null and obs.is_blocked(cell)
 	if op == "replace":
@@ -1421,7 +1421,7 @@ func _update_box(cur: Vector2i) -> void:
 	var region := {}
 	for cy in range(lo.y, hi.y + 1):
 		for cx in range(lo.x, hi.x + 1):
-			for cq in _cell_quads(Vector2i(cx, cy)):
+			for cq in Grid.quads_of(Vector2i(cx, cy)):
 				region[cq] = true
 	var result: Dictionary = _box_base.duplicate()
 	if _box_op == "subtract":
@@ -1457,10 +1457,10 @@ func _wand_floor(cell: Vector2i, q: Vector2i) -> void:
 func _with_ring(quads: Dictionary) -> Dictionary:
 	var cells := {}
 	for q in quads:
-		cells[Vector2i(floori(q.x / 2.0), floori(q.y / 2.0))] = true
+		cells[Grid.cell_of_quad(q)] = true
 	var out: Dictionary = quads.duplicate()
 	for r in room_light.wall_ring_quads(cells):
-		out[Vector2i(floori(r.position.x / HALF), floori(r.position.y / HALF))] = true
+		out[Grid.quad_of(r.position)] = true
 	return out
 
 func _wand_wall(obs, cell: Vector2i) -> void:
@@ -1481,12 +1481,12 @@ func _patch_quads(cell: Vector2i, q: Vector2i) -> Dictionary:
 	var room: Dictionary = room_light.room_floor_cells(cell)
 	if room.is_empty():
 		var single := {}
-		for cq in _cell_quads(cell):
+		for cq in Grid.quads_of(cell):
 			single[cq] = true
 		return single
 	var allowed := {}
 	for c in room:
-		for cq in _cell_quads(c):
+		for cq in Grid.quads_of(c):
 			allowed[cq] = true
 	var seed_mat = _quad_mat.get(q, "")
 	var sel := {q: true}
@@ -1507,10 +1507,10 @@ func _patch_quads(cell: Vector2i, q: Vector2i) -> Dictionary:
 func _room_quads(cells: Dictionary) -> Dictionary:
 	var out := {}
 	for c in cells:
-		for cq in _cell_quads(c):
+		for cq in Grid.quads_of(c):
 			out[cq] = true
 	for rect in room_light.wall_ring_quads(cells):
-		out[Vector2i(floori(rect.position.x / HALF), floori(rect.position.y / HALF))] = true
+		out[Grid.quad_of(rect.position)] = true
 	return out
 
 # the 32px CELLS covered by the active FLOOR selection, read by RoomLight so it lights them (skips its
@@ -1521,7 +1521,7 @@ func selection_lit_cells() -> Dictionary:
 		return {}
 	var out := {}
 	for q in _sel_quads:
-		out[Vector2i(floori(q.x / 2.0), floori(q.y / 2.0))] = true
+		out[Grid.cell_of_quad(q)] = true
 	return out
 
 func _refresh_selection_overlay() -> void:
@@ -1555,7 +1555,7 @@ func _floor_occluders() -> Array:
 	var minc := Vector2i(1 << 30, 1 << 30)
 	var maxc := Vector2i(-(1 << 30), -(1 << 30))
 	for q in _sel_quads:
-		var c := Vector2i(floori(q.x / 2.0), floori(q.y / 2.0)) # quarter -> owning cell
+		var c := Grid.cell_of_quad(q) # quarter -> owning cell
 		minc.x = mini(minc.x, c.x); minc.y = mini(minc.y, c.y)
 		maxc.x = maxi(maxc.x, c.x); maxc.y = maxi(maxc.y, c.y)
 	var walls := {}
@@ -1578,9 +1578,9 @@ func _clear_selection() -> void:
 # selection (inside) or deselects it (outside), per "Editor UX revisions" -> deselect a Wand selection.
 func _click_in_selection(local: Vector2) -> bool:
 	if _sel_kind == "floor":
-		return _sel_quads.has(Vector2i(floori(local.x / HALF), floori(local.y / HALF)))
+		return _sel_quads.has(Grid.quad_of(local))
 	elif _sel_kind == "wall":
-		return _sel_cells.has(Vector2i(floori(local.x / CELL), floori(local.y / CELL)))
+		return _sel_cells.has(Grid.cell_of(local))
 	return false
 
 # --- Eyedropper (ROADMAP "Eyedropper"): load the brush from what is already on the map ---
@@ -1590,7 +1590,7 @@ func _click_in_selection(local: Vector2) -> bool:
 # through arm_floor_material / arm_wall_material, which deliberately re-fill an active selection.
 # Returns whether anything was picked.
 func _eyedrop_at(local: Vector2) -> bool:
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var cell := Grid.cell_of(local)
 	if not _in_bounds(cell):
 		return false
 	var obs = get_node_or_null("../Obstacles")
@@ -1607,7 +1607,7 @@ func _eyedrop_at(local: Vector2) -> bool:
 		return true
 	# otherwise the FLOOR quarter under the cursor: material + tint, the two axes of the floor brush.
 	# Bare grass ("") is a real answer -- it arms the grass eraser, which is how you match plain ground.
-	var q := Vector2i(floori(local.x / HALF), floori(local.y / HALF))
+	var q := Grid.quad_of(local)
 	_tool_kind = "floor"
 	_brush = _quad_mat.get(q, "")
 	_floor_color = _quad_tint.get(q, Color.WHITE)
@@ -1623,7 +1623,7 @@ func _eyedrop_at(local: Vector2) -> bool:
 # (authoring the start point without walking the character there); a map LOAD is what puts the player
 # on it.
 func _set_spawn_at(local: Vector2) -> bool:
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var cell := Grid.cell_of(local)
 	if not _stampable(cell):
 		return false # off the map, or on an absent-cell hole
 	var obs = get_node_or_null("../Obstacles")
@@ -1644,7 +1644,7 @@ func _set_spawn_at(local: Vector2) -> bool:
 # already holds an item (one per cell, the cell-occupancy model) or that has a wall/door on it, and
 # the void outside the map. Binding a Unique key to a specific door comes with locked doors (item 11).
 func _place_item_at(local: Vector2) -> bool:
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var cell := Grid.cell_of(local)
 	if not _stampable(cell):
 		return false
 	var obs = get_node_or_null("../Obstacles")
@@ -1690,7 +1690,7 @@ func armed_item_binding() -> Dictionary:
 # map, on a cell a wall/door owns, and on a cell that already holds an OBJECT -- a pickup or another
 # creature -- because the cell-occupancy model allows one object per cell and a creature is an object.
 func _place_creature_at(local: Vector2) -> bool:
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var cell := Grid.cell_of(local)
 	if not _stampable(cell):
 		return false
 	var obs = get_node_or_null("../Obstacles")
@@ -1773,7 +1773,7 @@ func _selection_cells() -> Dictionary:
 	var out := {}
 	if _sel_kind == "floor":
 		for q in _sel_quads:
-			out[Vector2i(floori(q.x / 2.0), floori(q.y / 2.0))] = true
+			out[Grid.cell_of_quad(q)] = true
 	elif _sel_kind == "wall":
 		for c in _sel_cells:
 			out[c] = true
@@ -1839,7 +1839,7 @@ func _pending_origin() -> Vector2i:
 	if _ghost_origin_pin != INVALID_CELL:
 		return _ghost_origin_pin # pinned by the capture harness; never set in normal play
 	var local := get_local_mouse_position()
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var cell := Grid.cell_of(local)
 	if _pending_kind == "move":
 		return _move_origin + (cell - _move_grab)
 	return cell - Vector2i(int(_pending_clip.get("w", 1)) / 2, int(_pending_clip.get("h", 1)) / 2)
@@ -1870,7 +1870,7 @@ func _select_cells(cells: Dictionary) -> void:
 	_sel_level = 0
 	_sel_quads = {}
 	for c in cells:
-		for q in _cell_quads(c):
+		for q in Grid.quads_of(c):
 			_sel_quads[q] = true
 	_refresh_selection_overlay()
 
@@ -1900,10 +1900,10 @@ func _selection_drop_rects() -> Array:
 	var obs = get_node_or_null("../Obstacles")
 	var out: Array = []
 	for q in _sel_quads:
-		var cell := Vector2i(floori(q.x / 2.0), floori(q.y / 2.0)) # 2 quarters per 32px cell axis
+		var cell := Grid.cell_of_quad(q) # 2 quarters per 32px cell axis
 		if obs != null and obs.has_structure(cell):
 			continue
-		out.append(Rect2(q.x * HALF, q.y * HALF, HALF, HALF))
+		out.append(Grid.quad_rect(q))
 	return out
 
 func _fill_wall_selection(color: Color) -> void:
@@ -1956,7 +1956,7 @@ func _update_hover() -> void:
 	if not _mouse_inside:
 		return # cursor is off the game window; highlights were cleared on exit
 	var local := get_local_mouse_position()
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var cell := Grid.cell_of(local)
 	# an armed paste / an in-flight move owns the hover surface: the clip ghost replaces every other
 	# cursor, so what is about to land is the only thing previewed.
 	if not _pending_clip.is_empty():
@@ -2006,8 +2006,8 @@ func _update_hover() -> void:
 			_cursor.hide_cursor()
 			return
 		_cursor.set_role(PaintCursor.Role.GROUND)
-		var eq := Vector2i(floori(local.x / HALF), floori(local.y / HALF))
-		_cursor.show_rect(Rect2(eq.x * HALF, eq.y * HALF, HALF, HALF))
+		var eq := Grid.quad_of(local)
+		_cursor.show_rect(Grid.quad_rect(eq))
 		return
 	# after a wall colour or material is picked, outline the single wall under the cursor
 	if _tool_kind == "wall" or _tool_kind == "wall_mat":
@@ -2025,12 +2025,12 @@ func _update_hover() -> void:
 	# terrain paint is a ground edit (orange); erase is destructive (red)
 	_cursor.set_role(PaintCursor.Role.ERASE if _mode == Mode.ERASE else PaintCursor.Role.GROUND)
 	if _mode == Mode.FINE:
-		var q := Vector2i(floori(local.x / HALF), floori(local.y / HALF))
-		var r := Rect2(q.x * HALF, q.y * HALF, HALF, HALF)
+		var q := Grid.quad_of(local)
+		var r := Grid.quad_rect(q)
 		_cursor.show_rect(r)
 		_show_preview(r)
 	else: # Cell or Erase -> the whole cell
-		var r := Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL)
+		var r := Grid.cell_rect(cell)
 		_cursor.show_rect(r)
 		_show_preview(r)
 
@@ -2122,7 +2122,7 @@ func _adjacent_room_cell(cell: Vector2i, local: Vector2) -> Vector2i:
 	for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
 		var n: Vector2i = cell + d
 		if room_light.is_enclosed_floor(n):
-			var c := Vector2(n.x * CELL + CELL / 2.0, n.y * CELL + CELL / 2.0)
+			var c := Grid.cell_center(n)
 			var dist := local.distance_squared_to(c)
 			if dist < best_d:
 				best_d = dist
@@ -2132,10 +2132,6 @@ func _adjacent_room_cell(cell: Vector2i, local: Vector2) -> Vector2i:
 # --- floor styles ---
 
 # the four quarters a cell owns: cell c owns 2c, 2c+(1,0), 2c+(0,1), 2c+(1,1).
-func _cell_quads(c: Vector2i) -> Array:
-	return [Vector2i(c.x * 2, c.y * 2), Vector2i(c.x * 2 + 1, c.y * 2),
-			Vector2i(c.x * 2, c.y * 2 + 1), Vector2i(c.x * 2 + 1, c.y * 2 + 1)]
-
 # --- painting (the authoring surface over the quarter store) ---
 
 # apply the active tool at the active scope, at World-space local position `local`.
@@ -2143,7 +2139,7 @@ func _cell_quads(c: Vector2i) -> Array:
 # material lands, so a single placement gets the falling-tile effect without spamming it per cell
 # as a drag sweeps across the map.
 func _paint(local: Vector2, drop := false) -> void:
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var cell := Grid.cell_of(local)
 	# Wall mode drag: draw a wall line (routed here via the shared _painting drag path)
 	if _mode == Mode.WALL:
 		_place_wall_at(local)
@@ -2176,14 +2172,14 @@ func _paint(local: Vector2, drop := false) -> void:
 	# tint clears any prior tint; erasing clears the tint too so the cell returns to plain grass.
 	var tint := Color.WHITE if _mode == Mode.ERASE else _floor_color
 	var changed := false
-	var rect := Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL)
+	var rect := Grid.cell_rect(cell)
 	if _mode == Mode.FINE:
-		var q := Vector2i(floori(local.x / HALF), floori(local.y / HALF))
-		rect = Rect2(q.x * HALF, q.y * HALF, HALF, HALF)
+		var q := Grid.quad_of(local)
+		rect = Grid.quad_rect(q)
 		changed = _write_quad(q, mat)
 		changed = _write_tint(q, tint) or changed
 	else: # Cell or Erase -> the whole cell
-		for q in _cell_quads(cell):
+		for q in Grid.quads_of(cell):
 			changed = _write_quad(q, mat) or changed
 			changed = _write_tint(q, tint) or changed
 	if changed:
@@ -2210,12 +2206,12 @@ func _paint_wall_material(cell: Vector2i) -> void:
 # floor-colour tool drag: tint the cell (Cell mode) or quarter (Fine mode) under the cursor with
 # the active _floor_color. No-op off the map. Whole-room / selection tinting is done from the menu.
 func _paint_floor_color(local: Vector2) -> void:
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var cell := Grid.cell_of(local)
 	if not _paintable(cell):
 		return
 	var changed := false
 	if _mode == Mode.FINE:
-		changed = _write_tint(Vector2i(floori(local.x / HALF), floori(local.y / HALF)), _floor_color)
+		changed = _write_tint(Grid.quad_of(local), _floor_color)
 	else: # Cell (or any non-Fine grain) -> the whole cell
 		changed = _tint_cell(cell, _floor_color)
 	if changed:
@@ -2224,12 +2220,12 @@ func _paint_floor_color(local: Vector2) -> void:
 # pattern-tool drag: apply the active _pattern to the cell (Cell mode) or quarter (Fine mode) under
 # the cursor. No-op off the map or over a quarter with no material (_write_pattern guards that).
 func _paint_floor_pattern(local: Vector2) -> void:
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var cell := Grid.cell_of(local)
 	if not _paintable(cell):
 		return
 	var changed := false
 	if _mode == Mode.FINE:
-		changed = _write_pattern(Vector2i(floori(local.x / HALF), floori(local.y / HALF)), _pattern)
+		changed = _write_pattern(Grid.quad_of(local), _pattern)
 	else: # Cell (or any non-Fine grain) -> the whole cell
 		changed = _pattern_cell(cell, _pattern)
 	if changed:
@@ -2251,7 +2247,7 @@ func _write_tint(q: Vector2i, color: Color) -> bool:
 # tint all four quarters of a cell; returns true if any changed.
 func _tint_cell(cell: Vector2i, color: Color) -> bool:
 	var changed := false
-	for q in _cell_quads(cell):
+	for q in Grid.quads_of(cell):
 		changed = _write_tint(q, color) or changed
 	return changed
 
@@ -2263,10 +2259,10 @@ func _tint_room(cell: Vector2i, color: Color) -> bool:
 		return false
 	var changed := false
 	for c in cells:
-		for q in _cell_quads(c):
+		for q in Grid.quads_of(c):
 			changed = _write_tint(q, color) or changed
 	for rect in room_light.wall_ring_quads(cells):
-		var q := Vector2i(floori(rect.position.x / HALF), floori(rect.position.y / HALF))
+		var q := Grid.quad_of(rect.position)
 		changed = _write_tint(q, color) or changed
 	return changed
 
@@ -2282,7 +2278,7 @@ func _tint_selection(color: Color) -> bool:
 
 func _pattern_cell(cell: Vector2i, idx: int) -> bool:
 	var changed := false
-	for q in _cell_quads(cell):
+	for q in Grid.quads_of(cell):
 		changed = _write_pattern(q, idx) or changed
 	return changed
 
@@ -2292,10 +2288,10 @@ func _pattern_room(cell: Vector2i, idx: int) -> bool:
 		return false
 	var changed := false
 	for c in cells:
-		for q in _cell_quads(c):
+		for q in Grid.quads_of(c):
 			changed = _write_pattern(q, idx) or changed
 	for rect in room_light.wall_ring_quads(cells):
-		var q := Vector2i(floori(rect.position.x / HALF), floori(rect.position.y / HALF))
+		var q := Grid.quad_of(rect.position)
 		changed = _write_pattern(q, idx) or changed
 	return changed
 
@@ -2308,13 +2304,13 @@ func _pattern_selection(idx: int) -> bool:
 # apply pattern `idx` to the right-clicked target at the current grain (mirrors _apply_floor_tint):
 # a floor selection, else Wand -> whole room, Fine -> the quarter, Cell -> the whole cell.
 func _apply_floor_pattern(idx: int) -> bool:
-	var cell := Vector2i(floori(_pending.x / CELL), floori(_pending.y / CELL))
+	var cell := Grid.cell_of(_pending)
 	if _sel_kind == "floor" and _selection.has_selection():
 		return _pattern_selection(idx)
 	elif _mode == Mode.WAND:
 		return _pattern_room(cell, idx)
 	elif _mode == Mode.FINE:
-		return _write_pattern(Vector2i(floori(_pending.x / HALF), floori(_pending.y / HALF)), idx)
+		return _write_pattern(Grid.quad_of(_pending), idx)
 	else: # Cell / Erase -> the whole cell
 		return _pattern_cell(cell, idx)
 
@@ -2324,7 +2320,7 @@ func _apply_floor_pattern(idx: int) -> bool:
 # removed, so the caller leaves the terrain for a follow-up click and skips the paint drag. One
 # click = one removal = one undo entry (ROADMAP "Erase mode").
 func _erase_structure_at(local: Vector2) -> bool:
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var cell := Grid.cell_of(local)
 	if not _in_bounds(cell):
 		return false
 	var obs = get_node_or_null("../Obstacles")
@@ -2344,7 +2340,7 @@ func _erase_structure_at(local: Vector2) -> bool:
 # Wall mode: add a wall on the clicked/dragged cell. add_wall no-ops on a cell that already holds a
 # structure, so a drag over existing walls (or a repeat within one cell) triggers no rebuild.
 func _place_wall_at(local: Vector2) -> void:
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var cell := Grid.cell_of(local)
 	if not _in_bounds(cell):
 		return
 	var obs = get_node_or_null("../Obstacles")
@@ -2393,7 +2389,7 @@ func _arm_wall_build() -> void:
 # Door mode: add a door on the clicked cell, orienting it to the wall run it bridges (falling back to
 # the R-toggled default in open space). A wall on the cell becomes a doorway. One click = one undo.
 func _place_door_at(local: Vector2) -> void:
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var cell := Grid.cell_of(local)
 	if not _in_bounds(cell):
 		return
 	var obs = get_node_or_null("../Obstacles")
@@ -2412,7 +2408,7 @@ func _place_door_at(local: Vector2) -> void:
 # a vertical river (water above/below) gets a "horizontal" bridge. When the run is ambiguous (water on
 # both axes, or none) fall back to _bridge_orient (R flips it), mirroring the door open-space default.
 func _place_bridge_at(local: Vector2) -> void:
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var cell := Grid.cell_of(local)
 	if not _in_bounds(cell):
 		return
 	var obs = get_node_or_null("../Obstacles")
@@ -2459,7 +2455,7 @@ func _bridge_river_orientation(cell: Vector2i) -> String:
 # Select tool: load the door or wall on the clicked cell into the properties inspector (a door wins
 # if somehow both are present, matching the topmost-structure model). An empty cell clears it.
 func _select_at(local: Vector2) -> void:
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var cell := Grid.cell_of(local)
 	var inspector = get_tree().get_first_node_in_group("inspector")
 	if inspector == null:
 		return
@@ -2644,7 +2640,7 @@ func _erase_single(cell: Vector2i) -> void:
 		call_deferred("_update_hover")
 		return
 	var changed := false
-	for q in _cell_quads(cell):
+	for q in Grid.quads_of(cell):
 		if _quad_mat.has(q) or _quad_pattern.has(q) or _quad_tint.has(q):
 			_quad_mat.erase(q)
 			_quad_pattern.erase(q)
@@ -2675,7 +2671,7 @@ func _update_structure_placement_hover(cell: Vector2i) -> void:
 		_hide_door_ghost()
 		return
 	_cursor.set_role(PaintCursor.Role.ADD) # green: placing a wall/door is additive
-	_cursor.show_rect(Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL))
+	_cursor.show_rect(Grid.cell_rect(cell))
 	# Also float the REAL thing a click would place, like the bridge deck preview. WALL: the wall shape
 	# (horizontal/vertical/corner/T/cross) in the armed colour+material, over an empty cell. DOOR: the
 	# closed door, auto-oriented to the wall run it would bridge.
@@ -2703,7 +2699,7 @@ func _show_door_ghost(cell: Vector2i, obs) -> void:
 		return
 	_door_ghost_key = key
 	_door_preview.set_preview_orientation(orient)
-	_door_preview.position = Vector2(cell.x * CELL + CELL / 2.0, cell.y * CELL + CELL / 2.0)
+	_door_preview.position = Grid.cell_center(cell)
 	_door_preview.visible = true
 
 func _hide_door_ghost() -> void:
@@ -2724,7 +2720,7 @@ func _show_wall_ghost(cell: Vector2i) -> void:
 	if key == _wall_ghost_key:
 		return # nothing changed (same cell + brush + shape): leave the ghost as-is
 	_wall_ghost_key = key
-	var center := Vector2(cell.x * CELL + CELL / 2.0, cell.y * CELL + CELL / 2.0)
+	var center := Grid.cell_center(cell)
 	for i in _wall_ghost.size():
 		var wp = _wall_ghost[i]
 		if i < configs.size():
@@ -2763,16 +2759,16 @@ func _update_bridge_hover(cell: Vector2i) -> void:
 	# lava can't be bridged (wooden bridges burn): mark it invalid (red cursor, no deck preview)
 	if _cell_liquid(cell) == "lava":
 		_cursor.set_role(PaintCursor.Role.ERASE)
-		_cursor.show_rect(Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL))
+		_cursor.show_rect(Grid.cell_rect(cell))
 		_bridge_preview.visible = false
 		return
 	_cursor.set_role(PaintCursor.Role.ADD)
-	_cursor.show_rect(Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL))
+	_cursor.show_rect(Grid.cell_rect(cell))
 	var orient := _bridge_river_orientation(cell)
 	if orient == "":
 		orient = _bridge_orient
 	_bridge_preview.orientation = orient
-	_bridge_preview.position = Vector2(cell.x * CELL + CELL / 2.0, cell.y * CELL + CELL / 2.0 - _BRIDGE_PREVIEW_LIFT)
+	_bridge_preview.position = Grid.cell_center(cell) - Vector2(0, _BRIDGE_PREVIEW_LIFT)
 	_bridge_preview.visible = true
 	_bridge_preview.queue_redraw()
 
@@ -2844,7 +2840,7 @@ func _restore_faded() -> void:
 		if is_instance_valid(e[0]):
 			e[0].modulate = e[1]
 	_faded.clear()
-	_faded_cell = Vector2i(-9999, -9999)
+	_faded_cell = Grid.INVALID_CELL
 
 func _in_bounds(cell: Vector2i) -> bool:
 	var gb = get_node_or_null("../GridBackground")
@@ -2869,10 +2865,10 @@ func _write_room(cells: Dictionary, style: String) -> void:
 	var valid := style != "" and textures.has(style)
 	var quads: Array = []
 	for c in cells:
-		for q in _cell_quads(c):
+		for q in Grid.quads_of(c):
 			quads.append(q)
 	for rect in room_light.wall_ring_quads(cells):
-		quads.append(Vector2i(floori(rect.position.x / HALF), floori(rect.position.y / HALF)))
+		quads.append(Grid.quad_of(rect.position))
 	for q in quads:
 		if valid:
 			_quad_mat[q] = style
@@ -2962,7 +2958,7 @@ func _rebuild() -> void:
 	_base_fills = []
 	_has_water = false
 	for q in _quad_mat:
-		var rect := Rect2(q.x * HALF, q.y * HALF, HALF, HALF)
+		var rect := Grid.quad_rect(q)
 		var mat: String = _quad_mat[q]
 		var tint: Color = _quad_tint.get(q, Color.WHITE)
 		if LIQUID_SHORE.has(mat):
@@ -3005,12 +3001,12 @@ func _rebuild() -> void:
 	for q in _quad_tint:
 		if _quad_mat.has(q):
 			continue
-		_base_fills.append([Rect2(q.x * HALF, q.y * HALF, HALF, HALF), GRASS, _quad_tint[q]])
+		_base_fills.append([Grid.quad_rect(q), GRASS, _quad_tint[q]])
 	# River-bank auto-edge: every non-water quarter touching water (8-neighbour, in-bounds) draws the
 	# brown bank on TOP of whatever is there. Appended last so it renders over the underlying fill;
 	# untinted (native brown). Derived only, so it is neither saved nor blocking (see RIVER_BANK).
 	for bq in _bank_quads():
-		_base_fills.append([Rect2(bq.x * HALF, bq.y * HALF, HALF, HALF), RIVER_BANK, Color.WHITE])
+		_base_fills.append([Grid.quad_rect(bq), RIVER_BANK, Color.WHITE])
 	_redraw_floor_layers()
 
 # the set of 16px quarter coords that render as river bank: any in-bounds quarter that is NOT a
@@ -3030,7 +3026,7 @@ func _bank_quads() -> Dictionary:
 				var n := Vector2i(q.x + dx, q.y + dy)
 				if BANK_AROUND.has(_quad_mat.get(n, "")):
 					continue # a neighbouring water quarter is not bank
-				if not _in_bounds(Vector2i(floori(n.x / 2.0), floori(n.y / 2.0))):
+				if not _in_bounds(Grid.cell_of_quad(n)):
 					continue # keep bank inside the map grid, not out in the void
 				bank[n] = true
 	return bank
@@ -3049,7 +3045,7 @@ func _liquid_edge_mask(q: Vector2i, mat: String) -> int:
 # a liquid `mat` quarter feathers toward neighbour `nq` when it is in-bounds and a DIFFERENT material (land,
 # or the other liquid); out-of-map neighbours are not, so a liquid clips at the map edge instead of feathering.
 func _liquid_edge(nq: Vector2i, mat: String) -> bool:
-	if not _in_bounds(Vector2i(floori(nq.x / 2.0), floori(nq.y / 2.0))):
+	if not _in_bounds(Grid.cell_of_quad(nq)):
 		return false
 	return _quad_mat.get(nq, "") != mat
 
@@ -3068,7 +3064,7 @@ func _terrain_edge_mask(q: Vector2i, mat: String) -> int:
 
 # is neighbour quarter `nq` an in-bounds natural terrain ranked below `r`?
 func _lower_terrain(nq: Vector2i, r: int) -> bool:
-	if not _in_bounds(Vector2i(floori(nq.x / 2.0), floori(nq.y / 2.0))):
+	if not _in_bounds(Grid.cell_of_quad(nq)):
 		return false
 	var nmat: String = _quad_mat.get(nq, "")
 	return TERRAIN_RANK.has(nmat) and TERRAIN_RANK[nmat] < r
@@ -3082,7 +3078,7 @@ func _edge_underlay_mat(q: Vector2i, mat: String) -> String:
 	var best_rank := 0
 	for d in [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]:
 		var nq: Vector2i = q + d
-		if not _in_bounds(Vector2i(floori(nq.x / 2.0), floori(nq.y / 2.0))):
+		if not _in_bounds(Grid.cell_of_quad(nq)):
 			continue
 		var nmat: String = _quad_mat.get(nq, "")
 		if TERRAIN_RANK.has(nmat) and TERRAIN_RANK[nmat] < r and TERRAIN_RANK[nmat] > best_rank:

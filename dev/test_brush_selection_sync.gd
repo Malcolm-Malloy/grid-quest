@@ -13,7 +13,7 @@ func _ready() -> void:
 
 	var roomCell := Vector2i(8, 9) # inside the bottom-left room
 	var center := Vector2(roomCell.x * 32 + 16, roomCell.y * 32 + 16)
-	var q0: Vector2i = fm._cell_quads(roomCell)[0] # an interior quarter of that cell
+	var q0: Vector2i = Grid.quads_of(roomCell)[0] # an interior quarter of that cell
 
 	# make the room "red tiles"
 	fm.set_room_style(roomCell, "tile")

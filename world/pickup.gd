@@ -16,7 +16,7 @@ extends Node2D
 # Per the standing convention it sets the floor-highlight mask bit and y-sorts like other ground
 # objects, so the room highlight is excluded from it and walls occlude it correctly.
 
-const CELL := 32
+const CELL := Grid.CELL
 const R := 8.0          # glyph radius; the ring sits just outside it
 const RING_R := 11.0
 const DARK := Color(0.05, 0.05, 0.08, 0.85)
@@ -71,4 +71,4 @@ func _draw() -> void:
 
 func place(at_cell: Vector2i) -> void:
 	cell = at_cell
-	position = Vector2(cell.x * CELL + CELL / 2.0, cell.y * CELL + CELL / 2.0)
+	position = Grid.cell_center(cell)

@@ -22,7 +22,6 @@ extends Node2D
 # key is there when you open the map in the editor; whether THIS character already took it is
 # character data, held by CharacterIO. So build_world() skips instances CharacterIO reports collected.
 
-const CELL := 32
 
 var pickups: Array[Dictionary] = [] # [{cell: Vector2i, item: String, id: String}]
 var pickup_script: Script
@@ -141,7 +140,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventMouseButton) or event.button_index != MOUSE_BUTTON_LEFT or not event.pressed:
 		return
 	var local := get_local_mouse_position()
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var cell := Grid.cell_of(local)
 	var rec := pickup_at(cell)
 	if rec.is_empty() or Items.is_stackable(String(rec["item"])):
 		return
@@ -155,5 +154,5 @@ func _within_reach(cell: Vector2i) -> bool:
 	var player := get_tree().get_first_node_in_group("player")
 	if player == null:
 		return false
-	var pc := Vector2i(floori(player.position.x / CELL), floori(player.position.y / CELL))
+	var pc := Grid.cell_of(player.position)
 	return absi(pc.x - cell.x) <= 1 and absi(pc.y - cell.y) <= 1

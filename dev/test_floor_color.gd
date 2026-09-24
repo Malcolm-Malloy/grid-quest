@@ -21,7 +21,7 @@ func _ready() -> void:
 	var cell := Vector2i(8, 9) # inside the seeded wooden room A
 	var changed: bool = fm._tint_cell(cell, red)
 	_check("tint cell: reports a change", changed)
-	var quads: Array = fm._cell_quads(cell)
+	var quads: Array = Grid.quads_of(cell)
 	var all_red := true
 	for q in quads:
 		if fm.floor_tint_at_quad(q) != red:
@@ -48,7 +48,7 @@ func _ready() -> void:
 	_check("tint room: found a room to fill", not room_cells.is_empty())
 	var interior_ok := true
 	for c in room_cells:
-		for cq in fm._cell_quads(c):
+		for cq in Grid.quads_of(c):
 			if fm.floor_tint_at_quad(cq) != red:
 				interior_ok = false
 	_check("tint room: every interior quarter is red", interior_ok)
@@ -122,7 +122,7 @@ func _ready() -> void:
 	var applied: bool = fm._apply_floor_tint(red)
 	_check("apply-helper (Cell): reports a change", applied)
 	var cell_all_red := true
-	for q2 in fm._cell_quads(cell):
+	for q2 in Grid.quads_of(cell):
 		if fm.floor_tint_at_quad(q2) != red:
 			cell_all_red = false
 	_check("apply-helper (Cell): tints the clicked cell's 4 quarters", cell_all_red)
@@ -136,7 +136,7 @@ func _ready() -> void:
 	fm._suppress_picker = false
 	fm._picker_applied = false
 	fm._on_floor_picker_changed(blue) # a real drag: applies live and flags for commit-on-close
-	_check("picker: live change tints the target", fm.floor_tint_at_quad(fm._cell_quads(cell)[0]) == blue)
+	_check("picker: live change tints the target", fm.floor_tint_at_quad(Grid.quads_of(cell)[0]) == blue)
 	_check("picker: flags applied for commit-on-close", fm._picker_applied)
 
 	finish()

@@ -12,14 +12,14 @@ extends Node2D
 # _unhandled_input, which consumes every left-click. Tool-strip button clicks are GUI input and
 # are handled before _input, so they are never mistaken for a map click.
 
-const CELL := 32
+const CELL := Grid.CELL
 const BAND := 32.0 # how far into the void (px) beyond an edge the add-zone reaches
 const M_CELL := 1  # FloorManager.Mode.CELL; the single-cell grain runs in Cell mode
 
 var active := false
 var _edge := "" # currently hovered add edge ("" = none, whole row/column grain)
-var _cell := Vector2i(-9999, -9999) # currently hovered addable cell ("" via _no_cell, single grain)
-const _NO_CELL := Vector2i(-9999, -9999)
+var _cell := Grid.INVALID_CELL # currently hovered addable cell ("" via _no_cell, single grain)
+const _NO_CELL := Grid.INVALID_CELL
 
 # single-cell DRAG state: press-and-drag lays a whole strip of edge cells, committed as ONE undo entry
 # on release (like a paint stroke), rather than one undo step per cell.
@@ -104,7 +104,7 @@ func _single_cell_grain() -> bool:
 # only lights where a click would actually add (a perimeter spur or a fillable hole).
 func _hovered_cell() -> Vector2i:
 	var p := get_local_mouse_position()
-	var cell := Vector2i(floori(p.x / CELL), floori(p.y / CELL))
+	var cell := Grid.cell_of(p)
 	return cell if MapEdit.can_add_cell(cell) else _NO_CELL
 
 func _hovered_edge() -> String:

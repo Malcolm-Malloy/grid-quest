@@ -17,10 +17,10 @@ func _ready() -> void:
 	# lay a known floor: sand tinted red at cell (20,10), plain wood at (21,10)
 	var sand := Vector2i(20, 10)
 	var wood := Vector2i(21, 10)
-	for q in fm._cell_quads(sand):
+	for q in Grid.quads_of(sand):
 		fm._write_quad(q, "sand")
 		fm._write_tint(q, Color(0.8, 0.2, 0.2))
-	for q in fm._cell_quads(wood):
+	for q in Grid.quads_of(wood):
 		fm._write_quad(q, "wood")
 	fm._rebuild()
 	await get_tree().process_frame

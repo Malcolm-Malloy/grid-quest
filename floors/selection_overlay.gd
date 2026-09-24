@@ -8,8 +8,7 @@ extends Node2D
 # meet; the phase animates in _process to make the ants march. See ROADMAP "Magic Wand" and the
 # marching-ants note under "Coloured highlight system".
 
-const HALF := 16 # a floor quarter
-const CELL := 32 # a wall cell
+const HALF := Grid.HALF # a floor quarter
 const DASH := 6.0
 const PERIOD := DASH * 2.0 # dash + gap
 const SPEED := 20.0 # px/sec the ants march
@@ -32,7 +31,7 @@ var _wash := true           # draw the translucent fill? Off for FLOOR selection
 func set_floor(quads: Dictionary, occluders: Array = []) -> void:
 	var floor_rects: Array = []
 	for q in quads:
-		floor_rects.append(Rect2(q.x * HALF, q.y * HALF, HALF, HALF))
+		floor_rects.append(Grid.quad_rect(q))
 	var region := _region_from_rects(floor_rects, occluders)
 	_fill_rects = region["fills"]
 	_edges = region["edges"]

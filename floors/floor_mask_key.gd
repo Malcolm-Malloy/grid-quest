@@ -4,7 +4,7 @@ extends Node2D
 # the mask visibility layer only. The mask viewport renders this plus the real occluders, so
 # the magenta that survives = the floor the player can actually see.
 
-const CELL := 32
+const CELL := Grid.CELL
 const KEY := Color(1.0, 0.0, 1.0, 1.0)
 
 var cells: Dictionary = {}
@@ -18,6 +18,6 @@ func set_shape(c: Dictionary, q: Array) -> void:
 func _draw() -> void:
 	for c in cells:
 		var cell: Vector2i = c
-		draw_rect(Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL), KEY)
+		draw_rect(Grid.cell_rect(cell), KEY)
 	for q in quads:
 		draw_rect(q, KEY)

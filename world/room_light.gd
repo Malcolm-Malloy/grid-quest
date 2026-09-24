@@ -12,7 +12,7 @@ extends Node2D
 #   floor - anything else. "exterior" floor is reachable from the map edge without
 #           crossing a wall or door; every other floor cell is enclosed room floor.
 
-const CELL := 32
+const CELL := Grid.CELL
 const DARK := Color(0.0, 0.0, 0.05, 0.55) # overlay colour for unlit floor
 const VIEW := 15 # cells around the player the dim overlay covers (past the camera edge)
 
@@ -121,7 +121,7 @@ func _is_exterior(c: Vector2i) -> bool:
 	return _exterior.has(c)
 
 func _player_cell() -> Vector2i:
-	return Vector2i(floori(player.position.x / CELL), floori(player.position.y / CELL))
+	return Grid.cell_of(player.position)
 
 # --- queries used by the shadow manager ---
 

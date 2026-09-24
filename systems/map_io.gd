@@ -17,7 +17,7 @@ const LAST_FILE := "user://last_map.txt" # remembers the map to reload on next l
 var auto_load := true
 
 # --- current map + unsaved-changes (dirty) state, for the New / Save / recovery flow ---
-const CELL := 32                 # cell size in px, for a blank map's centred spawn
+const CELL := Grid.CELL                 # cell size in px, for a blank map's centred spawn
 
 # AUTOSAVE WRITES A RECOVERY SLOT, NOT YOUR MAP (ROADMAP "Unsaved-work protection", decided
 # 2026-08-16). The two concepts are kept apart on purpose:

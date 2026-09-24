@@ -15,7 +15,7 @@ extends Node2D
 # Drawn in World space, so it sits in the world's top/front perspective (the y-squash turns the ground
 # ring into an ellipse, exactly like every other round thing in the world reads).
 
-const CELL := 32
+const CELL := Grid.CELL
 
 # Deliberately NOT one of the editor's role colours (orange ground / green add / red erase / purple
 # walls / blue doors / yellow shadow): a neutral white-on-dark pennant reads on grass, wood, stone and
@@ -41,11 +41,11 @@ func set_spawn(pos: Vector2) -> void:
 	queue_redraw()
 
 func spawn_cell() -> Vector2i:
-	return Vector2i(floori(position.x / CELL), floori(position.y / CELL))
+	return Grid.cell_of(position)
 
 # put the spawn at the centre of `cell` (what the Set Spawn tool does with a click)
 func set_cell(cell: Vector2i) -> void:
-	set_spawn(Vector2(cell.x * CELL + CELL / 2.0, cell.y * CELL + CELL / 2.0))
+	set_spawn(Grid.cell_center(cell))
 
 func _draw() -> void:
 	# ground ring: marks the CELL the player will stand in, drawn dark-then-light so it reads on any floor

@@ -22,7 +22,7 @@ extends Node2D
 # each). A creature IS an object, so it cannot share a cell with a pickup, and vice versa -- the
 # refusal is enforced here and in Pickups' placement path.
 
-const CELL := 32
+const CELL := Grid.CELL
 
 var creatures: Array[Dictionary] = [] # [{cell, creature, kind, id, blocks}]
 # SPAWN ZONES: regions that periodically produce a creature (ROADMAP: "an area authored with

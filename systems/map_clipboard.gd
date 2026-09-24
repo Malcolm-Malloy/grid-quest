@@ -121,7 +121,7 @@ func build_clip(d: Dictionary, cells: Dictionary) -> Dictionary:
 	for key in ["quads", "floor_tints", "floor_patterns", "floor_no_bank"]:
 		for a in d.get(key, []):
 			var q := Vector2i(int(a[0]), int(a[1]))
-			if not cells.has(Vector2i(floori(q.x / 2.0), floori(q.y / 2.0))):
+			if not cells.has(Grid.cell_of_quad(q)):
 				continue
 			var row: Array = a.duplicate()
 			row[0] = q.x - minc.x * 2

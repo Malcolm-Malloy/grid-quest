@@ -1,6 +1,6 @@
 extends Node2D
 
-const CELL_SIZE := 32
+const CELL_SIZE := Grid.CELL
 const WALL_HEIGHT := 7 # must match wall_segment.gd's cap height
 const VERTICAL_WIDTH := 11 # must match wall_segment.gd's CAP_HEIGHT
 const VERTICAL_OPEN_WIDTH := 56 # wider canvas for the vertical gate's swung-open braced door

@@ -77,7 +77,7 @@ func _ready() -> void:
 	MapIO.new_map()
 	EditHistory.reset()
 	var ew: int = gb.grid_width
-	for q in fm._cell_quads(Vector2i(ew - 1, 6)):
+	for q in Grid.quads_of(Vector2i(ew - 1, 6)):
 		fm._quad_mat[q] = "wood"
 	fm._rebuild()
 	MapEdit.add_cell(Vector2i(ew, 6)) # spur beyond right, should copy the wood neighbour

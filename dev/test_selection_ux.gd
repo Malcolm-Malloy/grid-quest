@@ -19,8 +19,8 @@ func _ready() -> void:
 
 	var cellA := Vector2i(8, 9)  # inside the wood room A
 	var cellB := Vector2i(9, 9)  # another cell in the same room
-	var qA0: Vector2i = fm._cell_quads(cellA)[0]
-	var qB0: Vector2i = fm._cell_quads(cellB)[0]
+	var qA0: Vector2i = Grid.quads_of(cellA)[0]
+	var qB0: Vector2i = Grid.quads_of(cellB)[0]
 
 	# --- (2) armed state: entering Cell/Fine disarms ---
 	fm.set_mode(1) # Mode.CELL

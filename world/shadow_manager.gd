@@ -12,8 +12,7 @@ extends Node2D
 #     room and no two shadow pieces can overlap.
 
 const ALPHA := 0.55
-const CELL := 32
-const HALF := 16 # a floor quarter; the door-open floor restamp works per quarter
+const CELL := Grid.CELL
 
 var shadow_color := Color(0.05, 0.08, 0.05, ALPHA)
 var ground_texture := preload("res://world/ground_grass.png") # to stamp interiors clean
@@ -58,13 +57,11 @@ func _draw() -> void:
 		var grid_on: bool = fm.grid_on() if fm else false
 		var grid: Color = fm.grid_color() if fm else Color(1, 1, 1, 0.12)
 		for c in rl.enclosed_floor_cells():
-			var r := Rect2(c.x * CELL, c.y * CELL, CELL, CELL)
+			var r := Grid.cell_rect(c)
 			# erase the wall-shadow fill with the cell's real floor, quarter by quarter so
 			# quarter-level painting survives (the whole-cell stamp used to grass mixed cells)
-			_stamp_floor(fm, c.x * 2, c.y * 2)
-			_stamp_floor(fm, c.x * 2 + 1, c.y * 2)
-			_stamp_floor(fm, c.x * 2, c.y * 2 + 1)
-			_stamp_floor(fm, c.x * 2 + 1, c.y * 2 + 1)
+			for q in Grid.quads_of(c):
+				_stamp_floor(fm, q)
 			# a room joined to the outdoor by an open door stays bright; the rest shade
 			if not lit.has(c):
 				draw_rect(r, shadow_color)
@@ -78,17 +75,17 @@ func _draw() -> void:
 		# clean like indoors, restamping each quarter with the ground under it (a uniform room's
 		# wall-ring fill, or a quarter painted under the wall) instead of blanket grass
 		for r in rl.lit_wall_stamps():
-			_stamp_floor(fm, floori(r.position.x / HALF), floori(r.position.y / HALF))
+			_stamp_floor(fm, Grid.quad_of(r.position))
 
 # stamp one 16px floor quarter (coords in quarter units) with its real material, matching the
 # indoor base_fills: fm.floor_tex_at_quad gives a painted quarter or a uniform room's wall-ring
 # fill, and null falls back to the grass base.
-func _stamp_floor(fm, qx: int, qy: int) -> void:
-	var r := Rect2(qx * HALF, qy * HALF, HALF, HALF)
-	var tex = fm.floor_tex_at_quad(Vector2i(qx, qy)) if fm else null
+func _stamp_floor(fm, q: Vector2i) -> void:
+	var r := Grid.quad_rect(q)
+	var tex = fm.floor_tex_at_quad(q) if fm else null
 	# a floor tint (white = none) multiplies the restamp too, so a coloured floor stays coloured
 	# where a lit room's wall shadows are wiped and under an open door (matches base_fills).
-	var tint: Color = fm.floor_tint_at_quad(Vector2i(qx, qy)) if fm else Color.WHITE
+	var tint: Color = fm.floor_tint_at_quad(q) if fm else Color.WHITE
 	if tex:
 		draw_texture_rect_region(tex, r, GridBackground.tiled_src(r), tint)
 	else:
@@ -109,7 +106,7 @@ func _in_any_room(local: Vector2) -> bool:
 	var rl := get_parent().get_node_or_null("RoomLight")
 	if rl == null:
 		return false
-	return rl.is_enclosed_floor(Vector2i(floori(local.x / CELL), floori(local.y / CELL)))
+	return rl.is_enclosed_floor(Grid.cell_of(local))
 
 # merges a list of polygons into disjoint boundary (CCW) regions. Holes (CW rings)
 # are dropped; directional cast shadows don't enclose anything, so none arise here.

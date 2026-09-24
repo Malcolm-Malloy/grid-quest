@@ -14,7 +14,7 @@ func _ready() -> void:
 	EditHistory.reset()
 
 	var cell := Vector2i(8, 9) # inside the seeded wooden room A (material "wood", 2 variants)
-	var quads: Array = fm._cell_quads(cell)
+	var quads: Array = Grid.quads_of(cell)
 	_check("setup: the cell is wood (has a material)", fm._quad_mat.get(quads[0], "") == "wood")
 	_check("setup: default pattern is 0", fm.floor_pattern_at_quad(quads[0]) == 0)
 
@@ -51,7 +51,7 @@ func _ready() -> void:
 	var room_cells: Dictionary = fm.room_light.room_floor_cells(cell)
 	var interior_ok := true
 	for c in room_cells:
-		for cq in fm._cell_quads(c):
+		for cq in Grid.quads_of(c):
 			if fm._quad_mat.has(cq) and fm.floor_pattern_at_quad(cq) != 1:
 				interior_ok = false
 	_check("pattern room: every materialled interior quarter is pattern 1", interior_ok)

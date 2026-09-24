@@ -1,6 +1,6 @@
 extends Node2D
 
-const CELL_SIZE := 32
+const CELL_SIZE := Grid.CELL
 const CAP_HEIGHT := 11 # thin-rail width; must match wall_segment.gd's CAP_HEIGHT
 const WALL_HEIGHT := 7 # cap rises this far above the cell top; must match wall_segment.gd
 const SHADOW_CAST := 12.0 # 45-degree down-right smear length for the whole-structure shadow
@@ -90,10 +90,7 @@ func build_world() -> void:
 		bridge.set_script(bridge_script)
 		bridge.cell = bridge_data["cell"]
 		bridge.orientation = bridge_data["orientation"]
-		bridge.position = Vector2(
-			bridge.cell.x * CELL_SIZE + CELL_SIZE / 2.0,
-			bridge.cell.y * CELL_SIZE + CELL_SIZE / 2.0
-		)
+		bridge.position = Grid.cell_center(bridge.cell)
 		get_parent().add_child.call_deferred(bridge)
 	for gate_data in gate_cells:
 		# every door carries a DURABLE id (Architecture review Q3): a Unique key binds to it, so it has
@@ -121,10 +118,7 @@ func build_world() -> void:
 			gate.swing_right = gate.authored_swing
 		else:
 			gate.swing_up = gate.authored_swing
-		gate.position = Vector2(
-			gate.cell.x * CELL_SIZE + CELL_SIZE / 2.0,
-			gate.cell.y * CELL_SIZE + CELL_SIZE / 2.0
-		)
+		gate.position = Grid.cell_center(gate.cell)
 		get_parent().add_child.call_deferred(gate)
 
 	# door orientation lookup for the corner logic below (rebuilt each map)

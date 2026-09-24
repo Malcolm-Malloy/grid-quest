@@ -1,6 +1,6 @@
 extends Node2D
 
-const CELL_SIZE := 32
+const CELL_SIZE := Grid.CELL
 const WALL_HEIGHT := 7
 const CAP_HEIGHT := WALL_HEIGHT + 4 # thickness used for a horizontal wall's top face
 const FACE_SHADE := 0.62 # the front face is in shadow, so its colour is darkened by this

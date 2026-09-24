@@ -14,7 +14,7 @@ extends Node2D
 # orientation "vertical": you cross NORTH-SOUTH (over a river running east-west). Boards are
 #   horizontal; the rails run along the LEFT and RIGHT edges.
 
-const CELL_SIZE := 32
+const CELL_SIZE := Grid.CELL
 
 # wooden deck palette (warmer/lighter than the brown river bank so the two read as different things).
 # High-contrast plank shading + rails so the planking reads at native 32px, not just as a dirt patch.

@@ -1,6 +1,6 @@
 extends CharacterBody2D
 
-const CELL_SIZE := 32
+const CELL_SIZE := Grid.CELL
 const MOVE_SPEED := 6.0 # cells per second
 # Movement bounds come from GridBackground (the single source of grid size), not local
 # consts, so the walkable range always matches the current map's edge even after a resize
@@ -127,7 +127,7 @@ func update_shadow_shape() -> void:
 
 # picks the shadow size from where the player is: a third indoors, full outside
 func _update_shadow_scale() -> void:
-	var cell := Vector2i(floori(position.x / CELL_SIZE), floori(position.y / CELL_SIZE))
+	var cell := Grid.cell_of(position)
 	var indoor: bool = room_light != null and room_light.is_indoor(cell)
 	var target := 1.0 / 3.0 if indoor else 1.0
 	if not is_equal_approx(target, shadow_scale):
@@ -149,7 +149,7 @@ func _physics_process(delta: float) -> void:
 			# at all (ROADMAP "Items and pickups"). Unique items ignore this and wait to be clicked.
 			var pickups := get_node_or_null("../Pickups")
 			if pickups != null:
-				pickups.try_auto_collect(Vector2i(floori(position.x / CELL_SIZE), floori(position.y / CELL_SIZE)))
+				pickups.try_auto_collect(Grid.cell_of(position))
 	else:
 		var input_dir := Vector2.ZERO
 		if Input.is_action_pressed("ui_right"):
@@ -171,7 +171,7 @@ func _physics_process(delta: float) -> void:
 			var min_pos: Vector2 = grid_bg.min_walkable_position()
 			var max_pos: Vector2 = grid_bg.max_walkable_position()
 			var in_bounds := new_target.x >= min_pos.x and new_target.x <= max_pos.x and new_target.y >= min_pos.y and new_target.y <= max_pos.y
-			var cell := Vector2i(floori(new_target.x / CELL_SIZE), floori(new_target.y / CELL_SIZE))
+			var cell := Grid.cell_of(new_target)
 			# a jagged map has holes: the target cell must actually exist (in-box and not absent), else the
 			# coarse box clamp above would let the player step onto void where a single edge cell was removed.
 			if in_bounds and grid_bg.cell_present(cell.x, cell.y):
@@ -202,7 +202,7 @@ func _physics_process(delta: float) -> void:
 func update_gate_state() -> void:
 	if is_moving:
 		return # wait until fully settled on a cell before re-checking, not mid-slide
-	var occupied_cell := Vector2i(floori(position.x / CELL_SIZE), floori(position.y / CELL_SIZE))
+	var occupied_cell := Grid.cell_of(position)
 	for gate in get_tree().get_nodes_in_group("gates"):
 		# a still-locked door never swings open on approach: it reads as shut until a key opens it
 		if obstacles.is_locked(gate.cell, self):

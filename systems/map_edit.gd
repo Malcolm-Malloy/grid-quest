@@ -27,7 +27,7 @@ extends Node
 # edge, Ctrl/Cmd = shrink that edge) so levels can be sized now, and to the capture
 # harness GQ_RESIZE hook for headless verification.
 
-const CELL := 32
+const CELL := Grid.CELL
 const MIN_W := 1
 const MIN_H := 1
 const EDGES := ["top", "bottom", "left", "right"]
@@ -277,7 +277,7 @@ func _apply_clip(d: Dictionary, clip: Dictionary, origin: Vector2i, fresh_ids :=
 	for key in ["quads", "floor_tints", "floor_patterns", "floor_no_bank"]:
 		for a in clip.get(key, []):
 			var q := Vector2i(origin.x * 2 + int(a[0]), origin.y * 2 + int(a[1]))
-			if not target.has(Vector2i(floori(q.x / 2.0), floori(q.y / 2.0))):
+			if not target.has(Grid.cell_of_quad(q)):
 				continue
 			var row: Array = a.duplicate()
 			row[0] = q.x
@@ -412,14 +412,14 @@ func _filter_quarters(rows: Array, cell: Vector2i) -> Array:
 func _relocate_spawn_if_on(d: Dictionary, cell: Vector2i, absent: Dictionary, w: int, h: int) -> void:
 	var sx := float(d["spawn"]["x"])
 	var sy := float(d["spawn"]["y"])
-	var scell := Vector2i(floori(sx / CELL), floori(sy / CELL))
+	var scell := Grid.cell_of(Vector2(sx, sy))
 	if scell != cell:
 		return
 	for y in range(h):
 		for x in range(w):
 			var c := Vector2i(x, y)
 			if not absent.has(c):
-				d["spawn"] = {"x": c.x * CELL + CELL / 2.0, "y": c.y * CELL + CELL / 2.0}
+				d["spawn"] = {"x": Grid.cell_center(c).x, "y": Grid.cell_center(c).y}
 				return
 
 # --- transform: shift every store by (dx, dy) cells, resize to (nw, nh), clip out-of-range ---
