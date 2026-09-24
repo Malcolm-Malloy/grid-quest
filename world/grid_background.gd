@@ -82,7 +82,7 @@ func _process(_delta: float) -> void:
 		queue_redraw()
 	# advance the water shimmer and redraw at ~SHIMMER_HZ, ONLY while the map has water (a dry map never
 	# enters this branch, so animation costs nothing). Throttled so it isn't a full per-frame floor redraw.
-	if _fm != null and _fm.has_method("has_animated_water") and _fm.has_animated_water():
+	if _fm != null and _fm.has_animated_water():
 		_wphase += _delta
 		_waccum += _delta
 		if _waccum >= 1.0 / SHIMMER_HZ:

@@ -56,11 +56,18 @@ func _on_mode_changed(_m: int) -> void:
 
 # --- model ---
 
-func creature_at(cell: Vector2i) -> Dictionary:
+# cell -> authored `creatures` record / zone-spawned `_spawned` record, rebuilt after every change to
+# those lists (all in this file), so placement checks and the per-step blocking test are O(1)
+var _by_cell := {}
+var _spawned_by_cell := {}
+
+func _reindex() -> void:
+	_by_cell.clear()
 	for c in creatures:
-		if c["cell"] == cell:
-			return c
-	return {}
+		_by_cell[c["cell"]] = c
+
+func creature_at(cell: Vector2i) -> Dictionary:
+	return _by_cell.get(cell, {})
 
 func has_creature(cell: Vector2i) -> bool:
 	return not creature_at(cell).is_empty()
@@ -76,14 +83,15 @@ func add_creature(cell: Vector2i, creature: String, kind := Bestiary.SPAWN_POINT
 		"blocks": Bestiary.blocks_by_default(creature),
 	}
 	creatures.append(rec)
+	_reindex()
 	return rec
 
 func remove_creature(cell: Vector2i) -> bool:
-	for i in creatures.size():
-		if creatures[i]["cell"] == cell:
-			creatures.remove_at(i)
-			return true
-	return false
+	if not _by_cell.has(cell):
+		return false
+	creatures.erase(_by_cell[cell])
+	_reindex()
+	return true
 
 # --- per-instance edits (the inspector's authoring surface) ---
 
@@ -223,7 +231,9 @@ func _spawn_one(z: Dictionary) -> void:
 		node.blocks = Bestiary.blocks_by_default(String(z["creature"]))
 		node.place(cell)
 		add_child(node)
-		_spawned.append({"cell": cell, "creature": z["creature"], "zone_id": z["id"], "node": node})
+		var sp := {"cell": cell, "creature": z["creature"], "zone_id": z["id"], "node": node}
+		_spawned.append(sp)
+		_spawned_by_cell[cell] = sp
 		return
 
 # a cell a zone may put a creature on: it must exist, be free of walls/doors, of impassable floor,
@@ -242,12 +252,7 @@ func _spawnable(cell: Vector2i) -> bool:
 	var pk = w.get_node_or_null("Pickups")
 	if pk != null and pk.has_pickup(cell):
 		return false
-	if has_creature(cell):
-		return false
-	for sp in _spawned:
-		if sp["cell"] == cell:
-			return false
-	return true
+	return not has_creature(cell) and not _spawned_by_cell.has(cell)
 
 func _despawn_all() -> void:
 	for sp in _spawned:
@@ -255,6 +260,7 @@ func _despawn_all() -> void:
 		if is_instance_valid(n):
 			n.queue_free()
 	_spawned.clear()
+	_spawned_by_cell.clear()
 	_timers.clear()
 
 # what the zones have produced right now, for tests and for the status of a running map
@@ -274,9 +280,8 @@ func blocks_movement(cell: Vector2i) -> bool:
 	if not rec.is_empty():
 		return bool(rec.get("blocks", true))
 	# a creature a zone produced blocks exactly like an authored one: it is just as much standing there
-	for sp in _spawned:
-		if sp["cell"] == cell:
-			return Bestiary.blocks_by_default(String(sp["creature"]))
+	if _spawned_by_cell.has(cell):
+		return Bestiary.blocks_by_default(String(_spawned_by_cell[cell]["creature"]))
 	return false
 
 # --- rebuild (MapIO load / resize / undo path) ---
@@ -285,10 +290,15 @@ func apply_map(list: Array, zone_list := []) -> void:
 	creatures.clear()
 	for c in list:
 		creatures.append(c)
+	_reindex()
 	zones.clear()
 	for z in zone_list:
 		zones.append(z)
 	_despawn_all() # the new map's zones start from nothing; the old map's output does not carry over
+	rebuild()
+
+# respawn the authored creature + zone nodes from `creatures` / `zones` (after an in-place edit)
+func rebuild() -> void:
 	clear_world()
 	build_world()
 

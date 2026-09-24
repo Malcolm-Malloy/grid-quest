@@ -51,15 +51,30 @@ var wall_colors := {} # Vector2i cell -> Color
 # the default); MapIO persists it. Parallel to and independent of wall_colors.
 var wall_materials := {} # Vector2i cell -> String ("wood" / "slate"; "stone" = default = unstored)
 
-# door cell -> orientation ("horizontal"/"vertical"), rebuilt each build_world for O(1) lookup by the
-# corner logic (see _in_wall_line). A door only continues a wall line running in its own orientation.
-var _gate_orient := {}
+# cell-keyed indexes over the three stores above, for O(1) lookups (is_blocked runs per step, per flood
+# cell and per build). The arrays stay the ordered source of truth MapIO saves; _reindex() rebuilds these
+# after every mutation, and every mutation lives in this file.
+var _walls := {}   # Vector2i -> true
+var _doors := {}   # Vector2i -> its gate_cells record (the same Dictionary, so edits to it show through)
+var _bridges := {} # Vector2i -> its bridge_cells record
+
+func _reindex() -> void:
+	_walls.clear()
+	for c in blocked_cells:
+		_walls[c] = true
+	_doors.clear()
+	for d in gate_cells:
+		_doors[d["cell"]] = d
+	_bridges.clear()
+	for b in bridge_cells:
+		_bridges[b["cell"]] = b
 
 func _ready() -> void:
 	add_to_group("obstacles") # so MapIO can find the world root to save/rebuild
 	wall_segment_script = load("res://world/wall_segment.gd")
 	gate_script = load("res://world/gate.gd")
 	bridge_script = load("res://world/bridge.gd")
+	_reindex()
 	build_world()
 
 # --- map (re)building: spawn everything derived from blocked_cells + gate_cells ---
@@ -76,6 +91,11 @@ func apply_map(walls: Array, doors: Array, bridges: Array = []) -> void:
 	bridge_cells.clear()
 	for b in bridges:
 		bridge_cells.append(b)
+	_reindex()
+	rebuild()
+
+# respawn every wall/gate/bridge node from the current cell stores (after an in-place edit)
+func rebuild() -> void:
 	clear_world()
 	build_world()
 
@@ -121,11 +141,6 @@ func build_world() -> void:
 			gate.swing_up = gate.authored_swing
 		gate.position = Grid.cell_center(gate.cell)
 		get_parent().add_child.call_deferred(gate)
-
-	# door orientation lookup for the corner logic below (rebuilt each map)
-	_gate_orient.clear()
-	for d in gate_cells:
-		_gate_orient[d["cell"]] = d["orientation"]
 
 	# Two independent passes so the two rail types never fight over a cell:
 	#
@@ -176,10 +191,10 @@ func build_world() -> void:
 		var has_below := _in_wall_line(Vector2i(cell.x, cell.y + 1), false)
 		if not (has_above or has_below):
 			continue # not part of any vertical line
-		if blocked_cells.has(Vector2i(cell.x, cell.y - 1)):
+		if _walls.has(Vector2i(cell.x, cell.y - 1)):
 			continue # a WALL above already covers this cell via the run that started higher
 		var run_length := 1
-		while blocked_cells.has(Vector2i(cell.x, cell.y + run_length)):
+		while _walls.has(Vector2i(cell.x, cell.y + run_length)):
 			run_length += 1
 		# A length-1 vertical rail only ever arises here for a wall cell bounded by a door (the old
 		# wall-only run always had a wall below, so length >= 2). Force it THIN + centered: a full-width
@@ -299,7 +314,7 @@ func make_segment(cell: Vector2i, run_length: int) -> Node2D:
 	return segment
 
 func is_blocked(cell: Vector2i) -> bool:
-	return blocked_cells.has(cell)
+	return _walls.has(cell)
 
 # see-through fence materials (WallSegment.FENCE) render short/gappy and cast no solid wall shadow. A
 # cell's material comes from the wall_materials store (default "stone" = a solid wall).
@@ -309,12 +324,11 @@ func _is_fence(cell: Vector2i) -> bool:
 
 # is `cell` part of a wall LINE running in the given direction? A WALL always is. A DOOR is only if its
 # orientation matches: a "horizontal" door lies in a horizontal line, a "vertical" door in a vertical one.
-# This keeps the corner logic from connecting a wall to a perpendicular door. Uses the _gate_orient
-# lookup built in build_world (O(1)); call only during/after a build.
+# This keeps the corner logic from connecting a wall to a perpendicular door.
 func _in_wall_line(cell: Vector2i, horizontal: bool) -> bool:
-	if blocked_cells.has(cell):
+	if _walls.has(cell):
 		return true
-	return _gate_orient.get(cell, "") == ("horizontal" if horizontal else "vertical")
+	return _doors.has(cell) and _doors[cell]["orientation"] == ("horizontal" if horizontal else "vertical")
 
 # The wall PIECE(S) a cell WOULD get if a wall were placed there, using the SAME per-cell shaping as
 # build_world (the horizontal + vertical passes + corner trimming) against the CURRENT walls/doors, so a
@@ -347,27 +361,23 @@ func preview_wall_configs(cell: Vector2i) -> Array:
 
 # is there a wall OR a door on this cell? (the structure layer of the cell-occupancy model)
 func has_structure(cell: Vector2i) -> bool:
-	if blocked_cells.has(cell):
-		return true
-	for g in gate_cells:
-		if g["cell"] == cell:
-			return true
-	return false
+	return _walls.has(cell) or _doors.has(cell)
 
 # remove the wall or door occupying `cell` (a cell holds at most one of each per the occupancy
 # model, and a wall and door never share a cell). Returns "wall", "door", or "" if nothing was
 # there. ONLY mutates the source-of-truth arrays; the caller re-applies the map through MapIO so
 # the wall/gate nodes, lighting, floors and shadows all rebuild consistently in one pass.
 func remove_structure(cell: Vector2i) -> String:
-	if blocked_cells.has(cell):
+	if _walls.has(cell):
 		blocked_cells.erase(cell)
 		wall_colors.erase(cell) # drop any tint stored for the gone wall
 		wall_materials.erase(cell) # ...and its material
+		_reindex()
 		return "wall"
-	for i in gate_cells.size():
-		if gate_cells[i]["cell"] == cell:
-			gate_cells.remove_at(i)
-			return "door"
+	if _doors.has(cell):
+		gate_cells.erase(_doors[cell])
+		_reindex()
+		return "door"
 	return ""
 
 # --- structure placement (Wall / Door tools) ---
@@ -381,49 +391,45 @@ func add_wall(cell: Vector2i) -> bool:
 	if has_structure(cell):
 		return false
 	blocked_cells.append(cell)
+	_reindex()
 	return true
 
 # add a door on `cell` with `orientation` ("horizontal"/"vertical"). A wall already there becomes a
 # doorway (the wall is replaced, so a door and wall never share a cell). No-op if a door is already
 # on the cell. Returns whether anything changed.
 func add_door(cell: Vector2i, orientation: String) -> bool:
-	for g in gate_cells:
-		if g["cell"] == cell:
-			return false
+	if _doors.has(cell):
+		return false
 	blocked_cells.erase(cell) # a wall under the new door becomes a doorway
 	wall_colors.erase(cell)   # drop any tint stored for the replaced wall
 	wall_materials.erase(cell) # ...and its material
 	gate_cells.append({"cell": cell, "orientation": orientation, "open": false, "swing": false})
+	_reindex()
 	return true
 
 # --- bridges (crossable decks over water) ---
 
 func is_bridge(cell: Vector2i) -> bool:
-	for b in bridge_cells:
-		if b["cell"] == cell:
-			return true
-	return false
+	return _bridges.has(cell)
 
 func bridge_orientation(cell: Vector2i) -> String:
-	for b in bridge_cells:
-		if b["cell"] == cell:
-			return b["orientation"]
-	return ""
+	return _bridges[cell]["orientation"] if _bridges.has(cell) else ""
 
 # place a bridge on `cell` (no-op if one is already there). Returns whether it changed anything.
 func add_bridge(cell: Vector2i, orientation: String) -> bool:
 	if is_bridge(cell):
 		return false
 	bridge_cells.append({"cell": cell, "orientation": orientation})
+	_reindex()
 	return true
 
 # remove the bridge on `cell` if present. Returns whether it changed anything.
 func remove_bridge(cell: Vector2i) -> bool:
-	for i in bridge_cells.size():
-		if bridge_cells[i]["cell"] == cell:
-			bridge_cells.remove_at(i)
-			return true
-	return false
+	if not _bridges.has(cell):
+		return false
+	bridge_cells.erase(_bridges[cell])
+	_reindex()
+	return true
 
 # --- door authored-state edits (the properties inspector) ---
 # open/swing update the live gate node directly (cheap, keeps the node ref) AND the source-of-truth
@@ -431,10 +437,7 @@ func remove_bridge(cell: Vector2i) -> bool:
 # caller re-applies the whole map through MapIO after set_door_orientation.
 
 func door_at(cell: Vector2i) -> Dictionary:
-	for d in gate_cells:
-		if d["cell"] == cell:
-			return d
-	return {}
+	return _doors.get(cell, {})
 
 func gate_node_at(cell: Vector2i):
 	for g in get_tree().get_nodes_in_group("gates"):
@@ -583,15 +586,12 @@ func _color_cells(cells: Dictionary, color: Color) -> void:
 # the whole cross of straight arms meeting there.
 func line_cells(start: Vector2i) -> Dictionary:
 	var out := {}
-	if not blocked_cells.has(start):
+	if not _walls.has(start):
 		return out
-	var walls := {}
-	for c in blocked_cells:
-		walls[c] = true
 	out[start] = true
 	for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
 		var c: Vector2i = start + step
-		while walls.has(c):
+		while _walls.has(c):
 			out[c] = true
 			c += step
 	return out
@@ -600,14 +600,8 @@ func line_cells(start: Vector2i) -> Dictionary:
 # single door/gate gap in a wall line (so a wall broken by a doorway is still one building).
 func building_cells(start: Vector2i) -> Dictionary:
 	var out := {}
-	if not blocked_cells.has(start):
+	if not _walls.has(start):
 		return out
-	var walls := {}
-	for c in blocked_cells:
-		walls[c] = true
-	var doors := {}
-	for g in gate_cells:
-		doors[g["cell"]] = true
 	var dirs := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
 	out[start] = true
 	var q: Array = [start]
@@ -617,10 +611,10 @@ func building_cells(start: Vector2i) -> Dictionary:
 			var n: Vector2i = c + d
 			var target: Vector2i
 			var hit := false
-			if walls.has(n):
+			if _walls.has(n):
 				target = n
 				hit = true
-			elif doors.has(n) and walls.has(n + d):
+			elif _doors.has(n) and _walls.has(n + d):
 				target = n + d # bridge the one-cell door gap to the wall beyond
 				hit = true
 			if hit and not out.has(target):

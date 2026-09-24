@@ -284,6 +284,7 @@ var _base_fills: Array = [] # [Rect2, Texture2D, Color, (src_override), (animate
 							# quarter. A 4th element overrides the sampled src rect (shoreline atlas); a 5th
 							# truthy element flags an ANIMATED water fill (grid_background shimmers it).
 var _has_water := false # any water fill emitted this _rebuild, so grid_background knows to run the shimmer
+var _fills_dirty := false # the floor stores changed since _base_fills was built (rebuilt lazily on read)
 var _menu: PopupMenu
 var _pending := Vector2.ZERO # local (World-space) position of the last right-click, for the menu
 var _tool_kind := "floor"    # "floor" (paint _brush), "wall" (colour _wall_color), "wall_mat" (material
@@ -583,7 +584,7 @@ func _process(_delta: float) -> void:
 	# doing it per motion event stutters). The walls were already added to the model in _place_wall_at.
 	if _walls_dirty:
 		_walls_dirty = false
-		_reapply_map()
+		_rebuild_world(MapIO.REBUILD_STRUCTURES)
 	# while the cursor is over the editor menu/panels, stand down: clear the hover once on entering the
 	# menu and keep it hidden, so no paint cursor / preview / select highlight shows over the UI.
 	if _pointer_over_ui():
@@ -786,7 +787,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				_painting = false
 				if _walls_dirty: # flush the final pending rebuild so the commit captures it
 					_walls_dirty = false
-					_reapply_map()
+					_rebuild_world(MapIO.REBUILD_STRUCTURES)
 				EditHistory.commit("wall")
 			return
 		# Cell / Fine / Erase: left-click and left-drag paint
@@ -970,7 +971,7 @@ func _on_menu_id(id: int) -> void:
 		return
 	if id == BUILD_WALL_ID:
 		if _obs != null and _obs.add_wall(cell):
-			_reapply_map()
+			_rebuild_world(MapIO.REBUILD_STRUCTURES)
 			EditHistory.commit("wall")
 		_reset_highlight()
 		return
@@ -1615,7 +1616,7 @@ func _place_item_at(local: Vector2) -> bool:
 		return false
 	_pickups.add_pickup(cell, _item, _item_data)
 	_item_data = {} # a binding is spent by the placement it was armed for; the next key is unbound
-	_reapply_map() # rebuild through MapIO so the instance exists exactly as a load would build it
+	_rebuild_world(MapIO.REBUILD_OBJECTS)
 	EditHistory.commit("place item")
 	return true
 
@@ -1660,7 +1661,7 @@ func _place_creature_at(local: Vector2) -> bool:
 	if _creatures == null or _creatures.has_creature(cell):
 		return false
 	_creatures.add_creature(cell, _creature, _creature_kind)
-	_reapply_map() # rebuild through MapIO so the instance exists exactly as a load would build it
+	_rebuild_world(MapIO.REBUILD_OBJECTS)
 	EditHistory.commit("place creature")
 	return true
 
@@ -1704,7 +1705,7 @@ func _commit_zone(cur: Vector2i) -> bool:
 	_creatures.clear_zone_preview()
 	if _creatures.add_zone(_zone_rect(cur), _creature).is_empty():
 		return false
-	_reapply_map()
+	_rebuild_world(MapIO.REBUILD_OBJECTS)
 	EditHistory.commit("spawn zone")
 	return true
 
@@ -2267,8 +2268,7 @@ func _erase_structure_at(local: Vector2) -> bool:
 	# and both go before the floor beneath. remove_bridge is only tried when no wall/door was removed.
 	if _obs.remove_structure(cell) == "" and not _obs.remove_bridge(cell):
 		return false
-	_restore_faded() # the erased wall/door/bridge was dimmed under the cursor; drop the stale node ref
-	MapIO.apply_serialized(MapIO.serialize(), true) # rebuild nodes + lighting + floors + shadows
+	_rebuild_world(MapIO.REBUILD_STRUCTURES) # respawn walls/doors/bridges + lighting + shadows
 	EditHistory.commit("erase")
 	_reset_highlight()
 	call_deferred("_update_hover") # re-detect the hover now the structure is gone
@@ -2335,7 +2335,7 @@ func _place_door_at(local: Vector2) -> void:
 		orient = _door_orient
 	if not _obs.add_door(cell, orient):
 		return
-	_reapply_map()
+	_rebuild_world(MapIO.REBUILD_STRUCTURES)
 	EditHistory.commit("door")
 
 # BRIDGE tool: drop a crossable deck on the clicked cell, auto-oriented to the water run it spans.
@@ -2355,7 +2355,7 @@ func _place_bridge_at(local: Vector2) -> void:
 		orient = _bridge_orient
 	if not _obs.add_bridge(cell, orient):
 		return
-	_reapply_map()
+	_rebuild_world(MapIO.REBUILD_STRUCTURES)
 	EditHistory.commit("bridge")
 
 # the majority liquid material at `cell` ("water"/"lava"/""), using the same >=2-of-4-quarters rule as
@@ -2411,9 +2411,10 @@ func _select_at(local: Vector2) -> void:
 # rebuild the level after a structure was added, through the same MapIO path erase/resize/load use,
 # so lighting, floors and shadows recompute together (a newly enclosed room turns indoors). Undo is
 # committed by the caller (per-gesture for walls, per-click for doors), not here.
-func _reapply_map() -> void:
+# respawn the world layers an edit touched (MapIO.REBUILD_* flags), then refresh the hover
+func _rebuild_world(parts: int) -> void:
 	_restore_faded()
-	MapIO.apply_serialized(MapIO.serialize(), true)
+	MapIO.rebuild_live(parts)
 	call_deferred("_update_hover")
 
 # --- right-click menu: Door edits (mirror the inspector, one undo each) ---
@@ -2424,7 +2425,7 @@ func _edit_door(cell: Vector2i, id: int) -> void:
 	if id == DOOR_FLIP_ID:
 		var flipped := "vertical" if d["orientation"] == "horizontal" else "horizontal"
 		_obs.set_door_orientation(cell, flipped)
-		MapIO.apply_serialized(MapIO.serialize(), true) # structural: respawn the gate
+		_rebuild_world(MapIO.REBUILD_STRUCTURES) # structural: respawn the gate
 		EditHistory.commit("door orientation")
 	elif id == DOOR_OPEN_ID:
 		_obs.set_door_open(cell, not bool(d.get("open", false)))
@@ -2503,8 +2504,7 @@ func _delete_structure_with_keys(cell: Vector2i) -> void:
 	if _pickups != null and id != "":
 		for k in _pickups.keys_for_door(id):
 			_pickups.remove_pickup(k["cell"])
-	_restore_faded()
-	MapIO.apply_serialized(MapIO.serialize(), true)
+	_rebuild_world(MapIO.REBUILD_STRUCTURES | MapIO.REBUILD_OBJECTS)
 	EditHistory.commit("erase")
 	_reset_highlight()
 	call_deferred("_update_hover")
@@ -2521,8 +2521,7 @@ func _erase_wall_selection() -> void:
 					for k in _pickups.keys_for_door(id):
 						_pickups.remove_pickup(k["cell"])
 	if any:
-		_restore_faded()
-		MapIO.apply_serialized(MapIO.serialize(), true)
+		_rebuild_world(MapIO.REBUILD_STRUCTURES | MapIO.REBUILD_OBJECTS)
 		EditHistory.commit("erase")
 	_clear_selection()
 	_reset_highlight()
@@ -2539,7 +2538,7 @@ func _erase_single(cell: Vector2i) -> void:
 	# a placed item sits on top of the ground: erase it before the terrain beneath it
 	if _pickups != null and _pickups.has_pickup(cell):
 		_pickups.remove_pickup(cell)
-		_reapply_map()
+		_rebuild_world(MapIO.REBUILD_OBJECTS)
 		EditHistory.commit("erase")
 		_reset_highlight()
 		call_deferred("_update_hover")
@@ -2547,7 +2546,7 @@ func _erase_single(cell: Vector2i) -> void:
 	# a placed creature shares that object layer, so it erases at the same depth as an item
 	if _creatures != null and _creatures.has_creature(cell):
 		_creatures.remove_creature(cell)
-		_reapply_map()
+		_rebuild_world(MapIO.REBUILD_OBJECTS)
 		EditHistory.commit("erase")
 		_reset_highlight()
 		call_deferred("_update_hover")
@@ -2555,8 +2554,7 @@ func _erase_single(cell: Vector2i) -> void:
 	# a bridge is the next layer down (over the water floor): erase it before the ground beneath
 	if _obs != null and _obs.is_bridge(cell):
 		_obs.remove_bridge(cell)
-		_restore_faded()
-		MapIO.apply_serialized(MapIO.serialize(), true)
+		_rebuild_world(MapIO.REBUILD_STRUCTURES)
 		EditHistory.commit("erase")
 		_reset_highlight()
 		call_deferred("_update_hover")
@@ -2577,7 +2575,7 @@ func _erase_single(cell: Vector2i) -> void:
 	# object, structure and terrain in it, so it only goes once there is nothing else on the cell to
 	# take. Otherwise erasing a creature standing in a zone would delete the zone out from under it.
 	if _creatures != null and _creatures.remove_zone_at(cell):
-		_reapply_map()
+		_rebuild_world(MapIO.REBUILD_OBJECTS)
 		EditHistory.commit("erase")
 	_reset_highlight()
 
@@ -2869,7 +2867,34 @@ func _mat_tex(mat: String, pattern: int) -> Texture2D:
 	var variants: Array = textures[mat]
 	return variants[clampi(pattern, 0, variants.size() - 1)]
 
+# the floor stores changed: mark the render derivation stale and queue the redraw. The fills themselves are
+# built lazily on the next read (grid_background's _draw), so a paint drag that writes many quarters in one
+# frame, or a load that sets materials, patterns and tints back to back, derives them once, not per write.
 func _rebuild() -> void:
+	_fills_dirty = true
+	_redraw_floor_layers()
+
+func _ensure_fills() -> void:
+	if _fills_dirty:
+		_fills_dirty = false
+		_build_fills()
+
+# neighbour offsets on the quarter grid. _N4 is N, E, S, W: side i is edge-mask bit 1 << i (N=1 E=2 S=4 W=8)
+const _N4 := [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]
+const _N8 := [Vector2i(-1, -1), Vector2i(0, -1), Vector2i(1, -1), Vector2i(-1, 0),
+		Vector2i(1, 0), Vector2i(-1, 1), Vector2i(0, 1), Vector2i(1, 1)]
+
+# is quarter `q` on an existing cell? The same answer as _in_bounds(Grid.cell_of_quad(q)), inlined for the
+# neighbour tests in _build_fills' hot loops (up to 12 per liquid quarter), where that call chain dominated
+func _quad_in_map(q: Vector2i) -> bool:
+	if _grid_bg == null:
+		return true
+	var cx := q.x >> 1 # arithmetic shift = floor division by 2, negatives included
+	var cy := q.y >> 1
+	return cx >= 0 and cy >= 0 and cx < _grid_bg.grid_width and cy < _grid_bg.grid_height \
+		and (_grid_bg.absent_cells.is_empty() or not _grid_bg.absent_cells.has(Vector2i(cx, cy)))
+
+func _build_fills() -> void:
 	_base_fills = []
 	_has_water = false
 	for q in _quad_mat:
@@ -2922,7 +2947,6 @@ func _rebuild() -> void:
 	# untinted (native brown). Derived only, so it is neither saved nor blocking (see RIVER_BANK).
 	for bq in _bank_quads():
 		_base_fills.append([Grid.quad_rect(bq), RIVER_BANK, Color.WHITE])
-	_redraw_floor_layers()
 
 # the set of 16px quarter coords that render as river bank: any in-bounds quarter that is NOT a
 # BANK_AROUND material but is 8-neighbour-adjacent to one. Returned as a dict (used as a set) so a
@@ -2934,35 +2958,26 @@ func _bank_quads() -> Dictionary:
 			continue
 		if _quad_no_bank.has(q):
 			continue # this liquid quarter was laid with the bank switch OFF
-		for dy in [-1, 0, 1]:
-			for dx in [-1, 0, 1]:
-				if dx == 0 and dy == 0:
-					continue
-				var n := Vector2i(q.x + dx, q.y + dy)
-				if BANK_AROUND.has(_quad_mat.get(n, "")):
-					continue # a neighbouring water quarter is not bank
-				if not _in_bounds(Grid.cell_of_quad(n)):
-					continue # keep bank inside the map grid, not out in the void
+		for d in _N8:
+			var n: Vector2i = q + d
+			if bank.has(n) or BANK_AROUND.has(_quad_mat.get(n, "")):
+				continue # already banked, or a neighbouring water quarter (not bank)
+			if _quad_in_map(n): # keep bank inside the map grid, not out in the void
 				bank[n] = true
 	return bank
 
 # the 4-bit LAND mask for a water quarter's ORTHOGONAL neighbours (N=1 E=2 S=4 W=8), used to pick the
 # shoreline autotile variant. A side is "land" when its neighbour quarter is in-bounds and not water;
 # out-of-map neighbours are NOT land, so water never feathers toward the map edge (it just clips there).
+# A side feathers when its neighbour is in-bounds and a DIFFERENT material (land, or the other liquid);
+# out-of-map neighbours are not, so a liquid clips at the map edge instead of feathering.
 func _liquid_edge_mask(q: Vector2i, mat: String) -> int:
 	var m := 0
-	if _liquid_edge(q + Vector2i(0, -1), mat): m |= 1 # N
-	if _liquid_edge(q + Vector2i(1, 0), mat):  m |= 2 # E
-	if _liquid_edge(q + Vector2i(0, 1), mat):  m |= 4 # S
-	if _liquid_edge(q + Vector2i(-1, 0), mat): m |= 8 # W
+	for i in 4:
+		var nq: Vector2i = q + _N4[i]
+		if _quad_mat.get(nq, "") != mat and _quad_in_map(nq):
+			m |= 1 << i
 	return m
-
-# a liquid `mat` quarter feathers toward neighbour `nq` when it is in-bounds and a DIFFERENT material (land,
-# or the other liquid); out-of-map neighbours are not, so a liquid clips at the map edge instead of feathering.
-func _liquid_edge(nq: Vector2i, mat: String) -> bool:
-	if not _in_bounds(Grid.cell_of_quad(nq)):
-		return false
-	return _quad_mat.get(nq, "") != mat
 
 # the 4-bit edge mask for an auto-matching terrain quarter `mat` at `q` (N=1 E=2 S=4 W=8): a side is set
 # when its orthogonal neighbour is an IN-BOUNDS natural terrain of STRICTLY LOWER precedence (so `mat`
@@ -2971,18 +2986,12 @@ func _liquid_edge(nq: Vector2i, mat: String) -> bool:
 func _terrain_edge_mask(q: Vector2i, mat: String) -> int:
 	var r: int = TERRAIN_RANK.get(mat, 0)
 	var m := 0
-	if _lower_terrain(q + Vector2i(0, -1), r): m |= 1 # N
-	if _lower_terrain(q + Vector2i(1, 0), r):  m |= 2 # E
-	if _lower_terrain(q + Vector2i(0, 1), r):  m |= 4 # S
-	if _lower_terrain(q + Vector2i(-1, 0), r): m |= 8 # W
+	for i in 4:
+		var nq: Vector2i = q + _N4[i]
+		var nmat: String = _quad_mat.get(nq, "")
+		if TERRAIN_RANK.has(nmat) and TERRAIN_RANK[nmat] < r and _quad_in_map(nq):
+			m |= 1 << i
 	return m
-
-# is neighbour quarter `nq` an in-bounds natural terrain ranked below `r`?
-func _lower_terrain(nq: Vector2i, r: int) -> bool:
-	if not _in_bounds(Grid.cell_of_quad(nq)):
-		return false
-	var nmat: String = _quad_mat.get(nq, "")
-	return TERRAIN_RANK.has(nmat) and TERRAIN_RANK[nmat] < r
 
 # the material to lay UNDER a feathered edge quarter so the feather reveals the right lower terrain: the
 # HIGHEST-ranked lower natural among the orthogonal neighbours. Returns "" (no underlay) when that is the
@@ -2991,12 +3000,10 @@ func _edge_underlay_mat(q: Vector2i, mat: String) -> String:
 	var r: int = TERRAIN_RANK.get(mat, 0)
 	var best := ""
 	var best_rank := 0
-	for d in [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]:
+	for d in _N4:
 		var nq: Vector2i = q + d
-		if not _in_bounds(Grid.cell_of_quad(nq)):
-			continue
 		var nmat: String = _quad_mat.get(nq, "")
-		if TERRAIN_RANK.has(nmat) and TERRAIN_RANK[nmat] < r and TERRAIN_RANK[nmat] > best_rank:
+		if TERRAIN_RANK.has(nmat) and TERRAIN_RANK[nmat] < r and TERRAIN_RANK[nmat] > best_rank and _quad_in_map(nq):
 			best_rank = TERRAIN_RANK[nmat]
 			best = nmat
 	return best
@@ -3014,11 +3021,13 @@ func _redraw_floor_layers() -> void:
 # --- read by grid_background and shadow_manager ---
 
 func base_fills() -> Array:
+	_ensure_fills()
 	return _base_fills
 
 # any water on the map this rebuild, so grid_background runs the shimmer redraw loop only when needed
 # (zero cost on a dry map). Set in _rebuild whenever a water quarter emits a fill.
 func has_animated_water() -> bool:
+	_ensure_fills()
 	return _has_water
 
 # the floor texture that renders at 16px quarter `q`, or null for the grass base. The single

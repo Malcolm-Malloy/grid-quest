@@ -248,10 +248,10 @@ func _build_zone() -> void:
 			clear())
 	_box.add_child(del)
 
-# rebuild through the one MapIO path (so the nodes match exactly what a load would build) and record
-# a single undo entry, the same contract every other inspector edit keeps
+# respawn the object layer (the same build_world a load runs, so the nodes match) and record a single
+# undo entry, the same contract every other inspector edit keeps
 func _reapply() -> void:
-	MapIO.apply_serialized(MapIO.serialize(), true)
+	MapIO.rebuild_live(MapIO.REBUILD_OBJECTS)
 	EditHistory.commit("creature")
 
 func _build_door() -> void:
@@ -269,7 +269,7 @@ func _build_door() -> void:
 	ob.pressed.connect(func():
 		var flipped := "vertical" if orient == "horizontal" else "horizontal"
 		obs.set_door_orientation(_cell, flipped)
-		MapIO.apply_serialized(MapIO.serialize(), true)
+		MapIO.rebuild_live(MapIO.REBUILD_STRUCTURES)
 		EditHistory.commit("door orientation")
 		inspect_door(_cell)) # re-read the rebuilt door
 	_box.add_child(ob)
@@ -306,7 +306,7 @@ func _build_door() -> void:
 		lb.flat = lock_kind != opt[1]
 		lb.pressed.connect(func():
 			obs.set_door_lock(_cell, opt[1], String(d.get("lock_color", "red")), String(d.get("lock_name", "")))
-			MapIO.apply_serialized(MapIO.serialize(), true)
+			MapIO.rebuild_live(MapIO.REBUILD_STRUCTURES)
 			EditHistory.commit("door lock")
 			inspect_door(_cell))
 		lock_row.add_child(lb)
@@ -331,7 +331,7 @@ func _build_door() -> void:
 			cb.add_theme_stylebox_override("normal", sb)
 			cb.pressed.connect(func():
 				obs.set_door_lock(_cell, "colour", cname, "")
-				MapIO.apply_serialized(MapIO.serialize(), true)
+				MapIO.rebuild_live(MapIO.REBUILD_STRUCTURES)
 				EditHistory.commit("lock colour")
 				inspect_door(_cell))
 			col_row.add_child(cb)
@@ -362,7 +362,7 @@ func _build_door() -> void:
 	to_wall.pressed.connect(func():
 		obs.remove_structure(_cell) # drop the door
 		obs.add_wall(_cell)         # put a wall on the cell
-		MapIO.apply_serialized(MapIO.serialize(), true)
+		MapIO.rebuild_live(MapIO.REBUILD_STRUCTURES)
 		EditHistory.commit("door to wall")
 		inspect_wall(_cell))
 	_box.add_child(to_wall)
@@ -417,7 +417,7 @@ func _build_wall() -> void:
 	to_door.text = "Convert to Door"
 	to_door.pressed.connect(func():
 		obs.add_door(_cell, obs.wall_run_orientation(_cell))
-		MapIO.apply_serialized(MapIO.serialize(), true)
+		MapIO.rebuild_live(MapIO.REBUILD_STRUCTURES)
 		EditHistory.commit("wall to door")
 		inspect_door(_cell))
 	_box.add_child(to_door)

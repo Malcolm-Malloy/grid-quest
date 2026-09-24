@@ -194,6 +194,26 @@ func serialize() -> Dictionary:
 func apply_serialized(data: Dictionary, keep_player := false) -> void:
 	_apply(data, keep_player)
 
+# --- in-place rebuild after an editor edit ---
+# An edit already changed the live stores (Obstacles' cells, Pickups' records, ...). Rather than
+# serialize the whole map and re-apply all of it, respawn only the layers the edit touched. Floors
+# never depend on these layers, so they are never rebuilt here.
+const REBUILD_STRUCTURES := 1 # walls / doors / bridges -> their nodes, then lighting + shadows
+const REBUILD_OBJECTS := 2    # pickups / creatures / zones -> their nodes
+
+func rebuild_live(parts: int) -> void:
+	var w := _world()
+	if parts & REBUILD_STRUCTURES:
+		w.get_node("Obstacles").rebuild()
+		w.get_node("RoomLight").rebuild() # re-floods rooms and refreshes the shadow group
+	if parts & REBUILD_OBJECTS:
+		var pk = w.get_node_or_null("Pickups")
+		if pk:
+			pk.rebuild()
+		var cr = w.get_node_or_null("Creatures")
+		if cr:
+			cr.rebuild()
+
 # --- apply a parsed dict back onto the live level, in dependency order ---
 # keep_player: leave the player where it currently stands instead of snapping it to the dict's
 # spawn. Undo/redo passes true so history never teleports the player (ROADMAP undo caveat).

@@ -33,11 +33,17 @@ func _ready() -> void:
 
 # --- model ---
 
-func pickup_at(cell: Vector2i) -> Dictionary:
+# cell -> its `pickups` record, rebuilt by _reindex() after every change to `pickups` (all in this file),
+# so the per-step auto-collect and the placement checks are O(1)
+var _by_cell := {}
+
+func _reindex() -> void:
+	_by_cell.clear()
 	for p in pickups:
-		if p["cell"] == cell:
-			return p
-	return {}
+		_by_cell[p["cell"]] = p
+
+func pickup_at(cell: Vector2i) -> Dictionary:
+	return _by_cell.get(cell, {})
 
 func has_pickup(cell: Vector2i) -> bool:
 	return not pickup_at(cell).is_empty()
@@ -50,24 +56,30 @@ func add_pickup(cell: Vector2i, item: String, data := {}) -> Dictionary:
 	# `data` is per-instance extra: a Unique key carries {door_id, name}, binding it to one door
 	var rec := {"cell": cell, "item": item, "id": Items.new_id(), "data": data.duplicate(true)}
 	pickups.append(rec)
+	_reindex()
 	return rec
 
 func remove_pickup(cell: Vector2i) -> bool:
-	for i in pickups.size():
-		if pickups[i]["cell"] == cell:
-			pickups.remove_at(i)
-			return true
-	return false
+	if not _by_cell.has(cell):
+		return false
+	pickups.erase(_by_cell[cell])
+	_reindex()
+	return true
 
 # replace the whole model and rebuild the nodes (MapIO load / resize / undo path)
 func apply_map(list: Array) -> void:
 	pickups.clear()
 	for p in list:
 		pickups.append(p)
-	clear_world()
-	build_world()
+	_reindex()
+	rebuild()
 
 # --- nodes ---
+
+# respawn the pickup nodes from `pickups` (after an in-place edit)
+func rebuild() -> void:
+	clear_world()
+	build_world()
 
 func clear_world() -> void:
 	for n in get_tree().get_nodes_in_group("pickups"):

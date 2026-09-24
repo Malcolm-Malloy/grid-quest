@@ -40,12 +40,12 @@ func _draw() -> void:
 	# the outdoor is lit (player outside, or crossing an open outdoor door).
 	if _room_light and not _room_light.exterior_lit():
 		return
-	var polys: Array = static_union.duplicate()
+	var gate_polys: Array = []
 	for gate in get_tree().get_nodes_in_group("gates"):
-		for p in gate.shadow_polys():
-			polys.append(p)
-	# rule 2: merge to a disjoint union so shadow can never overlap itself
-	merged_regions = _merge_all(polys)
+		gate_polys.append_array(gate.shadow_polys())
+	# rule 2: merge to a disjoint union so shadow can never overlap itself. static_union is already
+	# disjoint (merged once in set_static), so only the gate shadows need folding into it.
+	merged_regions = _merge_into(static_union.duplicate(), gate_polys)
 	for region in merged_regions:
 		draw_colored_polygon(region, shadow_color)
 	# With no room lit (player outside), each room interior reads as a dark, shadowed
@@ -111,12 +111,15 @@ func _in_any_room(local: Vector2) -> bool:
 # merges a list of polygons into disjoint boundary (CCW) regions. Holes (CW rings)
 # are dropped; directional cast shadows don't enclose anything, so none arise here.
 func _merge_all(polys: Array) -> Array:
+	return _merge_into([], polys)
+
+# fold `polys` into `regions` (which must already be disjoint), keeping the result disjoint
+func _merge_into(regions: Array, polys: Array) -> Array:
 	# union the shadow polys into non-overlapping regions. Incremental accumulation: each poly is merged
 	# into the existing regions in a single pass, re-checking after each merge because a combined region
 	# grows and may then overlap another. O(n^2) worst case vs the old full-restart-scan's O(n^3), which
 	# mattered on big houses (see "Investigate lag"). Two polys "combine" when their union is a single
 	# outer (CCW) polygon; if they don't overlap, merge_polygons returns both, so nothing is merged.
-	var regions: Array = []
 	for p in polys:
 		var cur: PackedVector2Array = p
 		var merged := true
