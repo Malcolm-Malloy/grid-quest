@@ -62,7 +62,17 @@ func _ready() -> void:
 	for qx in range(0, 40):
 		for qy in range(52, 64):
 			fm._quad_mat[Vector2i(qx, qy)] = "water"
-	print("floor _rebuild (%d quarters, lake): %.2f ms each" % [fm._quad_mat.size(), _time(func(): fm._render.build(), reps)])
+	print("floor full rebuild (%d quarters, lake): %.2f ms each" % [fm._quad_mat.size(), _time(func():
+		fm._render._extent = [] # forces the full path, as a load or a map resize does
+		fm._render.build(), reps)])
+	# one paint stroke step: a cell at the lake's edge changes material, then the floor re-derives
+	var edge_cell := Vector2i(10, 25)
+	var flip := [false]
+	print("floor rebuild after painting one cell: %.2f ms each" % _time(func():
+		flip[0] = not flip[0]
+		for q in Grid.quads_of(edge_cell):
+			fm._write_quad(q, "sand" if flip[0] else "water")
+		fm._render.build(), reps))
 	print("MapIO.serialize:          %.2f ms each" % _time(func(): MapIO.serialize(), reps))
 	print("wall-drag frame:          %.2f ms each" % _time(func(): fm._rebuild_world(MapIO.REBUILD_STRUCTURES), reps))
 
