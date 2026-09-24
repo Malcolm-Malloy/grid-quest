@@ -27,7 +27,7 @@ func _ready() -> void:
 
 	# --- the spawned wall_segment picks the right texture pair for its cell ---
 	obs.set_wall_material(wall, "slate")
-	await get_tree().process_frame # let _apply_wall_materials push onto the segments
+	await get_tree().process_frame # let _push_wall_props push onto the segments
 	var seg_ok := false
 	var pair_ok := false
 	for w in get_tree().get_nodes_in_group("walls"):

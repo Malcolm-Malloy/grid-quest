@@ -328,3 +328,34 @@ func build_world() -> void:
 		zn.set_script(zone_script)
 		zn.configure(z["rect"], String(z["creature"]), float(z["rate"]), int(z["cap"]), String(z["id"]))
 		add_child(zn)
+
+# --- persistence: authored creatures as {cell, creature, kind, id, blocks} and spawn zones as
+# {rect: [x, y, w, h], creature, rate, cap, id}. What a character captured, or what a zone has spawned,
+# belongs to the playthrough and is never here. ---
+
+func to_data() -> Dictionary:
+	var crs: Array = []
+	for r in creatures:
+		crs.append({"cell": [r["cell"].x, r["cell"].y], "creature": r["creature"],
+			"kind": r["kind"], "id": r["id"], "blocks": bool(r.get("blocks", true))})
+	var zs: Array = []
+	for z in zones:
+		var zr: Rect2i = z["rect"]
+		zs.append({"rect": [zr.position.x, zr.position.y, zr.size.x, zr.size.y],
+			"creature": z["creature"], "rate": float(z["rate"]), "cap": int(z["cap"]), "id": z["id"]})
+	return {"creatures": crs, "creature_zones": zs}
+
+# replace every authored creature and zone (pre-v13/v14 maps have no keys -> none)
+func load_data(data: Dictionary) -> void:
+	var crs: Array = []
+	for r in data.get("creatures", []):
+		crs.append({"cell": Vector2i(int(r["cell"][0]), int(r["cell"][1])),
+			"creature": String(r["creature"]), "kind": String(r.get("kind", Bestiary.SPAWN_POINT)),
+			"id": String(r.get("id", "")), "blocks": bool(r.get("blocks", true))})
+	var zs: Array = []
+	for z in data.get("creature_zones", []):
+		var a: Array = z["rect"]
+		zs.append({"rect": Rect2i(int(a[0]), int(a[1]), int(a[2]), int(a[3])),
+			"creature": String(z["creature"]), "rate": float(z.get("rate", Bestiary.ZONE_RATE)),
+			"cap": int(z.get("cap", Bestiary.ZONE_CAP)), "id": String(z.get("id", ""))})
+	apply_map(crs, zs)

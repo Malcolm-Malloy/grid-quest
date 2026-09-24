@@ -1083,15 +1083,7 @@ func _on_menu_id(id: int) -> void:
 # floor selection, else the clicked room (Wand) / quarter (Fine) / cell (Cell). Returns whether any
 # quarter changed. Shared by the preset swatches and the live colour picker.
 func _apply_floor_tint(color: Color) -> bool:
-	var cell := Grid.cell_of(_pending)
-	if _sel_kind == "floor" and _selection.has_selection():
-		return _tint_selection(color)
-	elif _mode == Mode.WAND:
-		return _tint_room(cell, color)
-	elif _mode == Mode.FINE:
-		return _write_tint(Grid.quad_of(_pending), color)
-	else: # Cell / Erase -> the whole cell
-		return _tint_cell(cell, color)
+	return _write_quads(_menu_scope(), func(q: Vector2i) -> bool: return _write_tint(q, color))
 
 # open the colour picker seeded from the current tint (or a default), previewing live on the target
 func _open_floor_picker() -> void:
@@ -1308,7 +1300,7 @@ func arm_floor_color(color: Color) -> void:
 	# with a floor selection active, picking a colour RE-TINTS the selection in place (the two-way panel
 	# binding), keeping its texture and the selection itself. White = Natural clears the tint.
 	if has_floor_selection():
-		if _tint_selection(color):
+		if _write_quads(_sel_quads, func(q: Vector2i) -> bool: return _write_tint(q, color)):
 			_rebuild()
 			EditHistory.commit("floor colour")
 	brush_changed.emit()
@@ -1854,11 +1846,11 @@ func _selection_drop_rects() -> Array:
 
 func _fill_wall_selection(color: Color) -> void:
 	if _obs != null:
-		_obs._color_cells(_sel_cells, color)
+		_obs.color_cells(_sel_cells, color)
 
 func _fill_wall_material_selection(material: String) -> void:
 	if _obs != null:
-		_obs._material_cells(_sel_cells, material)
+		_obs.material_cells(_sel_cells, material)
 
 # hide every highlight so a fresh edit reads clearly; they return on the next mouse move
 func _reset_highlight() -> void:
@@ -2142,32 +2134,14 @@ func _paint_wall_material(cell: Vector2i) -> void:
 		return
 	_obs.set_wall_material(cell, _wall_mat)
 
-# floor-colour tool drag: tint the cell (Cell mode) or quarter (Fine mode) under the cursor with
-# the active _floor_color. No-op off the map. Whole-room / selection tinting is done from the menu.
+# floor-colour / pattern tool drags: apply the active _floor_color / _pattern to the stroke under the
+# cursor (Fine -> the quarter, else the whole cell). Whole-room / selection targets come from the menu.
 func _paint_floor_color(local: Vector2) -> void:
-	var cell := Grid.cell_of(local)
-	if not _in_bounds(cell):
-		return
-	var changed := false
-	if _mode == Mode.FINE:
-		changed = _write_tint(Grid.quad_of(local), _floor_color)
-	else: # Cell (or any non-Fine grain) -> the whole cell
-		changed = _tint_cell(cell, _floor_color)
-	if changed:
+	if _write_quads(_stroke_scope(local), func(q: Vector2i) -> bool: return _write_tint(q, _floor_color)):
 		_rebuild()
 
-# pattern-tool drag: apply the active _pattern to the cell (Cell mode) or quarter (Fine mode) under
-# the cursor. No-op off the map or over a quarter with no material (_write_pattern guards that).
 func _paint_floor_pattern(local: Vector2) -> void:
-	var cell := Grid.cell_of(local)
-	if not _in_bounds(cell):
-		return
-	var changed := false
-	if _mode == Mode.FINE:
-		changed = _write_pattern(Grid.quad_of(local), _pattern)
-	else: # Cell (or any non-Fine grain) -> the whole cell
-		changed = _pattern_cell(cell, _pattern)
-	if changed:
+	if _write_quads(_stroke_scope(local), func(q: Vector2i) -> bool: return _write_pattern(q, _pattern)):
 		_rebuild()
 
 # set one quarter's tint (Natural/white erases the entry, so the floor reads its plain material).
@@ -2183,75 +2157,56 @@ func _write_tint(q: Vector2i, color: Color) -> bool:
 	_quad_tint[q] = color
 	return true
 
-# tint all four quarters of a cell; returns true if any changed.
-func _tint_cell(cell: Vector2i, color: Color) -> bool:
+# --- floor scopes: tint and pattern each have ONE quarter writer (_write_tint / _write_pattern) applied
+# over a scope of quarters, so the two tools can never disagree about what "the room" or "the cell" is.
+
+# apply `write(q) -> bool` to every quarter in `quads`; true if any changed
+func _write_quads(quads, write: Callable) -> bool:
 	var changed := false
-	for q in Grid.quads_of(cell):
-		changed = _write_tint(q, color) or changed
+	for q in quads:
+		changed = write.call(q) or changed
 	return changed
 
-# tint a whole room: interior floor quarters plus the room-facing wall/door ring, matching how a
-# room material fill reaches under the walls (_write_room). No-op (returns false) outside a room.
-func _tint_room(cell: Vector2i, color: Color) -> bool:
+# a room fill's quarters: every interior quarter plus the room-facing wall/door ring, so the floor
+# genuinely reaches under the walls. Empty outside a room.
+func _room_scope(cell: Vector2i) -> Array:
 	var cells: Dictionary = room_light.room_floor_cells(cell)
-	if cells.is_empty():
-		return false
-	var changed := false
-	for c in cells:
-		for q in Grid.quads_of(c):
-			changed = _write_tint(q, color) or changed
-	for rect in room_light.wall_ring_quads(cells):
-		var q := Grid.quad_of(rect.position)
-		changed = _write_tint(q, color) or changed
-	return changed
+	return [] if cells.is_empty() else _room_quads(cells).keys()
 
-# tint every quarter of the active floor selection (the Magic Wand marching-ants set).
-func _tint_selection(color: Color) -> bool:
-	var changed := false
-	for q in _sel_quads:
-		changed = _write_tint(q, color) or changed
-	return changed
+# what a right-click menu action targets at the current grain: the floor selection, else Wand -> the
+# clicked room, Fine -> the clicked quarter, Cell/Erase -> the clicked cell
+func _menu_scope() -> Array:
+	if _sel_kind == "floor" and _selection.has_selection():
+		return _sel_quads.keys()
+	if _mode == Mode.WAND:
+		return _room_scope(Grid.cell_of(_pending))
+	if _mode == Mode.FINE:
+		return [Grid.quad_of(_pending)]
+	return Grid.quads_of(Grid.cell_of(_pending))
 
-# --- floor patterns: the same grain dispatch as tints, over _quad_pattern instead of _quad_tint.
-# _write_pattern is a no-op on a quarter with no material, so grass quarters are skipped automatically.
+# what a drag stroke at `local` covers: Fine -> the quarter, else the cell (nothing off the map)
+func _stroke_scope(local: Vector2) -> Array:
+	var cell := Grid.cell_of(local)
+	if not _in_bounds(cell):
+		return []
+	return [Grid.quad_of(local)] if _mode == Mode.FINE else Grid.quads_of(cell)
+
+# named scopes the capture harness and tests drive directly
+func _tint_cell(cell: Vector2i, color: Color) -> bool:
+	return _write_quads(Grid.quads_of(cell), func(q: Vector2i) -> bool: return _write_tint(q, color))
+
+func _tint_room(cell: Vector2i, color: Color) -> bool:
+	return _write_quads(_room_scope(cell), func(q: Vector2i) -> bool: return _write_tint(q, color))
 
 func _pattern_cell(cell: Vector2i, idx: int) -> bool:
-	var changed := false
-	for q in Grid.quads_of(cell):
-		changed = _write_pattern(q, idx) or changed
-	return changed
+	return _write_quads(Grid.quads_of(cell), func(q: Vector2i) -> bool: return _write_pattern(q, idx))
 
 func _pattern_room(cell: Vector2i, idx: int) -> bool:
-	var cells: Dictionary = room_light.room_floor_cells(cell)
-	if cells.is_empty():
-		return false
-	var changed := false
-	for c in cells:
-		for q in Grid.quads_of(c):
-			changed = _write_pattern(q, idx) or changed
-	for rect in room_light.wall_ring_quads(cells):
-		var q := Grid.quad_of(rect.position)
-		changed = _write_pattern(q, idx) or changed
-	return changed
+	return _write_quads(_room_scope(cell), func(q: Vector2i) -> bool: return _write_pattern(q, idx))
 
-func _pattern_selection(idx: int) -> bool:
-	var changed := false
-	for q in _sel_quads:
-		changed = _write_pattern(q, idx) or changed
-	return changed
-
-# apply pattern `idx` to the right-clicked target at the current grain (mirrors _apply_floor_tint):
-# a floor selection, else Wand -> whole room, Fine -> the quarter, Cell -> the whole cell.
+# apply pattern `idx` to the right-clicked target at the current grain (see _menu_scope)
 func _apply_floor_pattern(idx: int) -> bool:
-	var cell := Grid.cell_of(_pending)
-	if _sel_kind == "floor" and _selection.has_selection():
-		return _pattern_selection(idx)
-	elif _mode == Mode.WAND:
-		return _pattern_room(cell, idx)
-	elif _mode == Mode.FINE:
-		return _write_pattern(Grid.quad_of(_pending), idx)
-	else: # Cell / Erase -> the whole cell
-		return _pattern_cell(cell, idx)
+	return _write_quads(_menu_scope(), func(q: Vector2i) -> bool: return _write_pattern(q, idx))
 
 # Erase mode: remove the wall or door on the clicked cell (the structure layer, topmost after any
 # object). Rebuilds the level through the same MapIO path load/resize use, so lighting, floors and
@@ -2775,21 +2730,8 @@ func set_room_style(cell: Vector2i, style: String) -> void:
 # there as real data. Cell/Quarter painting deliberately never touches the ring, so laying a tile
 # does not change the ground already stored under the walls.
 func _write_room(cells: Dictionary, style: String) -> void:
-	var valid := style != "" and textures.has(style)
-	var quads: Array = []
-	for c in cells:
-		for q in Grid.quads_of(c):
-			quads.append(q)
-	for rect in room_light.wall_ring_quads(cells):
-		quads.append(Grid.quad_of(rect.position))
-	for q in quads:
-		if valid:
-			_quad_mat[q] = style
-			_stamp_bank(q, style)
-		else:
-			_quad_mat.erase(q)
-			_quad_pattern.erase(q) # grass carries no pattern
-			_quad_no_bank.erase(q)
+	for q in _room_quads(cells):
+		_write_quad(q, style)
 
 # replace all floors from a v1 per-room style list (used by the MapIO v1->v2 load migration).
 # Must run AFTER RoomLight has rebuilt, since the room a style fills is found by flood fill.
@@ -3054,3 +2996,38 @@ func is_cell_impassable(cell: Vector2i) -> bool:
 			if IMPASSABLE.has(_quad_mat.get(q, "")):
 				count += 1
 	return count >= 2
+
+# --- persistence: the floor's slice of the MapIO map dict. Every store is sparse, as 16px-quarter rows:
+# quads [qx, qy, material], floor_tints [qx, qy, r, g, b], floor_patterns [qx, qy, index] (non-default
+# only), floor_no_bank [qx, qy] (liquid quarters laid with the bank switch off). ---
+
+func to_data() -> Dictionary:
+	var quads: Array = []
+	for q in _quad_mat:
+		quads.append([q.x, q.y, _quad_mat[q]])
+	var tints: Array = []
+	for q in _quad_tint:
+		var c: Color = _quad_tint[q]
+		tints.append([q.x, q.y, c.r, c.g, c.b])
+	var patterns: Array = []
+	for q in _quad_pattern:
+		patterns.append([q.x, q.y, _quad_pattern[q]])
+	var no_bank: Array = []
+	for q in _quad_no_bank:
+		no_bank.append([q.x, q.y])
+	return {"quads": quads, "floor_tints": tints, "floor_patterns": patterns, "floor_no_bank": no_bank}
+
+# replace the whole floor from a map dict. Must run AFTER RoomLight has rebuilt: a v1 map stored per-room
+# styles, migrated here by flood-filling each room into its quarters. Missing keys (older maps) clear to
+# the default: no patterns (pre-v7), every liquid banked (pre-v9), no tints (pre-v5).
+func load_data(data: Dictionary) -> void:
+	if int(data.get("version", 1)) >= 2:
+		apply_quads(data.get("quads", []))
+	else:
+		var floors: Array = []
+		for f in data.get("floors", []):
+			floors.append({"cell": Vector2i(int(f["cell"][0]), int(f["cell"][1])), "style": f["style"]})
+		apply_floors(floors)
+	apply_patterns(data.get("floor_patterns", []))
+	apply_no_bank(data.get("floor_no_bank", []))
+	apply_tints(data.get("floor_tints", []))

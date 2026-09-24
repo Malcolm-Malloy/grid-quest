@@ -183,4 +183,27 @@ func _ready() -> void:
 	_check("the pasted region becomes the selection", fm._selection_cells().size() == 4)
 	fm._ghost_origin_pin = fm.INVALID_CELL
 
+	# --- spawn zones through copy / rotate / paste (pure data, no world) ---
+	var zd := {"creature_zones": [
+		{"rect": [2, 2, 3, 1], "creature": "frost_frog", "rate": 7.5, "cap": 5, "id": "zin"},
+		{"rect": [4, 3, 3, 3], "creature": "frost_frog", "rate": 4.0, "cap": 3, "id": "zpart"}]}
+	var zcells := {}
+	for x in range(1, 6):
+		for y in range(1, 5):
+			zcells[Vector2i(x, y)] = true
+	var zclip := MapClipboard.build_clip(zd, zcells)
+	var zs: Array = zclip["creature_zones"]
+	_check("copy takes a zone fully inside the footprint, not one poking out",
+		zs.size() == 1 and zs[0]["id"] == "zin" and zs[0]["rate"] == 7.5)
+	_check("the copied zone is rebased to the clip origin", zs.size() == 1 and zs[0]["rect"] == [1, 1, 3, 1])
+	var zrot := MapClipboard.rotate_cw(zclip)
+	_check("rotate turns a wide zone tall, about the box", zrot["creature_zones"][0]["rect"] == [2, 1, 1, 3])
+	var zmap := {"grid": {"width": 20, "height": 20}}
+	MapEdit._apply_clip(zmap, zclip, Vector2i(10, 10), true)
+	_check("a pasted zone lands at the origin with a fresh id",
+		zmap["creature_zones"][0]["rect"] == [11, 11, 3, 1] and zmap["creature_zones"][0]["id"] != "zin")
+	var zmap2 := {"grid": {"width": 20, "height": 20}}
+	MapEdit._apply_clip(zmap2, zclip, Vector2i(18, 0), false)
+	_check("a moved zone keeps its id and clips at the map edge",
+		zmap2["creature_zones"][0]["id"] == "zin" and zmap2["creature_zones"][0]["rect"] == [19, 1, 1, 1])
 	finish()

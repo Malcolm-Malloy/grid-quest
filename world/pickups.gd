@@ -169,3 +169,24 @@ func _within_reach(cell: Vector2i) -> bool:
 		return false
 	var pc := Grid.cell_of(player.position)
 	return absi(pc.x - cell.x) <= 1 and absi(pc.y - cell.y) <= 1
+
+# --- persistence: placed items as {cell, item, id, data?}. Whether a character already TOOK one is not
+# here -- that is character data (CharacterIO), so the map keeps its items for the editor. ---
+
+func to_data() -> Dictionary:
+	var out: Array = []
+	for r in pickups:
+		var rec := {"cell": [r["cell"].x, r["cell"].y], "item": r["item"], "id": r["id"]}
+		if not r.get("data", {}).is_empty():
+			rec["data"] = r["data"] # a unique key's binding: {door_id, name}
+		out.append(rec)
+	return {"pickups": out}
+
+# replace every placed item (pre-v11 maps have no key -> none)
+func load_data(data: Dictionary) -> void:
+	var list: Array = []
+	for r in data.get("pickups", []):
+		list.append({"cell": Vector2i(int(r["cell"][0]), int(r["cell"][1])),
+			"item": String(r["item"]), "id": String(r.get("id", "")),
+			"data": (r.get("data", {}) as Dictionary).duplicate(true)})
+	apply_map(list)

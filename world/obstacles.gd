@@ -205,8 +205,7 @@ func build_world() -> void:
 	spawn_shadows()
 	# colour the freshly spawned walls once they are actually in the tree (they were added
 	# deferred above, so this deferred call runs after them)
-	_apply_wall_colors.call_deferred()
-	_apply_wall_materials.call_deferred()
+	_push_wall_props.call_deferred()
 
 # Builds the whole structure's shadow, once, after the map is known. Rather than one
 # polygon per cell (which overlap and read as layered pieces), it casts ONE shadow
@@ -556,30 +555,70 @@ func wall_run_orientation(cell: Vector2i) -> String:
 		return "vertical"
 	return ""
 
-# --- wall colouring (per-cell tint over the stone) ---
+# --- per-cell wall properties: colour (a tint over the material; white = natural) and material (the
+# face/cap texture pair; "stone" = the default). Both stores are sparse -- the default is never stored --
+# and both are pushed onto the spawned segments together. ---
 
 func get_wall_color(cell: Vector2i) -> Color:
 	return wall_colors.get(cell, Color.WHITE)
 
-# colour one wall cell (white resets it to natural stone)
+func get_wall_material(cell: Vector2i) -> String:
+	return wall_materials.get(cell, "stone")
+
 func set_wall_color(cell: Vector2i, color: Color) -> void:
-	if color == Color.WHITE:
-		wall_colors.erase(cell)
-	else:
-		wall_colors[cell] = color
-	_apply_wall_colors()
+	color_cells([cell], color)
 
-# colour every wall of the building `cell` belongs to
+func set_wall_material(cell: Vector2i, material: String) -> void:
+	material_cells([cell], material)
+
+# every wall of the building `cell` belongs to
 func color_building(cell: Vector2i, color: Color) -> void:
-	_color_cells(building_cells(cell), color)
+	color_cells(building_cells(cell), color)
 
-func _color_cells(cells: Dictionary, color: Color) -> void:
+func material_building(cell: Vector2i, material: String) -> void:
+	material_cells(building_cells(cell), material)
+
+# `cells` is any iterable of cells (an Array, or a Dictionary used as a set)
+func color_cells(cells, color: Color) -> void:
+	_set_cells(wall_colors, Color.WHITE, cells, color)
+
+func material_cells(cells, material: String) -> void:
+	_set_cells(wall_materials, "stone", cells, material)
+
+# write `value` into the sparse `store` for each cell (the `default` value erases the entry), then repaint
+func _set_cells(store: Dictionary, default, cells, value) -> void:
 	for c in cells:
-		if color == Color.WHITE:
-			wall_colors.erase(c)
+		if value == default:
+			store.erase(c)
 		else:
-			wall_colors[c] = color
-	_apply_wall_colors()
+			store[c] = value
+	_push_wall_props()
+
+# replace a whole store from saved rows (MapIO load): colours as [cx, cy, r, g, b], materials [cx, cy, name]
+func apply_wall_colors(list: Array) -> void:
+	wall_colors.clear()
+	for a in list:
+		wall_colors[Vector2i(int(a[0]), int(a[1]))] = Color(a[2], a[3], a[4])
+	_push_wall_props()
+
+func apply_wall_materials(list: Array) -> void:
+	wall_materials.clear()
+	for a in list:
+		wall_materials[Vector2i(int(a[0]), int(a[1]))] = String(a[2])
+	_push_wall_props()
+
+# push both stores onto the spawned wall segments so they redraw with their tints and materials
+func _push_wall_props() -> void:
+	for w in get_tree().get_nodes_in_group("walls"):
+		var cols: Array = []
+		var mats: Array = []
+		for c in w.cells():
+			cols.append(get_wall_color(c))
+			mats.append(get_wall_material(c))
+		w.cell_colors = cols
+		w.cell_materials = mats
+		w.queue_redraw()
+
 
 # the connected straight wall run(s) through `cell`: extend along the row and along the column
 # while cells are walls, stopping at any gap (a doorway breaks the run). At a junction this is
@@ -631,59 +670,58 @@ func wall_piece_rects(cells: Dictionary) -> Array:
 				out.append_array(w.piece_rects(c))
 	return out
 
-# push wall_colors onto the spawned wall segments so they redraw with their tints
-func _apply_wall_colors() -> void:
-	for w in get_tree().get_nodes_in_group("walls"):
-		var cols: Array = []
-		for c in w.cells():
-			cols.append(get_wall_color(c))
-		w.cell_colors = cols
-		w.queue_redraw()
 
-# replace all wall colours from a saved list of [cx, cy, r, g, b] (used by MapIO on load)
-func apply_wall_colors(list: Array) -> void:
-	wall_colors.clear()
-	for a in list:
-		wall_colors[Vector2i(int(a[0]), int(a[1]))] = Color(a[2], a[3], a[4])
-	_apply_wall_colors()
+# --- persistence: this layer's slice of the MapIO map dict (walls, doors, bridges, wall colours and
+# materials), and loading it back. Encode and decode live side by side so they cannot drift apart. ---
 
-# --- wall materials (per-cell face/cap texture pair; parallel to wall colours above) ---
+func to_data() -> Dictionary:
+	var walls: Array = []
+	for c in blocked_cells:
+		walls.append([c.x, c.y])
+	var doors: Array = []
+	for d in gate_cells:
+		# v12: a door carries a durable id (a Unique key binds to it) and its authored lock
+		var rec := {"cell": [d["cell"].x, d["cell"].y], "orientation": d["orientation"],
+			"open": d.get("open", false), "swing": d.get("swing", false), "id": d.get("id", "")}
+		if String(d.get("lock", "")) != "":
+			rec["lock"] = d["lock"]
+			rec["lock_color"] = d.get("lock_color", "red")
+			if String(d.get("lock_name", "")) != "":
+				rec["lock_name"] = d["lock_name"]
+		doors.append(rec)
+	var bridges: Array = []
+	for b in bridge_cells:
+		bridges.append({"cell": [b["cell"].x, b["cell"].y], "orientation": b["orientation"]})
+	# sparse: only non-white colours and non-stone materials are stored
+	var colors: Array = []
+	for c in wall_colors:
+		var col: Color = wall_colors[c]
+		colors.append([c.x, c.y, col.r, col.g, col.b])
+	var mats: Array = []
+	for c in wall_materials:
+		mats.append([c.x, c.y, wall_materials[c]])
+	return {"walls": walls, "doors": doors, "bridges": bridges, "wall_colors": colors, "wall_materials": mats}
 
-func get_wall_material(cell: Vector2i) -> String:
-	return wall_materials.get(cell, "stone")
-
-# set one wall cell's material ("stone" resets it to the default and drops the entry)
-func set_wall_material(cell: Vector2i, material: String) -> void:
-	if material == "stone":
-		wall_materials.erase(cell)
-	else:
-		wall_materials[cell] = material
-	_apply_wall_materials()
-
-# set the material of every wall of the building `cell` belongs to
-func material_building(cell: Vector2i, material: String) -> void:
-	_material_cells(building_cells(cell), material)
-
-func _material_cells(cells: Dictionary, material: String) -> void:
-	for c in cells:
-		if material == "stone":
-			wall_materials.erase(c)
-		else:
-			wall_materials[c] = material
-	_apply_wall_materials()
-
-# push wall_materials onto the spawned wall segments so they redraw with their materials
-func _apply_wall_materials() -> void:
-	for w in get_tree().get_nodes_in_group("walls"):
-		var mats: Array = []
-		for c in w.cells():
-			mats.append(get_wall_material(c))
-		w.cell_materials = mats
-		w.queue_redraw()
-
-# replace all wall materials from a saved list of [cx, cy, name] (used by MapIO on load)
-func apply_wall_materials(list: Array) -> void:
-	wall_materials.clear()
-	for a in list:
-		wall_materials[Vector2i(int(a[0]), int(a[1]))] = String(a[2])
-	_apply_wall_materials()
+# replace the whole layer from a map dict and rebuild its nodes. Older maps simply lack the newer keys
+# (pre-v12 doors have no id -> build_world mints one; pre-v6 has no materials -> all stone).
+func load_data(data: Dictionary) -> void:
+	var walls: Array = []
+	for a in data.get("walls", []):
+		walls.append(Vector2i(int(a[0]), int(a[1])))
+	var doors: Array = []
+	for d in data.get("doors", []):
+		var rec := {"cell": Vector2i(int(d["cell"][0]), int(d["cell"][1])), "orientation": d["orientation"],
+			"open": bool(d.get("open", false)), "swing": bool(d.get("swing", false)),
+			"id": String(d.get("id", ""))}
+		if String(d.get("lock", "")) != "":
+			rec["lock"] = String(d["lock"])
+			rec["lock_color"] = String(d.get("lock_color", "red"))
+			rec["lock_name"] = String(d.get("lock_name", ""))
+		doors.append(rec)
+	var bridges: Array = []
+	for b in data.get("bridges", []):
+		bridges.append({"cell": Vector2i(int(b["cell"][0]), int(b["cell"][1])), "orientation": String(b["orientation"])})
+	apply_map(walls, doors, bridges)
+	# colours/materials land on the segments once build_world's deferred spawns are in the tree
+	apply_wall_colors(data.get("wall_colors", []))
+	apply_wall_materials(data.get("wall_materials", []))

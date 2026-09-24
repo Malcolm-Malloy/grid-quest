@@ -181,3 +181,20 @@ func _visible_local_rect() -> Rect2:
 	var mn := Vector2(min(a.x, b.x, c.x, d.x), min(a.y, b.y, c.y, d.y))
 	var mx := Vector2(max(a.x, b.x, c.x, d.x), max(a.y, b.y, c.y, d.y))
 	return Rect2(mn, mx - mn)
+
+# --- persistence: the map's extent in the MapIO map dict. absent_cells is sparse (only holes); a pre-v10
+# map has no key and loads as the full rectangle. ---
+
+func to_data() -> Dictionary:
+	var absent: Array = []
+	for c in absent_cells:
+		absent.append([c.x, c.y])
+	return {"grid": {"width": grid_width, "height": grid_height}, "absent_cells": absent}
+
+func load_data(data: Dictionary) -> void:
+	var grid: Dictionary = data.get("grid", {"width": grid_width, "height": grid_height})
+	set_grid_size(int(grid["width"]), int(grid["height"]))
+	var absent := {}
+	for a in data.get("absent_cells", []):
+		absent[Vector2i(int(a[0]), int(a[1]))] = true
+	set_absent_cells(absent)

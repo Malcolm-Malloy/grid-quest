@@ -74,60 +74,25 @@ func build_clip(d: Dictionary, cells: Dictionary) -> Dictionary:
 		"h": maxc.y - minc.y + 1,
 		"origin": [minc.x, minc.y], # where it was copied FROM (a move stamps back relative to this)
 		"cells": [],
-		"walls": [], "wall_colors": [], "wall_materials": [],
-		"doors": [], "bridges": [], "pickups": [], "creatures": [], "creature_zones": [],
-		"quads": [], "floor_tints": [], "floor_patterns": [], "floor_no_bank": [],
 	}
 	for c in cells:
 		out["cells"].append([c.x - minc.x, c.y - minc.y])
-	# [cx, cy, ...] rows: keep the row if its cell is in the footprint, rebased to the origin
-	for key in ["walls", "wall_colors", "wall_materials"]:
-		for a in d.get(key, []):
-			var cell := Vector2i(int(a[0]), int(a[1]))
-			if not cells.has(cell):
-				continue
-			var row: Array = a.duplicate()
-			row[0] = cell.x - minc.x
-			row[1] = cell.y - minc.y
-			out[key].append(row)
-	# spawn zones are regions, so "is it in the selection" means CONTAINED, not "does it touch": a zone
-	# clipped in half by a copy would paste a different rule from the one that was copied, which is
-	# worse than not copying it. One fully inside the footprint rides along, rebased like everything else.
-	for z in d.get("creature_zones", []):
-		var a: Array = z["rect"]
-		var zr := Rect2i(int(a[0]), int(a[1]), int(a[2]), int(a[3]))
-		var inside := true
-		for zx in range(zr.position.x, zr.position.x + zr.size.x):
-			for zy in range(zr.position.y, zr.position.y + zr.size.y):
-				if not cells.has(Vector2i(zx, zy)):
-					inside = false
-					break
-			if not inside:
-				break
-		if inside:
-			var zrec: Dictionary = z.duplicate(true)
-			zrec["rect"] = [zr.position.x - minc.x, zr.position.y - minc.y, zr.size.x, zr.size.y]
-			out["creature_zones"].append(zrec)
-	# {cell: [cx, cy], ...} records (doors, bridges, placed items, placed creatures)
-	for key in ["doors", "bridges", "pickups", "creatures"]:
-		for r in d.get(key, []):
-			var cell := Vector2i(int(r["cell"][0]), int(r["cell"][1]))
-			if not cells.has(cell):
-				continue
-			var rec: Dictionary = r.duplicate(true)
-			rec["cell"] = [cell.x - minc.x, cell.y - minc.y]
-			out[key].append(rec)
-	# [qx, qy, ...] quarter rows: keyed by the CELL that owns the quarter, rebased in quarter units
-	for key in ["quads", "floor_tints", "floor_patterns", "floor_no_bank"]:
-		for a in d.get(key, []):
-			var q := Vector2i(int(a[0]), int(a[1]))
-			if not cells.has(Grid.cell_of_quad(q)):
-				continue
-			var row: Array = a.duplicate()
-			row[0] = q.x - minc.x * 2
-			row[1] = q.y - minc.y * 2
-			out[key].append(row)
+	# every layer's records inside the footprint, rebased to the origin (a quarter goes with the cell that
+	# owns it). Spawn zones are regions, so "in the selection" means CONTAINED, not "touches": a zone
+	# clipped in half by a copy would paste a different rule from the one that was copied.
+	out.merge(MapLayers.transform(d,
+		func(c: Vector2i) -> Vector2i: return c - minc if cells.has(c) else Grid.INVALID_CELL,
+		Callable(),
+		func(r: Rect2i) -> Rect2i: return Rect2i(r.position - minc, r.size) if _rect_inside(r, cells) else Rect2i()))
 	return out
+
+# is every cell of `r` in the set `cells`?
+func _rect_inside(r: Rect2i, cells: Dictionary) -> bool:
+	for x in range(r.position.x, r.end.x):
+		for y in range(r.position.y, r.end.y):
+			if not cells.has(Vector2i(x, y)):
+				return false
+	return true
 
 # --- transforms (each returns a NEW clip; the stored clipboard is never mutated in place) ---
 
@@ -165,45 +130,19 @@ func flip_v(c: Dictionary) -> Dictionary:
 # twice as fine, so it needs its own mapping), and `kind` picks the orientation remap for the
 # directional records.
 func _remap(c: Dictionary, nw: int, nh: int, cell_fn: Callable, quad_fn: Callable, kind: String) -> Dictionary:
-	var out := {"w": nw, "h": nh, "origin": c.get("origin", [0, 0]).duplicate(),
-		"cells": [], "walls": [], "wall_colors": [], "wall_materials": [],
-		"doors": [], "bridges": [], "pickups": [], "creatures": [], "creature_zones": [], "quads": [], "floor_tints": [], "floor_patterns": [],
-		"floor_no_bank": []}
+	var out := {"w": nw, "h": nh, "origin": c.get("origin", [0, 0]).duplicate(), "cells": []}
 	for a in c.get("cells", []):
 		var p: Vector2i = cell_fn.call(Vector2i(int(a[0]), int(a[1])))
 		out["cells"].append([p.x, p.y])
-	for key in ["walls", "wall_colors", "wall_materials"]:
-		for a in c.get(key, []):
-			var row: Array = a.duplicate()
-			var p: Vector2i = cell_fn.call(Vector2i(int(a[0]), int(a[1])))
-			row[0] = p.x
-			row[1] = p.y
-			out[key].append(row)
-	for key in ["doors", "bridges", "pickups", "creatures"]:
-		for r in c.get(key, []):
-			var rec: Dictionary = r.duplicate(true)
-			var p: Vector2i = cell_fn.call(Vector2i(int(r["cell"][0]), int(r["cell"][1])))
-			rec["cell"] = [p.x, p.y]
-			_reorient(rec, kind)
-			out[key].append(rec)
-	# a zone is a rect, so it is remapped by its two opposite CORNERS and rebuilt from them -- a
-	# rotate turns a wide zone into a tall one, which mapping the corners gets right for free
-	for z in c.get("creature_zones", []):
-		var a: Array = z["rect"]
-		var p0: Vector2i = cell_fn.call(Vector2i(int(a[0]), int(a[1])))
-		var p1: Vector2i = cell_fn.call(Vector2i(int(a[0]) + int(a[2]) - 1, int(a[1]) + int(a[3]) - 1))
-		var lo := Vector2i(mini(p0.x, p1.x), mini(p0.y, p1.y))
-		var hi := Vector2i(maxi(p0.x, p1.x), maxi(p0.y, p1.y))
-		var zrec2: Dictionary = z.duplicate(true)
-		zrec2["rect"] = [lo.x, lo.y, hi.x - lo.x + 1, hi.y - lo.y + 1]
-		out["creature_zones"].append(zrec2)
-	for key in ["quads", "floor_tints", "floor_patterns", "floor_no_bank"]:
-		for a in c.get(key, []):
-			var row: Array = a.duplicate()
-			var q: Vector2i = quad_fn.call(Vector2i(int(a[0]), int(a[1])))
-			row[0] = q.x
-			row[1] = q.y
-			out[key].append(row)
+	# a zone is a rect, so it is remapped by its two opposite CORNERS and rebuilt from them -- a rotate
+	# turns a wide zone into a tall one, which mapping the corners gets right for free. Directional
+	# records (doors, bridges) re-face through the orientation table.
+	out.merge(MapLayers.transform(c, cell_fn, quad_fn,
+		func(r: Rect2i) -> Rect2i:
+			var p0: Vector2i = cell_fn.call(r.position)
+			var p1: Vector2i = cell_fn.call(r.end - Vector2i.ONE)
+			return Rect2i(p0.min(p1), (p0.max(p1) - p0.min(p1)) + Vector2i.ONE),
+		func(rec: Dictionary, _key: String) -> void: _reorient(rec, kind)))
 	return out
 
 # THE ORIENTATION REMAP TABLE (ROADMAP: "the single source for orientation X rotated/flipped -> Y",
