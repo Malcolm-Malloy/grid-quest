@@ -23,6 +23,12 @@ func _ready() -> void:
 	add_child(main)
 	await get_tree().process_frame
 
+	# GQ_ROOFS=1 turns Show Roofs on (roofs are off in EDIT by default); GQ_PLAY=1 enters PLAY instead
+	if OS.get_environment("GQ_ROOFS") == "1":
+		main.get_node("World/Roofs").show_in_edit = true
+	if OS.get_environment("GQ_PLAY") == "1":
+		EditorMode.set_mode(EditorMode.Mode.PLAY)
+
 	# GQ_LOAD="name" loads a saved map before anything else, so GQ_POS/GQ_FLOOR below act on it
 	var load_name := OS.get_environment("GQ_LOAD")
 	if load_name != "":

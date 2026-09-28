@@ -25,7 +25,8 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
 0. **Architecture review (do first, see Architecture review section).** Read pass to set data-model
    and coordinate conventions before more is baked in. Steps 1 to 8 partly done (see findings
    inline). **The room-topology extraction (Q2) is DONE 2026-09-28**, so roofs, minimap and
-   paddock-override can build on `RoomTopology` rather than the light node.
+   paddock-override can build on `RoomTopology` rather than the light node. **Roofs slice 1 BUILT 2026-09-28** on
+   it (see "Roofs" under Future terrain and world objects).
 1. **Ground layer storage plus save v2. DONE 2026-08-15.** Foundation for everything below; see
    "Ground layer" and the As-built notes.
 2. **Show the map edge (hide out-of-range ground) and a bigger default map. DONE 2026-08-16.** The
@@ -1641,6 +1642,22 @@ where each lands. Universal rule: **every graphic follows the top/front perspect
   how shadows cover a structure (footprint from room cells plus walls, see
   [[grid-quest-shadows-in-room-scope]], [[grid-quest-floors-fill-whole-room]]). New work is the
   roof z-layer and generating the roof shape per style from the building footprint.
+  **As built (2026-09-28): slice 1, the tiled slate roof.** Decisions (confirmed with the user): **one
+  roof per BUILDING** (rooms joined by a shared wall or door hide together), a **quick 0.2s fade**, a
+  **tiled slate** first style, and roofs **always on in PLAY** but **off in EDIT** unless the tool
+  strip's **Show Roofs** switch (hotkey **O**) is on, so interiors stay visible while building.
+  `world/roofs.gd` (`Roofs`, z 800: above the world, below the editor overlays) is a derived layer, not
+  saved: it rebuilds from `RoomTopology.rebuilt` and the new `Obstacles.materials_changed`. A building
+  = the rooms from RoomTopology (union-find over shared ring cells) + their 8-way wall/door ring; a
+  room ringed by ANY see-through fence is a pen/paddock and gets no roof. Perspective: every footprint
+  cell is lifted by `WallSegment.WALL_HEIGHT` to sit on the wall caps; a south-edge cell stops at the cap
+  bottom and hangs a 5px shaded eave, so the south walls' front faces and doors stay visible. The roof
+  hides while the player's cell (floor or doorway) is in its building. Shingles are one procedural
+  repeating tile (one draw per cell). A solid roof occludes the floor-highlight mask; a fading one
+  doesn't. Covered by `dev/test_roofs` (18 checks); `dev/capture` gained `GQ_ROOFS=1` / `GQ_PLAY=1`.
+  **Not built yet:** more styles (thatch, etc.) and a per-building roof colour/style (needs a stored
+  per-building setting, i.e. a building identity); a ridge line / pitched shading; enclosed courtyards
+  currently get roofed like any room.
 - **Outdoor canopy reveal (walk under large tree foliage).** The same visual goal as roofs, seeing
   the player underneath a large cover, but **outdoors**, which is the key difference: it **cannot
   reuse the inside/outside detection** roofs rely on, since the player is outside the whole time.

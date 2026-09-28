@@ -42,6 +42,7 @@ const KEYS := {
 	"flip_v": {"key": "Shift+H", "what": "Flip what is armed vertically"},
 	"cancel": {"key": "Esc", "what": "Clear the selection, or cancel what is armed"},
 	"recenter": {"key": "Home", "what": "Recentre the view on the player"},
+	"show_roofs": {"key": "O", "what": "Show the roofs while editing (they always show in play)"},
 	"maps": {"key": "M", "what": "Open the Maps menu: save, load, new, and the saved game"},
 	"play_toggle": {"key": "Tab", "what": "Switch between editing the map and playing it"},
 	"fullscreen": {"key": "F11", "what": "Toggle fullscreen"},

@@ -1,4 +1,4 @@
-[gd_scene load_steps=20 format=3]
+[gd_scene load_steps=21 format=3]
 
 [ext_resource type="PackedScene" path="res://player/player.tscn" id="1"]
 [ext_resource type="Script" path="res://world/grid_background.gd" id="2"]
@@ -19,6 +19,7 @@
 [ext_resource type="Script" path="res://ui/status_bar.gd" id="17"]
 [ext_resource type="Script" path="res://world/creatures.gd" id="18"]
 [ext_resource type="Script" path="res://world/room_topology.gd" id="19"]
+[ext_resource type="Script" path="res://world/roofs.gd" id="20"]
 
 [node name="Main" type="Node2D"]
 
@@ -67,6 +68,9 @@ script = ExtResource("16")
 [node name="Creatures" type="Node2D" parent="World"]
 y_sort_enabled = true
 script = ExtResource("18")
+
+[node name="Roofs" type="Node2D" parent="World"]
+script = ExtResource("20")
 
 [node name="SpawnMarker" type="Node2D" parent="World"]
 position = Vector2(272, 400)
