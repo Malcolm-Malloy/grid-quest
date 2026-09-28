@@ -39,7 +39,7 @@ var shadow_scale := 1.0 # 1 outdoors; shrinks to a third indoors (softer indoor 
 
 @onready var obstacles: Obstacles = get_node("../Obstacles")
 @onready var floor_manager: FloorManager = get_node("../FloorManager") # for impassable floors (water)
-@onready var room_light := get_node_or_null("../RoomLight")
+@onready var _rooms: RoomTopology = get_node_or_null("../RoomTopology")
 @onready var sprite := $Sprite2D
 @onready var shadow_sprite := $Shadow
 @onready var _creatures: Creatures = get_node_or_null("../Creatures")
@@ -134,7 +134,7 @@ func update_shadow_shape() -> void:
 # picks the shadow size from where the player is: a third indoors, full outside
 func _update_shadow_scale() -> void:
 	var cell := Grid.cell_of(position)
-	var indoor: bool = room_light != null and room_light.is_indoor(cell)
+	var indoor: bool = _rooms != null and _rooms.is_indoor(cell)
 	var target := 1.0 / 3.0 if indoor else 1.0
 	if not is_equal_approx(target, shadow_scale):
 		shadow_scale = target

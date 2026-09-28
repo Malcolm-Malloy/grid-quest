@@ -1,4 +1,4 @@
-[gd_scene load_steps=19 format=3]
+[gd_scene load_steps=20 format=3]
 
 [ext_resource type="PackedScene" path="res://player/player.tscn" id="1"]
 [ext_resource type="Script" path="res://world/grid_background.gd" id="2"]
@@ -18,6 +18,7 @@
 [ext_resource type="Script" path="res://world/pickups.gd" id="16"]
 [ext_resource type="Script" path="res://ui/status_bar.gd" id="17"]
 [ext_resource type="Script" path="res://world/creatures.gd" id="18"]
+[ext_resource type="Script" path="res://world/room_topology.gd" id="19"]
 
 [node name="Main" type="Node2D"]
 
@@ -35,6 +36,9 @@ script = ExtResource("5")
 
 [node name="Obstacles" type="Node2D" parent="World"]
 script = ExtResource("3")
+
+[node name="RoomTopology" type="Node" parent="World"]
+script = ExtResource("19")
 
 [node name="Player" parent="World" instance=ExtResource("1")]
 position = Vector2(272, 400)

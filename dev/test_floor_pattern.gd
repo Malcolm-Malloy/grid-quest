@@ -48,7 +48,7 @@ func _ready() -> void:
 	# --- room-grain: interior + wall-ring quarters ---
 	var tinted_room: bool = fm.pattern_room(cell, 1)
 	_check("pattern room: reports a change", tinted_room)
-	var room_cells: Dictionary = fm.room_light.room_floor_cells(cell)
+	var room_cells: Dictionary = fm.topology.room_floor_cells(cell)
 	var interior_ok := true
 	for c in room_cells:
 		for cq in Grid.quads_of(c):

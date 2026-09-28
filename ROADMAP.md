@@ -24,8 +24,8 @@ preserved inside the phases, just re-grouped so map-authoring surfaces lead.
 wraps its edits in an undo entry as it is added, so history is never retrofitted.
 0. **Architecture review (do first, see Architecture review section).** Read pass to set data-model
    and coordinate conventions before more is baked in. Steps 1 to 8 partly done (see findings
-   inline); revisit the room-topology extraction (Q2) before roofs, minimap, and paddock-override
-   pile on. Run in a fresh window, one subsystem at a time (token-heavy).
+   inline). **The room-topology extraction (Q2) is DONE 2026-09-28**, so roofs, minimap and
+   paddock-override can build on `RoomTopology` rather than the light node.
 1. **Ground layer storage plus save v2. DONE 2026-08-15.** Foundation for everything below; see
    "Ground layer" and the As-built notes.
 2. **Show the map edge (hide out-of-range ground) and a bigger default map. DONE 2026-08-16.** The
@@ -209,6 +209,23 @@ questions to answer, roughly in dependency order:
    the extraction BEFORE piling roofs/minimap/paddock-override on top, to avoid churn. Connects to
    Q1: the genuinely shared foundation worth centralizing is coordinate + room topology, NOT entity
    storage.
+   **As built (2026-09-28): `RoomTopology` extracted.** `world/room_topology.gd`, a data-only `Node`
+   in World right after Obstacles. It owns the wall/door cell sets, the exterior flood + its box, the
+   cell queries (`is_wall` / `is_door` / `is_exterior` / `in_box` / `is_enclosed_floor` / `is_indoor`
+   / `exterior_cells` / `has_layout`) and the room queries (`room_floor_cells`,
+   `enclosed_floor_cells`, `wall_ring_quads`). MapIO calls `RoomTopology.rebuild()` (map load and
+   structure edits), which emits `rebuilt`; RoomLight listens and drops its memoised lit region, so
+   topology never knows lighting exists. RoomLight is now lighting only: the lit flood (open doors),
+   `exterior_lit`, `lit_wall_stamps`, and the dim render. Consumers moved: FloorManager (`topology`,
+   public), SelectionTool (gets both: topology for rooms, RoomLight only to relight on a selection
+   change), ShadowManager (room interiors from topology, lit state from RoomLight), and the player's
+   indoor shadow. No pass-through methods were left on RoomLight, so there is one way to ask about
+   rooms. Behaviour-preserving: all 47 existing suites green, captures of five lighting scenarios
+   (edit, indoor, doorway with the door open, outdoor, wand selection) pixel-identical to the
+   pre-refactor build, plus `dev/test_room_topology` (22 checks: classification, room queries, and a
+   perimeter-wall removal re-flooding rooms with lighting following the signal; that last check was
+   confirmed to FAIL with the signal unwired). Unchanged on purpose: a map with no walls still has no
+   layout (every cell reads exterior), as before.
 3. **Stable identity scheme.** Locked doors bind a key to a door id, and items/pickups need
    persistent ids too. Is there a durable identity for placed objects today, or does everything
    key off cell position (which breaks when objects move or rebuild)? Decide the id scheme before
@@ -3134,10 +3151,10 @@ necessary". Two consolidations, both following this section's own "separate the 
     which the menu items never could.
   - What remains is what a context menu is for: **act on the thing under the cursor** (its style, Erase,
     Grid). Covered by `dev/test_context_menu`, which now asserts the SHORT top level as a rule.
-- **Leftover to sweep:** the Build Wall configurator submenu (`build_wall_sub` + `_on_build_wall_id`) is
-  still constructed in `_ready` but no longer reachable from any menu, since the Place tool superseded
-  it. Left in place rather than ripped out mid-merge; delete it (and `dev/test_wall_brush_sync`'s hook
-  into it) next time that file is open.
+- **Leftover swept (2026-09-24):** the unreachable Build Wall configurator submenu (`build_wall_sub` +
+  `_on_build_wall_id`) and the Build Wall / Build Door menu items were deleted when the right-click
+  menu moved out into `floors/context_menu.gd` (commit 37a2247); the tests that called them were
+  updated in the same commit. Nothing left to do here (confirmed 2026-09-28).
 
 ### Editor UX revisions: actions into the right-click menu (logged 2026-08-17, not built)
 A batch of editor-UX notes that mostly **move actions off the left tool strip and into the contextual

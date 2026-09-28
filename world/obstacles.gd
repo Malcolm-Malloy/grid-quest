@@ -79,8 +79,8 @@ func _ready() -> void:
 
 # --- map (re)building: spawn everything derived from blocked_cells + gate_cells ---
 
-# replace the level with new walls/doors and rebuild the spawned nodes + shadows. The
-# lighting (RoomLight) and floors (FloorManager) are rebuilt by MapIO after this, in order.
+# replace the level with new walls/doors and rebuild the spawned nodes + shadows. The rooms
+# (RoomTopology, and lighting with it) and floors (FloorManager) are rebuilt by MapIO after this, in order.
 func apply_map(walls: Array, doors: Array, bridges: Array = []) -> void:
 	blocked_cells.clear()
 	for w in walls:

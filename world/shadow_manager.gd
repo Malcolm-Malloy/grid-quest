@@ -21,6 +21,7 @@ var static_union: Array = [] # pre-merged static wall regions, in World/grid spa
 var merged_regions: Array = [] # the pieces actually drawn, for the in-shadow test
 
 @onready var _room_light: RoomLight = get_node_or_null("../RoomLight")
+@onready var _rooms: RoomTopology = get_node_or_null("../RoomTopology")
 @onready var _fm: FloorManager = get_node_or_null("../FloorManager")
 
 func _ready() -> void:
@@ -54,11 +55,11 @@ func _draw() -> void:
 	# polygon can't carve a hole in an enclosed shadow). So per interior: stamp the clean
 	# ground back (erasing that fill), then lay ONE flat shadow over it. Exactly one pass,
 	# so it's a uniform shade with no doubling and no wall-shadow shapes inside.
-	if _room_light:
+	if _room_light and _rooms:
 		var lit: Dictionary = _room_light.lit_cells()
 		var grid_on: bool = _fm.grid_on() if _fm else false
 		var grid: Color = _fm.grid_color() if _fm else Color(1, 1, 1, 0.12)
-		for c in _room_light.enclosed_floor_cells():
+		for c in _rooms.enclosed_floor_cells():
 			var r := Grid.cell_rect(c)
 			# erase the wall-shadow fill with the cell's real floor, quarter by quarter so
 			# quarter-level painting survives (the whole-cell stamp used to grass mixed cells)
@@ -105,9 +106,9 @@ func point_in_shadow(global_pt: Vector2) -> bool:
 	return false
 
 func _in_any_room(local: Vector2) -> bool:
-	if _room_light == null:
+	if _rooms == null:
 		return false
-	return _room_light.is_enclosed_floor(Grid.cell_of(local))
+	return _rooms.is_enclosed_floor(Grid.cell_of(local))
 
 # merges a list of polygons into disjoint boundary (CCW) regions. Holes (CW rings)
 # are dropped; directional cast shadows don't enclose anything, so none arise here.

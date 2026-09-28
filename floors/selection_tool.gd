@@ -14,11 +14,13 @@ var box_op: EditorState.SelOp = EditorState.SelOp.REPLACE
 var box_base := {}
 var _fm: FloorManager
 var _obs: Obstacles
-var _room_light: RoomLight
+var _topology: RoomTopology
+var _room_light: RoomLight # only to relight when the selection changes
 
-func setup(fm: FloorManager, obs: Obstacles, room_light: RoomLight) -> void:
+func setup(fm: FloorManager, obs: Obstacles, topology: RoomTopology, room_light: RoomLight) -> void:
 	_fm = fm
 	_obs = obs
+	_topology = topology
 	_room_light = room_light
 	overlay = Node2D.new()
 	overlay.set_script(load("res://floors/selection_overlay.gd"))
@@ -117,7 +119,7 @@ func _modify_wall(region: Dictionary, op: EditorState.SelOp) -> void:
 func _wand_floor(cell: Vector2i, q: Vector2i) -> void:
 	# repeat click inside the patch grows it to the whole room floor (all materials, wall-bounded)
 	if EditorState.sel_kind == EditorState.SelKind.FLOOR and EditorState.sel_quads.has(q) and EditorState.sel_level == 1:
-		var cells: Dictionary = _room_light.room_floor_cells(cell)
+		var cells: Dictionary = _topology.room_floor_cells(cell)
 		if not cells.is_empty():
 			EditorState.sel_quads = _fm.room_quads(cells) # interior + under-wall ring (the overlay subtracts walls)
 			EditorState.sel_level = 2
@@ -137,7 +139,7 @@ func _with_ring(quads: Dictionary) -> Dictionary:
 	for q in quads:
 		cells[Grid.cell_of_quad(q)] = true
 	var out: Dictionary = quads.duplicate()
-	for r in _room_light.wall_ring_quads(cells):
+	for r in _topology.wall_ring_quads(cells):
 		out[Grid.quad_of(r.position)] = true
 	return out
 
@@ -156,7 +158,7 @@ func _wand_wall(obs, cell: Vector2i) -> void:
 # uniform room this already equals the whole room, so one click grabs the expected floor; grow-on-
 # repeat only matters in a mixed room. Outdoors (no enclosed room) the patch is just the cell.
 func _patch_quads(cell: Vector2i, q: Vector2i) -> Dictionary:
-	var room: Dictionary = _room_light.room_floor_cells(cell)
+	var room: Dictionary = _topology.room_floor_cells(cell)
 	if room.is_empty():
 		var single := {}
 		for cq in Grid.quads_of(cell):

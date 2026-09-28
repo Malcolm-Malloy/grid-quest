@@ -44,7 +44,7 @@ func _ready() -> void:
 	# --- room-grain tint: reaches every interior quarter AND the wall-ring (under the walls) ---
 	var tinted_room: bool = fm.tint_room(cell, red)
 	_check("tint room: reports a change", tinted_room)
-	var room_cells: Dictionary = fm.room_light.room_floor_cells(cell)
+	var room_cells: Dictionary = fm.topology.room_floor_cells(cell)
 	_check("tint room: found a room to fill", not room_cells.is_empty())
 	var interior_ok := true
 	for c in room_cells:
@@ -53,7 +53,7 @@ func _ready() -> void:
 				interior_ok = false
 	_check("tint room: every interior quarter is red", interior_ok)
 	var ring_ok := true
-	for rect in fm.room_light.wall_ring_quads(room_cells):
+	for rect in fm.topology.wall_ring_quads(room_cells):
 		var rq := Vector2i(floori(rect.position.x / 16), floori(rect.position.y / 16))
 		if fm.floor_tint_at_quad(rq) != red:
 			ring_ok = false

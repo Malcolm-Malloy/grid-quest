@@ -117,7 +117,7 @@ func rebuild_live(parts: int) -> void:
 	var w := _world()
 	if parts & REBUILD_STRUCTURES:
 		w.get_node("Obstacles").rebuild()
-		w.get_node("RoomLight").rebuild() # re-floods rooms and refreshes the shadow group
+		w.get_node("RoomTopology").rebuild() # re-floods rooms; lighting + shadows follow its signal
 	if parts & REBUILD_OBJECTS:
 		var pk := w.get_node_or_null("Pickups") as Pickups
 		if pk:
@@ -132,11 +132,11 @@ func rebuild_live(parts: int) -> void:
 func _apply(data: Dictionary, keep_player := false) -> void:
 	var w := _world()
 	var player: Player = w.get_node("Player")
-	# dependency order: the extent first (everything reads bounds), then walls/doors, then the lighting
+	# dependency order: the extent first (everything reads bounds), then walls/doors, then the room
 	# flood over them, then floors (a v1 map's per-room floors need those rooms), then the objects
 	w.get_node("GridBackground").load_data(data)
 	w.get_node("Obstacles").load_data(data)
-	w.get_node("RoomLight").rebuild()
+	w.get_node("RoomTopology").rebuild()
 	w.get_node("FloorManager").load_data(data)
 	for n in ["Pickups", "Creatures"]:
 		var node := w.get_node_or_null(n)

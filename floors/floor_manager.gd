@@ -38,7 +38,8 @@ const GRID_COLOR := Color(0.38, 0.64, 0.95, 0.4)
 # how a right-click Door edit changes the door (see edit_door)
 enum DoorEdit { FLIP, TOGGLE_OPEN, TOGGLE_SWING }
 
-@onready var room_light: RoomLight = get_node("../RoomLight")
+@onready var topology: RoomTopology = get_node("../RoomTopology")
+@onready var _room_light: RoomLight = get_node("../RoomLight")
 
 # Storage is per 16px quarter: _quad_mat is the SOURCE OF TRUTH (what MapIO saves). Everything
 # else is derived in rebuild. A room fill (set_room_style) just writes all four quarters of every
@@ -133,7 +134,7 @@ func _ready() -> void:
 	# the marching-ants selection overlay the Magic Wand builds and the menu fills
 	selection = SelectionTool.new()
 	add_child(selection)
-	selection.setup(self, _obs, room_light)
+	selection.setup(self, _obs, topology, _room_light)
 	# the paste/move hover ghost: draws the armed clip over the cells it would land on. It borrows
 	# this manager's texture lookup so the ghost shows the real material art, and its bounds test so
 	# cells that would be clipped at the map edge read red before the click.
@@ -152,7 +153,7 @@ func _ready() -> void:
 		EditorState.Mode.EYEDROP: eyedrop_at, EditorState.Mode.SELECT: select_at, EditorState.Mode.DOOR: place_door_at,
 		EditorState.Mode.BRIDGE: place_bridge_at,
 	}
-	call_deferred("_seed") # keep the existing wooden room once RoomLight has built
+	call_deferred("_seed") # keep the existing wooden room once RoomTopology has built
 
 # clear everything the editor was holding: the marching-ants selection, an armed paste or half-finished
 # move, every hover highlight, and any obstacle dimmed under the cursor. Nothing is restored on the way
@@ -601,7 +602,7 @@ func room_quads(cells: Dictionary) -> Dictionary:
 	for c in cells:
 		for cq in Grid.quads_of(c):
 			out[cq] = true
-	for rect in room_light.wall_ring_quads(cells):
+	for rect in topology.wall_ring_quads(cells):
 		out[Grid.quad_of(rect.position)] = true
 	return out
 
@@ -1056,7 +1057,7 @@ func _update_whole_hover(cell: Vector2i) -> void:
 	# room whose ring wood the cursor is sitting on (the floor part of a wall/door cell).
 	var room_seed := INVALID_CELL
 	if not on_stone:
-		if room_light.is_enclosed_floor(cell):
+		if topology.is_enclosed_floor(cell):
 			room_seed = cell
 		else:
 			room_seed = _adjacent_room_cell(cell, local)
@@ -1071,8 +1072,8 @@ func _update_whole_hover(cell: Vector2i) -> void:
 	if on_stone:
 		_mask.show_walls(_obs.wall_piece_rects(_obs.building_cells(cell)))
 	elif room_seed != INVALID_CELL:
-		var room_cells: Dictionary = room_light.room_floor_cells(room_seed)
-		_mask.show_floor(room_cells, room_light.wall_ring_quads(room_cells))
+		var room_cells: Dictionary = topology.room_floor_cells(room_seed)
+		_mask.show_floor(room_cells, topology.wall_ring_quads(room_cells))
 	else:
 		_mask.hide_floor()
 
@@ -1110,7 +1111,7 @@ func _adjacent_room_cell(cell: Vector2i, local: Vector2) -> Vector2i:
 	var best_d := INF
 	for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
 		var n: Vector2i = cell + d
-		if room_light.is_enclosed_floor(n):
+		if topology.is_enclosed_floor(n):
 			var c := Grid.cell_center(n)
 			var dist := local.distance_squared_to(c)
 			if dist < best_d:
@@ -1226,7 +1227,7 @@ func _write_quads(quads, write: Callable) -> bool:
 # a room fill's quarters: every interior quarter plus the room-facing wall/door ring, so the floor
 # genuinely reaches under the walls. Empty outside a room.
 func _room_scope(cell: Vector2i) -> Array:
-	var cells: Dictionary = room_light.room_floor_cells(cell)
+	var cells: Dictionary = topology.room_floor_cells(cell)
 	return [] if cells.is_empty() else room_quads(cells).keys()
 
 # what a right-click menu action targets at the current grain: the floor selection, else Wand -> the
@@ -1756,7 +1757,7 @@ func in_bounds(cell: Vector2i) -> bool:
 # give the room containing `cell` a floor style ("" resets it to grass). A room fill is a
 # convenience over the quarter store: it writes all four quarters of every cell in the room.
 func set_room_style(cell: Vector2i, style: String) -> void:
-	var cells: Dictionary = room_light.room_floor_cells(cell)
+	var cells: Dictionary = topology.room_floor_cells(cell)
 	if cells.is_empty():
 		return
 	_write_room(cells, style)
@@ -1771,14 +1772,14 @@ func _write_room(cells: Dictionary, style: String) -> void:
 		write_quad(q, style)
 
 # replace all floors from a v1 per-room style list (used by the MapIO v1->v2 load migration).
-# Must run AFTER RoomLight has rebuilt, since the room a style fills is found by flood fill.
+# Must run AFTER RoomTopology has rebuilt, since the room a style fills is found by flood fill.
 func apply_floors(list: Array) -> void:
 	_quad_mat.clear()
 	for f in list:
 		var style: String = f["style"]
 		if style == "" or not FloorMaterials.TEXTURES.has(style):
 			continue
-		_write_room(room_light.room_floor_cells(f["cell"]), style)
+		_write_room(topology.room_floor_cells(f["cell"]), style)
 	rebuild()
 
 # replace all floors from a v2 quarter list [[qx, qy, material], ...] (used by MapIO on load).
@@ -1914,7 +1915,7 @@ func to_data() -> Dictionary:
 		no_bank.append([q.x, q.y])
 	return {"quads": quads, "floor_tints": tints, "floor_patterns": patterns, "floor_no_bank": no_bank}
 
-# replace the whole floor from a map dict. Must run AFTER RoomLight has rebuilt: a v1 map stored per-room
+# replace the whole floor from a map dict. Must run AFTER RoomTopology has rebuilt: a v1 map stored per-room
 # styles, migrated here by flood-filling each room into its quarters. Missing keys (older maps) clear to
 # the default: no patterns (pre-v7), every liquid banked (pre-v9), no tints (pre-v5).
 func load_data(data: Dictionary) -> void:
