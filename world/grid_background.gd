@@ -1,7 +1,7 @@
 extends Node2D
 class_name GridBackground
 
-const CELL_SIZE := 32
+const CELL_SIZE := Grid.CELL
 const FLOOR_TEX := 128 # floor textures are 128x128, tiled by world position
 
 # grid size (vars, not consts, so a loaded map can resize the grid). This is the SINGLE
@@ -17,6 +17,8 @@ var grid_height := 32
 # today's solid rectangle, so old maps, the fast render path, and every rectangle assumption keep
 # working; a jagged map just lists its missing cells. Keyed by Vector2i, value true (used as a set).
 var absent_cells := {}
+
+@onready var _fm: FloorManager = get_node_or_null("../FloorManager")
 
 func set_grid_size(w: int, h: int) -> void:
 	grid_width = w
@@ -34,14 +36,6 @@ func cell_present(cx: int, cy: int) -> bool:
 	return cx >= 0 and cx < grid_width and cy >= 0 and cy < grid_height \
 		and not absent_cells.has(Vector2i(cx, cy))
 
-# Walkable bounds in world pixels, derived from the grid. The player clamps movement to
-# these so its range always matches the grid edge (beyond the grid is void, not walkable).
-func min_walkable_position() -> Vector2:
-	return Vector2(CELL_SIZE / 2.0, CELL_SIZE / 2.0)
-
-func max_walkable_position() -> Vector2:
-	return Vector2((grid_width - 1) * CELL_SIZE + CELL_SIZE / 2.0, (grid_height - 1) * CELL_SIZE + CELL_SIZE / 2.0)
-
 var ground_texture := preload("res://world/ground_grass.png")
 
 # Out-of-map void look: instead of a jarring pure-black cutoff, the area beyond the grid reads as
@@ -56,21 +50,37 @@ const VOID_MAX_CELLS := 6000                  # safety cap so a far zoom-out can
 
 var _last_view := Transform2D()
 
-# Water shimmer: animated water fills (flagged by FloorManager) get a subtle brightness pulse that moves
-# across the surface. AMP is the +/- brightness fraction (kept small so it reads as a gentle shimmer, not
-# a flash); SPEED is radians/sec; K spreads the phase by world position so the wave ripples across a body
-# instead of pulsing in unison. The floor redraws at ~SHIMMER_HZ only while water is present (else zero cost).
-const WATER_SHIMMER_AMP := 0.09
-const WATER_SHIMMER_SPEED := 2.2
-const WATER_SHIMMER_K := 0.05
-const SHIMMER_HZ := 20.0
-var _wphase := 0.0   # accumulated shimmer time (sec), advanced while water is on the map
-var _waccum := 0.0   # redraw throttle accumulator
+# Two canvas items drawn over this node's own commands, in order: the LIQUID fills (flagged animated by
+# FloorManager) under the water_shimmer shader, which ripples them on the GPU so the floor never redraws
+# for it; then the reference grid lines, so they stay visible over water. Both are refilled by _draw.
+const WATER_SHIMMER := preload("res://world/water_shimmer.gdshader")
+var _water_ci: RID
+var _lines_ci: RID
+var _water_mat: ShaderMaterial
 
 func _ready() -> void:
 	texture_filter = TEXTURE_FILTER_NEAREST
 	texture_repeat = TEXTURE_REPEAT_ENABLED # so the ground tiles across grids bigger than the texture
+	_water_mat = ShaderMaterial.new()
+	_water_mat.shader = WATER_SHIMMER
+	_water_ci = _child_canvas_item(0)
+	RenderingServer.canvas_item_set_material(_water_ci, _water_mat.get_rid())
+	_lines_ci = _child_canvas_item(1)
 	queue_redraw()
+
+# a canvas item under this node's, drawn after its commands in `order`, sampling like this node does
+func _child_canvas_item(order: int) -> RID:
+	var ci := RenderingServer.canvas_item_create()
+	RenderingServer.canvas_item_set_parent(ci, get_canvas_item())
+	RenderingServer.canvas_item_set_draw_index(ci, order)
+	RenderingServer.canvas_item_set_default_texture_filter(ci, RenderingServer.CANVAS_ITEM_TEXTURE_FILTER_NEAREST)
+	RenderingServer.canvas_item_set_default_texture_repeat(ci, RenderingServer.CANVAS_ITEM_TEXTURE_REPEAT_ENABLED)
+	return ci
+
+func _exit_tree() -> void:
+	for ci in [_water_ci, _lines_ci]:
+		if ci.is_valid():
+			RenderingServer.free_rid(ci)
 
 # redraw when the camera pans/zooms so the void tiles keep filling the visible area
 func _process(_delta: float) -> void:
@@ -78,15 +88,6 @@ func _process(_delta: float) -> void:
 	if x != _last_view:
 		_last_view = x
 		queue_redraw()
-	# advance the water shimmer and redraw at ~SHIMMER_HZ, ONLY while the map has water (a dry map never
-	# enters this branch, so animation costs nothing). Throttled so it isn't a full per-frame floor redraw.
-	var fm := get_node_or_null("../FloorManager")
-	if fm != null and fm.has_method("has_animated_water") and fm.has_animated_water():
-		_wphase += _delta
-		_waccum += _delta
-		if _waccum >= 1.0 / SHIMMER_HZ:
-			_waccum = 0.0
-			queue_redraw()
 
 # the source rect that makes a destination rect sample a 128x128 floor texture tiled by
 # world position, so neighbouring pieces line up into one continuous floor (shared by the
@@ -117,29 +118,28 @@ func _draw() -> void:
 	# any room with a floor style fills its WHOLE area (interior cells + the room-facing
 	# wall/door quadrants) with that texture, so no grass shows between floor and walls.
 	# FloorManager supplies the [dst_rect, texture] pieces; they tile by world position.
-	var fm := get_node_or_null("../FloorManager")
-	if fm:
+	RenderingServer.canvas_item_clear(_water_ci)
+	RenderingServer.canvas_item_clear(_lines_ci)
+	if _fm:
 		# f = [dst_rect, texture, tint] with an OPTIONAL 4th element = a source-rect override (in
-		# texture space) and an OPTIONAL 5th truthy element = ANIMATE (a water fill). Most fills omit
+		# texture space) and an OPTIONAL 5th truthy element = ANIMATE (a liquid fill). Most fills omit
 		# both and sample the 128px tile by world position (tiled_src) so neighbours line up; the shoreline
-		# autotile passes an atlas src rect instead. Animated water fills get a subtle brightness shimmer
-		# that varies by world position + time, so the surface reads as gently rippling rather than a fade.
-		for f in fm.base_fills():
+		# autotile passes an atlas src rect instead. Liquid fills go to the shimmering canvas item; fills of
+		# different quarters never overlap, so splitting them out keeps the picture identical.
+		for f in _fm.base_fills():
 			var src: Rect2 = f[3] if f.size() > 3 else tiled_src(f[0])
-			var tint: Color = f[2]
 			if f.size() > 4 and f[4]:
-				var ph: float = _wphase * WATER_SHIMMER_SPEED + (f[0].position.x + f[0].position.y) * WATER_SHIMMER_K
-				var pulse: float = 1.0 + WATER_SHIMMER_AMP * sin(ph)
-				tint = Color(tint.r * pulse, tint.g * pulse, tint.b * pulse, tint.a)
-			draw_texture_rect_region(f[1], f[0], src, tint)
+				RenderingServer.canvas_item_add_texture_rect_region(_water_ci, f[0], f[1].get_rid(), src, f[2])
+			else:
+				draw_texture_rect_region(f[1], f[0], src, f[2])
 	# the reference grid draws only when toggled on from the floor menu (off by default so
-	# it doesn't tint the floor textures the rest of the time)
-	if fm and fm.grid_on():
-		var color: Color = fm.grid_color()
+	# it doesn't tint the floor textures the rest of the time); above the water, so it shows over it
+	if _fm and _fm.grid_on():
+		var color: Color = _fm.grid_color()
 		for x in range(grid_width + 1):
-			draw_line(Vector2(x * CELL_SIZE, 0), Vector2(x * CELL_SIZE, grid_height * CELL_SIZE), color, 1.0, true)
+			RenderingServer.canvas_item_add_line(_lines_ci, Vector2(x * CELL_SIZE, 0), Vector2(x * CELL_SIZE, grid_height * CELL_SIZE), color, 1.0, true)
 		for y in range(grid_height + 1):
-			draw_line(Vector2(0, y * CELL_SIZE), Vector2(grid_width * CELL_SIZE, y * CELL_SIZE), color, 1.0, true)
+			RenderingServer.canvas_item_add_line(_lines_ci, Vector2(0, y * CELL_SIZE), Vector2(grid_width * CELL_SIZE, y * CELL_SIZE), color, 1.0, true)
 
 # fill the on-screen void (outside the grid) with inactive-cell tiles: a grey square + faint
 # border + a subtle darker "+" per cell. Clipped to the visible viewport so it never draws the
@@ -181,3 +181,20 @@ func _visible_local_rect() -> Rect2:
 	var mn := Vector2(min(a.x, b.x, c.x, d.x), min(a.y, b.y, c.y, d.y))
 	var mx := Vector2(max(a.x, b.x, c.x, d.x), max(a.y, b.y, c.y, d.y))
 	return Rect2(mn, mx - mn)
+
+# --- persistence: the map's extent in the MapIO map dict. absent_cells is sparse (only holes); a pre-v10
+# map has no key and loads as the full rectangle. ---
+
+func to_data() -> Dictionary:
+	var absent: Array = []
+	for c in absent_cells:
+		absent.append([c.x, c.y])
+	return {"grid": {"width": grid_width, "height": grid_height}, "absent_cells": absent}
+
+func load_data(data: Dictionary) -> void:
+	var grid: Dictionary = data.get("grid", {"width": grid_width, "height": grid_height})
+	set_grid_size(int(grid["width"]), int(grid["height"]))
+	var absent := {}
+	for a in data.get("absent_cells", []):
+		absent[Vector2i(int(a[0]), int(a[1]))] = true
+	set_absent_cells(absent)

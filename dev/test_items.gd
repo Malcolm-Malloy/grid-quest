@@ -1,15 +1,10 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the item / pickup system (ROADMAP Phase B item 10, "Items and pickups"):
 # definitions vs instances, the two inventory entry kinds, the split interaction (stackables auto-
 # collect on step, uniques must be taken deliberately), where collected state lives, editor placement,
 # and persistence through save/load, resize and paste. Text-only, no rendering.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_items.tscn
-
-var _fails := 0
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond: _fails += 1
 
 func _mid(cell: Vector2i) -> Vector2:
 	return Vector2(cell.x * 32 + 16, cell.y * 32 + 16)
@@ -18,10 +13,7 @@ func _nodes() -> int:
 	return get_tree().get_nodes_in_group("pickups").size()
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 	var pk = main.get_node("World/Pickups")
 	var player = main.get_node("World/Player")
@@ -40,17 +32,17 @@ func _ready() -> void:
 	# --- 2. editor placement: one per cell, never on a wall or off the map ---
 	var coin_cell := Vector2i(20, 12)
 	var key_cell := Vector2i(21, 12)
-	fm.set_mode(fm.Mode.ITEM)
+	fm.set_mode(EditorState.Mode.ITEM)
 	fm.arm_item("coin")
-	_check("placed a coin", fm._place_item_at(_mid(coin_cell)))
+	_check("placed a coin", fm.place_item_at(_mid(coin_cell)))
 	fm.arm_item("key")
-	_check("placed a key", fm._place_item_at(_mid(key_cell)))
+	_check("placed a key", fm.place_item_at(_mid(key_cell)))
 	await get_tree().process_frame
 	_check("both instances exist in the model", pk.pickups.size() == 2)
 	_check("both spawned a node", _nodes() == 2)
-	_check("a second item on the same cell is refused", not fm._place_item_at(_mid(coin_cell)))
-	_check("an item on a wall cell is refused", not fm._place_item_at(_mid(Vector2i(8, 3))))
-	_check("an item off the map is refused", not fm._place_item_at(Vector2(-40, -40)))
+	_check("a second item on the same cell is refused", not fm.place_item_at(_mid(coin_cell)))
+	_check("an item on a wall cell is refused", not fm.place_item_at(_mid(Vector2i(8, 3))))
+	_check("an item off the map is refused", not fm.place_item_at(Vector2(-40, -40)))
 	_check("each placement was one undo entry", EditHistory.can_undo())
 
 	# --- 3. the map stores pickups; a save/load round-trip keeps them, ids included ---
@@ -118,11 +110,10 @@ func _ready() -> void:
 		pk.pickup_at(Vector2i(30, 24))["id"] != pk.pickup_at(moved_coin)["id"])
 
 	# --- 9. Erase takes the item before the ground under it ---
-	fm.set_mode(fm.Mode.ERASE)
-	fm._erase_single(moved_coin)
+	fm.set_mode(EditorState.Mode.ERASE)
+	fm.erase_single(moved_coin)
 	await get_tree().process_frame
 	_check("erase removed the item", not pk.has_pickup(moved_coin))
 
 	DirAccess.remove_absolute("user://maps/__items_test.json")
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

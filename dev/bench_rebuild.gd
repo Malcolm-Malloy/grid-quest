@@ -54,4 +54,32 @@ func _ready() -> void:
 	print("spawn_shadows alone:      %.2f ms each" % per_shadow)
 	print("shadow poly count: ", obs.wall_shadow_polys.size())
 
+	# the editor paths layered on top: a floor repaint over a big lake (liquid edges + banks are the
+	# costly part), a whole-map serialize (every undo commit), and one frame of a wall drag
+	var fm = main.get_node("World/FloorManager")
+	obs.apply_map(uniq, [])
+	await get_tree().process_frame
+	for qx in range(0, 40):
+		for qy in range(52, 64):
+			fm.write_quad(Vector2i(qx, qy), "water")
+	print("floor full rebuild (%d quarters, lake): %.2f ms each" % [fm.quad_materials().size(), _time(func():
+		fm.render._extent = [] # forces the full path, as a load or a map resize does
+		fm.render.build(), reps)])
+	# one paint stroke step: a cell at the lake's edge changes material, then the floor re-derives
+	var edge_cell := Vector2i(10, 25)
+	var flip := [false]
+	print("floor rebuild after painting one cell: %.2f ms each" % _time(func():
+		flip[0] = not flip[0]
+		for q in Grid.quads_of(edge_cell):
+			fm.write_quad(q, "sand" if flip[0] else "water")
+		fm.render.build(), reps))
+	print("MapIO.serialize:          %.2f ms each" % _time(func(): MapIO.serialize(), reps))
+	print("wall-drag frame:          %.2f ms each" % _time(func(): fm._rebuild_world(MapIO.REBUILD_STRUCTURES), reps))
+
 	get_tree().quit(0)
+
+func _time(f: Callable, reps: int) -> float:
+	var t := _t()
+	for i in reps:
+		f.call()
+	return float(_t() - t) / reps / 1000.0

@@ -1,16 +1,9 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for Persistence slice 1 (ROADMAP "Persistence & library"): current-map
 # tracking, the dirty (unsaved-changes) flag hooked through EditHistory, New Map, and autosave.
 # Text-only, no rendering.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_persistence.tscn
-
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
 
 func _ready() -> void:
 	MapIO.auto_load = false
@@ -28,8 +21,8 @@ func _ready() -> void:
 
 	# --- a real edit (committed through EditHistory) marks the map dirty ---
 	EditHistory.reset()
-	fm._write_quad(Vector2i(4, 4), "wood")
-	fm._rebuild()
+	fm.write_quad(Vector2i(4, 4), "wood")
+	fm.rebuild()
 	EditHistory.commit("paint")
 	_check("after an edit: dirty is set", MapIO.dirty)
 
@@ -41,8 +34,8 @@ func _ready() -> void:
 
 	# --- autosave writes the RECOVERY SLOT, never the real map (ROADMAP "Unsaved-work protection") ---
 	MapIO.autosave_enabled = true
-	fm._write_quad(Vector2i(5, 5), "tile")
-	fm._rebuild()
+	fm.write_quad(Vector2i(5, 5), "tile")
+	fm.rebuild()
 	EditHistory.commit("paint")
 	_check("autosave setup: dirty before tick", MapIO.dirty)
 	var saved_before: int = FileAccess.get_modified_time("user://maps/_persist_test.json")
@@ -71,8 +64,8 @@ func _ready() -> void:
 	# --- an UNNAMED map is covered too: it is the case where a crash costs the most, since there is
 	# no saved file to fall back on at all. (The old real-file autosave had to skip it; a slot need not.)
 	MapIO.autosave_enabled = true
-	fm._write_quad(Vector2i(6, 6), "carpet")
-	fm._rebuild()
+	fm.write_quad(Vector2i(6, 6), "carpet")
+	fm.rebuild()
 	EditHistory.commit("paint")
 	MapIO._process(MapIO.RECOVERY_IDLE_SEC + 1.0)
 	_check("recovery: an unnamed map IS captured", FileAccess.file_exists(MapIO.RECOVERY_FILE))
@@ -84,8 +77,8 @@ func _ready() -> void:
 
 	# the debounce: a write only happens once you PAUSE, and one write is enough until the next edit
 	MapIO.clear_recovery()
-	fm._write_quad(Vector2i(7, 7), "wood")
-	fm._rebuild()
+	fm.write_quad(Vector2i(7, 7), "wood")
+	fm.rebuild()
 	EditHistory.commit("paint")
 	MapIO._process(MapIO.RECOVERY_IDLE_SEC * 0.5)
 	_check("recovery: nothing written while you are still editing", not FileAccess.file_exists(MapIO.RECOVERY_FILE))
@@ -107,8 +100,8 @@ func _ready() -> void:
 		MapIO._recovery_is_newer({"map": "_persist_gone", "at": 1, "data": {}}))
 
 	# restoring brings the work back, DIRTY -- recovered work is by definition unsaved
-	fm._write_quad(Vector2i(9, 9), "tile")
-	fm._rebuild()
+	fm.write_quad(Vector2i(9, 9), "tile")
+	fm.rebuild()
 	EditHistory.commit("paint")
 	MapIO.write_recovery()
 	var stash: Dictionary = MapIO._read_recovery()
@@ -151,5 +144,4 @@ func _ready() -> void:
 	# cleanup the test map files
 	MapIO.delete_map("_persist_test")
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

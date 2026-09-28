@@ -1,11 +1,10 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only audit for "invisible wall" (a cell that blocks but renders no node). Builds a map covering
 # every wall configuration (isolated, lines, corners, cross, T-junction, 2x2 block, diagonal staircase,
 # walls beside aligned + perpendicular doors) and asserts EVERY blocked cell has a covering wall node.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_wall_coverage.tscn
 
-var _fails := 0
 func _covered(cell: Vector2i) -> bool:
 	for w in get_tree().get_nodes_in_group("walls"):
 		if w.covers_cell(cell):
@@ -13,10 +12,7 @@ func _covered(cell: Vector2i) -> bool:
 	return false
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var obs = main.get_node("World/Obstacles")
 
 	var walls: Array = []
@@ -29,7 +25,7 @@ func _ready() -> void:
 	walls.append_array([Vector2i(25,5),Vector2i(26,5),Vector2i(25,6),Vector2i(26,6)]) # 2x2 block
 	walls.append_array([Vector2i(30,5),Vector2i(31,6),Vector2i(32,7)]) # diagonal staircase (each isolated)
 	walls.append(Vector2i(35,5)) # wall above a perpendicular (horizontal) door
-	var doors: Array = [{"cell":Vector2i(35,6),"orientation":"horizontal","open":false,"swing":false}]
+	var doors: Array = [{"cell":Vector2i(35,6),"orientation":Grid.Orient.HORIZONTAL,"open":false,"swing":false}]
 
 	obs.apply_map(walls, doors)
 	await get_tree().process_frame
@@ -42,5 +38,4 @@ func _ready() -> void:
 	print(("PASS " if uncovered.is_empty() else "FAIL ") + "every blocked cell has a wall node (uncovered: %s)" % str(uncovered))
 	if not uncovered.is_empty(): _fails += 1
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

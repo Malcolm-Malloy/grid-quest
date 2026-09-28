@@ -24,8 +24,8 @@ preserved inside the phases, just re-grouped so map-authoring surfaces lead.
 wraps its edits in an undo entry as it is added, so history is never retrofitted.
 0. **Architecture review (do first, see Architecture review section).** Read pass to set data-model
    and coordinate conventions before more is baked in. Steps 1 to 8 partly done (see findings
-   inline); revisit the room-topology extraction (Q2) before roofs, minimap, and paddock-override
-   pile on. Run in a fresh window, one subsystem at a time (token-heavy).
+   inline). **The room-topology extraction (Q2) is DONE 2026-09-28**, so roofs, minimap and
+   paddock-override can build on `RoomTopology` rather than the light node.
 1. **Ground layer storage plus save v2. DONE 2026-08-15.** Foundation for everything below; see
    "Ground layer" and the As-built notes.
 2. **Show the map edge (hide out-of-range ground) and a bigger default map. DONE 2026-08-16.** The
@@ -83,10 +83,9 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
    wanted (currently hard-edged on purpose).
 
 **Phase B: persistence (needed to save the maps you build, then to play them).**
-9. **Character save (position, facing, inventory) plus whole-game saves. CHARACTER SAVE BUILT
-   2026-08-25** (`CharacterIO`; see the Saving section as-built). Whole-game saves (bundle the character
-   file + current map name) still open. Reuses the MapIO atomic-write path. Inventory persists now, so
-   keys can.
+9. **Character save (position, facing, inventory) plus whole-game saves. BOTH BUILT** -- character
+   save 2026-08-25 (`CharacterIO`), **whole-game saves 2026-09-05** (`GameIO`; see the Saving section
+   as-built). Reuses the MapIO atomic-write path. **This completes Phase B.**
 10. **Item and pickup system. BUILT 2026-09-05.** Definitions + instances, both inventory entry
     kinds, split interaction (stackables auto-collect on step, uniques are clicked), collected state in
     character data, and an editor Item tool. Save v11. See "Items and pickups" -> As built.
@@ -210,6 +209,23 @@ questions to answer, roughly in dependency order:
    the extraction BEFORE piling roofs/minimap/paddock-override on top, to avoid churn. Connects to
    Q1: the genuinely shared foundation worth centralizing is coordinate + room topology, NOT entity
    storage.
+   **As built (2026-09-28): `RoomTopology` extracted.** `world/room_topology.gd`, a data-only `Node`
+   in World right after Obstacles. It owns the wall/door cell sets, the exterior flood + its box, the
+   cell queries (`is_wall` / `is_door` / `is_exterior` / `in_box` / `is_enclosed_floor` / `is_indoor`
+   / `exterior_cells` / `has_layout`) and the room queries (`room_floor_cells`,
+   `enclosed_floor_cells`, `wall_ring_quads`). MapIO calls `RoomTopology.rebuild()` (map load and
+   structure edits), which emits `rebuilt`; RoomLight listens and drops its memoised lit region, so
+   topology never knows lighting exists. RoomLight is now lighting only: the lit flood (open doors),
+   `exterior_lit`, `lit_wall_stamps`, and the dim render. Consumers moved: FloorManager (`topology`,
+   public), SelectionTool (gets both: topology for rooms, RoomLight only to relight on a selection
+   change), ShadowManager (room interiors from topology, lit state from RoomLight), and the player's
+   indoor shadow. No pass-through methods were left on RoomLight, so there is one way to ask about
+   rooms. Behaviour-preserving: all 47 existing suites green, captures of five lighting scenarios
+   (edit, indoor, doorway with the door open, outdoor, wand selection) pixel-identical to the
+   pre-refactor build, plus `dev/test_room_topology` (22 checks: classification, room queries, and a
+   perimeter-wall removal re-flooding rooms with lighting following the signal; that last check was
+   confirmed to FAIL with the signal unwired). Unchanged on purpose: a map with no walls still has no
+   layout (every cell reads exterior), as before.
 3. **Stable identity scheme.** Locked doors bind a key to a door id, and items/pickups need
    persistent ids too. Is there a durable identity for placed objects today, or does everything
    key off cell position (which breaks when objects move or rebuild)? Decide the id scheme before
@@ -373,8 +389,30 @@ questions to answer, roughly in dependency order:
     atomic save/load to disk, facing + inventory (string and dict items) restore, in-progress step
     cleared on load, the inventory copy is independent, empty-inventory round trip, load-with-no-save is
     a safe no-op, and delete. Persistence suite still green; startup smoke (capture) clean.
-- Whole-game saves, so the player can eventually collect items that persist. (Character save above is
-  the first slice; a whole-game save can bundle the character file + the current map name.)
+- **Whole-game saves. BUILT 2026-09-05** (`systems/game_io.gd`, autoload `GameIO`), the last piece of
+  Phase B. A save is `{version, map, at, character}` in `user://game.json`.
+  - **It completes a three-file split**, each file owning one thing so none can overwrite another's
+    concerns: `user://maps/<name>.json` the authored MAP (MapIO), `user://character.json` the live
+    CHARACTER (CharacterIO), `user://game.json` a SAVED GAME (GameIO) -- which map that character is
+    in, plus a copy of it.
+  - **It carries a COPY of the character, not a pointer to `character.json`.** A save is a moment you
+    can come back to; one that changed under you every time the live character file was rewritten
+    would not be a save at all.
+  - **It references the map BY NAME, and does not copy it.** The map is authored content that outlives
+    any playthrough -- editing a level should show up next time you load a game in it, like a patched
+    game world. The consequence is stated rather than hidden: a game save is only as good as the saved
+    map it names, so the menu makes you **save the map first** if it has unsaved edits, instead of
+    silently writing it (the trap the recovery-slot work had just removed) or pointing at something
+    that no longer matches. An unnamed map is refused outright: there is nothing on disk to point at.
+  - **Load order matters and is deliberate:** load the map, THEN apply the character. The map load
+    moves the player to the map's authored spawn, so applying the character afterwards is what puts
+    them back where they actually were. A save whose map has since been deleted is refused whole
+    rather than half-loaded.
+  - **UI:** a "Saved game" block in the Maps menu (M), kept visually apart behind a separator and its
+    own heading, because it is a different thing from the rows above it: those save the LEVEL, this
+    saves the PLAYTHROUGH. Continue resumes in PLAY, since a saved game is a moment of play, not a
+    level to look at. Its label names the map and time, and disables itself if that map is gone.
+  - Covered by `dev/test_game_io` (24 checks).
 
 ### As built (step 1, 2026-08-15)
 Storage refactor landed exactly per the execution spec below. What changed:
@@ -873,7 +911,8 @@ independent of `_quad_mat`, and is a MapIO source of truth. What was touched:
   v4 back-compat, and undo/redo. `test_context_menu` / `test_erase` / `test_undo` still green. NOT yet
   visually confirmed in a live run (renders hang headless here), so hand to the user like Coloured walls.
 - **Deferred to slice 2+** (unchanged): the 8 material-aware swatches (per-material table plus row
-  swap), the full colour picker, and wall *materials*.
+  swap), the full colour picker, and wall *materials*. *(All three have since shipped: picker
+  2026-08-17, wall materials 2026-08-17, material-aware swatches 2026-09-05.)*
 
 ### As built: slice 2, the full colour PICKER (BUILT 2026-08-17)
 The arbitrary-colour picker landed; the material-aware swatch row is still deferred (see below).
@@ -914,6 +953,22 @@ The preset palette is **16 swatches in two groups of 8**:
 - Build note: the realistic group is driven by a **per-material swatch table** (material -> its 8
   contextual colours); selecting a material/terrain swaps that row. The fun group is a constant. This
   pairs with "Terrain patterns and material variants" (pattern axis) and the material tiers.
+
+**As-built (2026-09-05): the MATERIAL-AWARE row, completing the 16-swatch palette** and with it the
+last open piece of Phase A item 7.
+- `FloorManager.MATERIAL_COLORS`: a table of **eight realistic tints per material** -- wood tones for
+  wood, a grey ramp for concrete, greens through dry yellow for grass, and so on for tile, carpet,
+  sand, snow, water and lava. `material_colors(material)` reads it.
+- **The Brush panel shows two rows, and they mean different things.** The constant "fun" row is
+  unchanged; below it "For Wood" / "For Snow" swaps to the armed material's realistic set. A material
+  with no table hides the row rather than showing colours that mean nothing for it.
+- **They are TINTS over a greyscale base** (see "Colour system cleanup": material = the grey pattern,
+  colour = the tint), so they are chosen as multipliers and sit nearer white than their names suggest.
+- The row is rebuilt, not restyled, on a material change: the colours, the names and potentially the
+  count all differ per material. Only on an actual change, so an unrelated `brush_changed` costs nothing.
+- Covered by `dev/test_brush_panel`, including that the row SWAPS with the material (the feature) and
+  that **every material in the roster has a table** -- the one way this can be half-built as materials
+  are added.
 
 ### First-slice build plan (mapped 2026-08-16) BUILT 2026-08-16 (see "As built: slice 1" above)
 Recorded from the item-4 session's loaded context so the next fresh session reads little (read volume
@@ -3096,10 +3151,10 @@ necessary". Two consolidations, both following this section's own "separate the 
     which the menu items never could.
   - What remains is what a context menu is for: **act on the thing under the cursor** (its style, Erase,
     Grid). Covered by `dev/test_context_menu`, which now asserts the SHORT top level as a rule.
-- **Leftover to sweep:** the Build Wall configurator submenu (`build_wall_sub` + `_on_build_wall_id`) is
-  still constructed in `_ready` but no longer reachable from any menu, since the Place tool superseded
-  it. Left in place rather than ripped out mid-merge; delete it (and `dev/test_wall_brush_sync`'s hook
-  into it) next time that file is open.
+- **Leftover swept (2026-09-24):** the unreachable Build Wall configurator submenu (`build_wall_sub` +
+  `_on_build_wall_id`) and the Build Wall / Build Door menu items were deleted when the right-click
+  menu moved out into `floors/context_menu.gd` (commit 37a2247); the tests that called them were
+  updated in the same commit. Nothing left to do here (confirmed 2026-09-28).
 
 ### Editor UX revisions: actions into the right-click menu (logged 2026-08-17, not built)
 A batch of editor-UX notes that mostly **move actions off the left tool strip and into the contextual
@@ -3189,12 +3244,33 @@ wins. Logged as design tasks, not yet built.
   Still pending in this chunk: removing the Wall/Door/Erase buttons from the left tool strip (pairs with
   the menu-decluttering + accordion items below).
 
-### Tooltips on menu and tool options (logged 2026-08-16)
+### Tooltips on menu and tool options (logged 2026-08-16) BUILT 2026-09-05
 The user wants **tooltips on menu options**, and each tooltip should **also show the option's
 keyboard shortcut**. Applies across the editor: tool-strip buttons (e.g. "Magic Wand (W)"), palette
 swatches, right-click menu entries, and toolbar actions ("Undo (Ctrl+Z)"). Reads the shortcut from
 the same hotkey map (see Editor hotkeys), so tooltip and binding never drift. Good UI practice and
 cheap; pairs with the rebindable-hotkeys idea (a rebind updates the tooltip automatically).
+
+**As-built (2026-09-05).** The point of this entry is not that tooltips exist -- it is the no-drift
+clause, so that is what was built:
+- **`systems/hotkeys.gd` (autoload `Hotkeys`): the ONE table** of editor shortcuts, each entry an
+  action id -> `{key, what}`. `tip(action, extra)` composes "what it does / context / Shortcut: key",
+  and `labelled(text, action)` builds "Select (S)". A tooltip that hardcoded "(W)" would be a second
+  copy of the binding, and the day a key moves one copy starts lying.
+- **Visible LABELS are composed from it too**, not just tooltips: `TOOLS` no longer spells "(S)" in
+  its own strings, and the Play/Edit button and Recenter build theirs the same way. So a rebind moves
+  the label, the tooltip and the binding together.
+- **Coverage:** the four tools, the Paint grain switch, every Place kind, the item and creature
+  rosters (which keep their own detail -- rarity, ability -- as the `extra` line), Recenter, the
+  Play/Edit toggle, Exit, the Maps heading, and the right-click menu's entries via
+  `PopupMenu.set_item_tooltip`, which the spec names explicitly alongside the strip.
+- **It does NOT dispatch input.** The tools keep their own handlers; this is the table they describe
+  themselves FROM. Making it the dispatcher too is the right end state and a much bigger change than
+  tooltips warrant -- but it is now the obvious next step for the rebindable-hotkeys idea, which was
+  the reason this entry pairs with it.
+- Covered by `dev/test_tooltips` (34 checks), most of which check the NO-DRIFT property: every tool
+  and Place kind names a Hotkeys action, and the key that action reports is the key the strip actually
+  dispatches for it. That is the check that fails if someone moves a binding.
 
 ### Editor hotkeys (decided 2026-08-16: letter mnemonics)
 Tool selection and actions get memorable letter shortcuts in Edit mode (the player does not move

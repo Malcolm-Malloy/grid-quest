@@ -21,10 +21,21 @@ MapEdit="*res://systems/map_edit.gd"
 MapClipboard="*res://systems/map_clipboard.gd"
 Items="*res://systems/items.gd"
 Bestiary="*res://systems/bestiary.gd"
+EditorState="*res://systems/editor_state.gd"
 EditHistory="*res://systems/edit_history.gd"
 EditorMode="*res://systems/editor_mode.gd"
 WindowMode="*res://systems/window_mode.gd"
 CharacterIO="*res://systems/character_io.gd"
+GameIO="*res://systems/game_io.gd"
+Hotkeys="*res://systems/hotkeys.gd"
+
+[debug]
+
+gdscript/warnings/untyped_declaration=1
+gdscript/warnings/directory_rules={
+"res://addons": 0,
+"res://dev": 0
+}
 
 [display]
 

@@ -13,7 +13,7 @@ extends Node2D
 # The wash is deliberately faint: a zone can cover a large part of the map and must not bury the
 # terrain being authored underneath it.
 
-const CELL := 32
+const CELL := Grid.CELL
 const DARK := Color(0.05, 0.05, 0.08, 0.85)
 const DASH := 7.0   # px of dash, matched by an equal gap
 const WASH_A := 0.10

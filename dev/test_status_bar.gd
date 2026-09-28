@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the editor STATUS BAR (ROADMAP "Editor layout" -> "A thin status bar",
 # the last open item of Phase A group 4). Checks the bar exists, is EDIT-only chrome, reports the
@@ -6,18 +6,8 @@ extends Node
 # room for it. Text-only, no render.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_status_bar.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var sb = get_tree().get_first_node_in_group("status_bar")
 	_check("status bar exists (grouped)", sb != null)
 	var fm = main.get_node("World/FloorManager")
@@ -42,44 +32,44 @@ func _ready() -> void:
 	_check("the readout says 'Cell --' when there is no cell", "Cell --" in sb._compose_left())
 
 	# --- active tool: the bar must name the MERGED tool the user picked, not the internal mode ---
-	fm.set_mode(fm.Mode.CELL)
+	fm.set_mode(EditorState.Mode.CELL)
 	_check("Cell mode reads as Paint", "Paint" in sb._compose_left())
-	fm.set_mode(fm.Mode.FINE)
+	fm.set_mode(EditorState.Mode.FINE)
 	_check("Fine mode names the grain", "Paint (Fine)" in sb._compose_left())
-	fm.set_mode(fm.Mode.DOOR)
+	fm.set_mode(EditorState.Mode.DOOR)
 	_check("Door mode reads as Place: Door", "Place: Door" in sb._compose_left())
-	fm.set_mode(fm.Mode.BOX)
+	fm.set_mode(EditorState.Mode.BOX)
 	_check("Box mode reads as Select (all three select modes are one tool)",
 		"Select" in sb._compose_left())
-	_check("every mode has a name", sb.TOOL_NAMES.size() == fm.Mode.size())
+	_check("every mode has a name", sb.TOOL_NAMES.size() == EditorState.Mode.size())
 
 	# --- selection size, in the unit the selection was made in ---
 	_check("no selection field with nothing selected", not ("Sel " in sb._compose_left()))
-	_check("selection_summary is empty with nothing selected", fm.selection_summary() == "")
+	_check("selection_summary is empty with nothing selected", fm.selection.summary() == "")
 	# a floor selection is quarter-grained: whole cells report cells, a partial cell reports quads
 	# Each change goes through _refresh_selection_overlay, the real path that emits selection_changed --
 	# the bar CACHES the selection off that signal (recounting every selected quarter each frame would
 	# be the one expensive thing on a per-frame readout), so the signal is part of what is under test.
-	fm._sel_kind = "floor"
-	fm._sel_quads = {Vector2i(4, 4): true, Vector2i(5, 4): true, Vector2i(4, 5): true, Vector2i(5, 5): true}
-	fm._refresh_selection_overlay()
-	_check("four quarters of one cell report 1 cell", fm.selection_summary() == "1 cell")
+	EditorState.sel_kind = EditorState.SelKind.FLOOR
+	EditorState.sel_quads = {Vector2i(4, 4): true, Vector2i(5, 4): true, Vector2i(4, 5): true, Vector2i(5, 5): true}
+	fm.selection.refresh()
+	_check("four quarters of one cell report 1 cell", fm.selection.summary() == "1 cell")
 	_check("the bar shows the selection", "Sel 1 cell" in sb._compose_left())
-	fm._sel_quads.erase(Vector2i(5, 5))
-	fm._refresh_selection_overlay()
-	_check("a partial cell reports quads, not a rounded-up cell", fm.selection_summary() == "3 quads")
+	EditorState.sel_quads.erase(Vector2i(5, 5))
+	fm.selection.refresh()
+	_check("a partial cell reports quads, not a rounded-up cell", fm.selection.summary() == "3 quads")
 	_check("the bar followed the change without being told twice", "Sel 3 quads" in sb._compose_left())
-	fm._clear_selection()
-	fm._refresh_selection_overlay()
+	fm.selection.clear()
+	fm.selection.refresh()
 	# a wall selection counts walls
-	fm._sel_kind = "wall"
-	fm._sel_cells = {Vector2i(1, 1): true, Vector2i(2, 1): true}
-	fm._refresh_selection_overlay()
-	_check("a wall selection counts walls", fm.selection_summary() == "2 walls")
+	EditorState.sel_kind = EditorState.SelKind.WALL
+	EditorState.sel_cells = {Vector2i(1, 1): true, Vector2i(2, 1): true}
+	fm.selection.refresh()
+	_check("a wall selection counts walls", fm.selection.summary() == "2 walls")
 	_check("the bar shows walls too", "Sel 2 walls" in sb._compose_left())
-	fm._clear_selection()
-	fm._refresh_selection_overlay()
-	_check("clearing the selection drops the field", fm.selection_summary() == "")
+	fm.selection.clear()
+	fm.selection.refresh()
+	_check("clearing the selection drops the field", fm.selection.summary() == "")
 	_check("...and the bar drops it too", not ("Sel " in sb._compose_left()))
 
 	# --- map dimensions + zoom (the right half) ---
@@ -114,5 +104,4 @@ func _ready() -> void:
 	# --- the readout is inert: it must never eat the hover the map tools need ---
 	_check("the bar ignores the mouse", sb._panel.mouse_filter == Control.MOUSE_FILTER_IGNORE)
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

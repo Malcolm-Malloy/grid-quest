@@ -1,3 +1,4 @@
+class_name MapSizeTool
 extends Node2D
 
 # Map Size tool (hover-add, rectangular row/column grain). When active, hovering just outside a
@@ -12,19 +13,22 @@ extends Node2D
 # _unhandled_input, which consumes every left-click. Tool-strip button clicks are GUI input and
 # are handled before _input, so they are never mistaken for a map click.
 
-const CELL := 32
+const CELL := Grid.CELL
 const BAND := 32.0 # how far into the void (px) beyond an edge the add-zone reaches
-const M_CELL := 1  # FloorManager.Mode.CELL; the single-cell grain runs in Cell mode
 
 var active := false
 var _edge := "" # currently hovered add edge ("" = none, whole row/column grain)
-var _cell := Vector2i(-9999, -9999) # currently hovered addable cell ("" via _no_cell, single grain)
-const _NO_CELL := Vector2i(-9999, -9999)
+var _cell := Grid.INVALID_CELL # currently hovered addable cell ("" via _no_cell, single grain)
+const _NO_CELL := Grid.INVALID_CELL
 
 # single-cell DRAG state: press-and-drag lays a whole strip of edge cells, committed as ONE undo entry
 # on release (like a paint stroke), rather than one undo step per cell.
 var _dragging := false
 var _drag_changed := false
+
+@onready var _fm: FloorManager = get_node_or_null("../FloorManager")
+@onready var _grid_bg: GridBackground = get_node_or_null("../GridBackground")
+@onready var _edge_highlight: EdgeHighlight = get_node_or_null("../EdgeHighlight")
 
 func _process(_delta: float) -> void:
 	# EDIT-only, like every other map tool: this one uses _input (which runs before the GUI), so without
@@ -97,21 +101,19 @@ func _pointer_over_ui() -> bool:
 # is the editor in Cell mode? (drives the single-cell grain). Defaults to the row/column grain if the
 # FloorManager can't be found, matching the pre-single-cell behaviour.
 func _single_cell_grain() -> bool:
-	var fm = get_node_or_null("../FloorManager")
-	return fm != null and fm.has_method("mode") and fm.mode() == M_CELL
+	return _fm != null and _fm.mode() == EditorState.Mode.CELL
 
 # the addable void/hole cell under the cursor, or _NO_CELL. Uses MapEdit.can_add_cell so the highlight
 # only lights where a click would actually add (a perimeter spur or a fillable hole).
 func _hovered_cell() -> Vector2i:
 	var p := get_local_mouse_position()
-	var cell := Vector2i(floori(p.x / CELL), floori(p.y / CELL))
+	var cell := Grid.cell_of(p)
 	return cell if MapEdit.can_add_cell(cell) else _NO_CELL
 
 func _hovered_edge() -> String:
-	var gb = get_node_or_null("../GridBackground")
-	if gb == null:
+	if _grid_bg == null:
 		return ""
-	return edge_at(get_local_mouse_position(), gb.grid_width, gb.grid_height)
+	return edge_at(get_local_mouse_position(), _grid_bg.grid_width, _grid_bg.grid_height)
 
 # which edge's add-zone the point falls in ("" = none). Pure geometry, unit-tested headlessly.
 # The zone is the BAND-deep strip of void just outside an edge, within that edge's span (so the
@@ -135,25 +137,23 @@ func _set_edge(edge: String) -> void:
 	if edge == _edge:
 		return
 	_edge = edge
-	var eh = get_node_or_null("../EdgeHighlight")
-	if eh == null:
+	if _edge_highlight == null:
 		return
 	if edge == "":
-		eh.clear_band()
+		_edge_highlight.clear_band()
 	else:
-		eh.show_band(edge, "add")
+		_edge_highlight.show_band(edge, "add")
 
 func _set_cell(cell: Vector2i) -> void:
 	if cell == _cell:
 		return
 	_cell = cell
-	var eh = get_node_or_null("../EdgeHighlight")
-	if eh == null:
+	if _edge_highlight == null:
 		return
 	if cell == _NO_CELL:
-		eh.clear_band()
+		_edge_highlight.clear_band()
 	else:
-		eh.show_cell(cell, "add")
+		_edge_highlight.show_cell(cell, "add")
 
 # clear whichever highlight (edge band or single cell) is currently showing
 func _clear() -> void:

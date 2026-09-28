@@ -1,3 +1,4 @@
+class_name ShadowManager
 extends Node2D
 
 # Draws the wall + gate shadows as one merged union at a single opacity. Two rules keep
@@ -12,13 +13,16 @@ extends Node2D
 #     room and no two shadow pieces can overlap.
 
 const ALPHA := 0.55
-const CELL := 32
-const HALF := 16 # a floor quarter; the door-open floor restamp works per quarter
+const CELL := Grid.CELL
 
 var shadow_color := Color(0.05, 0.08, 0.05, ALPHA)
 var ground_texture := preload("res://world/ground_grass.png") # to stamp interiors clean
 var static_union: Array = [] # pre-merged static wall regions, in World/grid space
 var merged_regions: Array = [] # the pieces actually drawn, for the in-shadow test
+
+@onready var _room_light: RoomLight = get_node_or_null("../RoomLight")
+@onready var _rooms: RoomTopology = get_node_or_null("../RoomTopology")
+@onready var _fm: FloorManager = get_node_or_null("../FloorManager")
 
 func _ready() -> void:
 	texture_filter = TEXTURE_FILTER_NEAREST
@@ -32,19 +36,18 @@ func refresh() -> void:
 
 func _draw() -> void:
 	merged_regions = []
-	var rl := get_parent().get_node_or_null("RoomLight")
 	# rule 1: only ONE darkness layer is ever active. When the outdoor is NOT lit (the
 	# player is purely indoors) the RoomLight owns all the darkness and shadows draw
 	# nothing, which is what makes double-darkening impossible. Shadows draw only when
 	# the outdoor is lit (player outside, or crossing an open outdoor door).
-	if rl and not rl.exterior_lit():
+	if _room_light and not _room_light.exterior_lit():
 		return
-	var polys: Array = static_union.duplicate()
+	var gate_polys: Array = []
 	for gate in get_tree().get_nodes_in_group("gates"):
-		for p in gate.shadow_polys():
-			polys.append(p)
-	# rule 2: merge to a disjoint union so shadow can never overlap itself
-	merged_regions = _merge_all(polys)
+		gate_polys.append_array(gate.shadow_polys())
+	# rule 2: merge to a disjoint union so shadow can never overlap itself. static_union is already
+	# disjoint (merged once in set_static), so only the gate shadows need folding into it.
+	merged_regions = _merge_into(static_union.duplicate(), gate_polys)
 	for region in merged_regions:
 		draw_colored_polygon(region, shadow_color)
 	# With no room lit (player outside), each room interior reads as a dark, shadowed
@@ -52,19 +55,16 @@ func _draw() -> void:
 	# polygon can't carve a hole in an enclosed shadow). So per interior: stamp the clean
 	# ground back (erasing that fill), then lay ONE flat shadow over it. Exactly one pass,
 	# so it's a uniform shade with no doubling and no wall-shadow shapes inside.
-	if rl:
-		var lit: Dictionary = rl.lit_cells()
-		var fm := get_parent().get_node_or_null("FloorManager")
-		var grid_on: bool = fm.grid_on() if fm else false
-		var grid: Color = fm.grid_color() if fm else Color(1, 1, 1, 0.12)
-		for c in rl.enclosed_floor_cells():
-			var r := Rect2(c.x * CELL, c.y * CELL, CELL, CELL)
+	if _room_light and _rooms:
+		var lit: Dictionary = _room_light.lit_cells()
+		var grid_on: bool = _fm.grid_on() if _fm else false
+		var grid: Color = _fm.grid_color() if _fm else Color(1, 1, 1, 0.12)
+		for c in _rooms.enclosed_floor_cells():
+			var r := Grid.cell_rect(c)
 			# erase the wall-shadow fill with the cell's real floor, quarter by quarter so
 			# quarter-level painting survives (the whole-cell stamp used to grass mixed cells)
-			_stamp_floor(fm, c.x * 2, c.y * 2)
-			_stamp_floor(fm, c.x * 2 + 1, c.y * 2)
-			_stamp_floor(fm, c.x * 2, c.y * 2 + 1)
-			_stamp_floor(fm, c.x * 2 + 1, c.y * 2 + 1)
+			for q in Grid.quads_of(c):
+				_stamp_floor(_fm, q)
 			# a room joined to the outdoor by an open door stays bright; the rest shade
 			if not lit.has(c):
 				draw_rect(r, shadow_color)
@@ -77,18 +77,18 @@ func _draw() -> void:
 		# wipe the wall shadows off the interior wall/corner tiles of lit rooms so they read
 		# clean like indoors, restamping each quarter with the ground under it (a uniform room's
 		# wall-ring fill, or a quarter painted under the wall) instead of blanket grass
-		for r in rl.lit_wall_stamps():
-			_stamp_floor(fm, floori(r.position.x / HALF), floori(r.position.y / HALF))
+		for r in _room_light.lit_wall_stamps():
+			_stamp_floor(_fm, Grid.quad_of(r.position))
 
 # stamp one 16px floor quarter (coords in quarter units) with its real material, matching the
-# indoor base_fills: fm.floor_tex_at_quad gives a painted quarter or a uniform room's wall-ring
+# indoor base_fills: _fm.floor_tex_at_quad gives a painted quarter or a uniform room's wall-ring
 # fill, and null falls back to the grass base.
-func _stamp_floor(fm, qx: int, qy: int) -> void:
-	var r := Rect2(qx * HALF, qy * HALF, HALF, HALF)
-	var tex = fm.floor_tex_at_quad(Vector2i(qx, qy)) if fm else null
+func _stamp_floor(fm, q: Vector2i) -> void:
+	var r := Grid.quad_rect(q)
+	var tex: Texture2D = fm.floor_tex_at_quad(q) if fm else null
 	# a floor tint (white = none) multiplies the restamp too, so a coloured floor stays coloured
 	# where a lit room's wall shadows are wiped and under an open door (matches base_fills).
-	var tint: Color = fm.floor_tint_at_quad(Vector2i(qx, qy)) if fm else Color.WHITE
+	var tint: Color = fm.floor_tint_at_quad(q) if fm else Color.WHITE
 	if tex:
 		draw_texture_rect_region(tex, r, GridBackground.tiled_src(r), tint)
 	else:
@@ -106,20 +106,22 @@ func point_in_shadow(global_pt: Vector2) -> bool:
 	return false
 
 func _in_any_room(local: Vector2) -> bool:
-	var rl := get_parent().get_node_or_null("RoomLight")
-	if rl == null:
+	if _rooms == null:
 		return false
-	return rl.is_enclosed_floor(Vector2i(floori(local.x / CELL), floori(local.y / CELL)))
+	return _rooms.is_enclosed_floor(Grid.cell_of(local))
 
 # merges a list of polygons into disjoint boundary (CCW) regions. Holes (CW rings)
 # are dropped; directional cast shadows don't enclose anything, so none arise here.
 func _merge_all(polys: Array) -> Array:
+	return _merge_into([], polys)
+
+# fold `polys` into `regions` (which must already be disjoint), keeping the result disjoint
+func _merge_into(regions: Array, polys: Array) -> Array:
 	# union the shadow polys into non-overlapping regions. Incremental accumulation: each poly is merged
 	# into the existing regions in a single pass, re-checking after each merge because a combined region
 	# grows and may then overlap another. O(n^2) worst case vs the old full-restart-scan's O(n^3), which
 	# mattered on big houses (see "Investigate lag"). Two polys "combine" when their union is a single
 	# outer (CCW) polygon; if they don't overlap, merge_polygons returns both, so nothing is merged.
-	var regions: Array = []
 	for p in polys:
 		var cur: PackedVector2Array = p
 		var merged := true

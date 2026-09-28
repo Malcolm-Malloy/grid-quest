@@ -1,5 +1,6 @@
 extends Node
 
+# WINDOWED
 # Dev-only WINDOWED probe (GUI hover only works with a real renderer, not --headless) for the
 # "editing stands down over the menu" guard. Injects a mouse-motion over the tool strip panel and over
 # open map, and prints what get_viewport().gui_get_hovered_control() returns in each case, so we can be

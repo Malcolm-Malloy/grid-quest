@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the Magic Wand marching-ants outline (selection_overlay.gd). The wall
 # selection's ants must trace the UNION SILHOUETTE of the actual wall cap/face rectangles, not the
@@ -7,13 +7,7 @@ extends Node
 # Text-only, no rendering.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_selection_overlay.tscn
 
-var _fails := 0
 var _overlay: Node2D
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
 
 # total length of a list of [a, b] axis-aligned edges
 func _total_len(edges: Array) -> float:
@@ -83,5 +77,4 @@ func _ready() -> void:
 	var gone: Dictionary = _overlay._region_from_rects([Rect2(0, 0, 32, 32)], [Rect2(0, 0, 32, 32)])
 	_check("subtract: fully-occluded floor has no edges", gone["edges"].is_empty())
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

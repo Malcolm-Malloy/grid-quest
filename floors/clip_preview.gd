@@ -12,8 +12,8 @@ extends Node2D
 #
 # Drawn in World space as a child of FloorManager, above the paint cursor like the other previews.
 
-const CELL := 32
-const HALF := 16
+const CELL := Grid.CELL
+const HALF := Grid.HALF
 const LIFT := 6.0
 const SHADOW := Color(0, 0, 0, 0.18)
 const OK_FILL := Color(0.25, 0.85, 0.35, 0.16)   # ADD green (a cell that will land)
@@ -65,7 +65,7 @@ func _draw() -> void:
 	var ok_cells := {}
 	for a in _clip.get("cells", []):
 		var cell := _origin + Vector2i(int(a[0]), int(a[1]))
-		var r := Rect2(cell.x * CELL, cell.y * CELL, CELL, CELL)
+		var r := Grid.cell_rect(cell)
 		var lands: bool = _ok_fn.is_null() or _ok_fn.call(cell)
 		if lands:
 			ok_cells[cell] = true
@@ -83,9 +83,9 @@ func _draw() -> void:
 	for a in _clip.get("quads", []):
 		var rel := Vector2i(int(a[0]), int(a[1]))
 		var q := Vector2i(_origin.x * 2 + rel.x, _origin.y * 2 + rel.y)
-		if not ok_cells.has(Vector2i(floori(q.x / 2.0), floori(q.y / 2.0))):
+		if not ok_cells.has(Grid.cell_of_quad(q)):
 			continue
-		var ground := Rect2(q.x * HALF, q.y * HALF, HALF, HALF)
+		var ground := Grid.quad_rect(q)
 		var tex: Texture2D = _tex_fn.call(String(a[2]), patterns.get(rel, 0)) if not _tex_fn.is_null() else null
 		if tex == null:
 			continue

@@ -1,28 +1,18 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for EditHistory (undo/redo). Builds the real world, performs a
 # paint and a resize (each of which commits one undo step), then walks undo/redo and checks
 # the live map returns to the right state at every step. Text-only, no rendering.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_undo.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _w(main: Node) -> int:
 	return int(main.get_node("World/GridBackground").grid_width)
 
 func _has_quad(main: Node, q: Vector2i) -> bool:
-	return main.get_node("World/FloorManager")._quad_mat.has(q)
+	return main.get_node("World/FloorManager").material_at(q) != ""
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 
 	# start from a clean baseline: the default freshly-built world, empty history
@@ -32,8 +22,8 @@ func _ready() -> void:
 	_check("baseline: quad (0,0) empty", not _has_quad(main, Vector2i(0, 0)))
 
 	# action 1: paint one quarter wood, then commit (one step)
-	fm._quad_mat[Vector2i(0, 0)] = "wood"
-	fm._rebuild()
+	fm.write_quad(Vector2i(0, 0), "wood")
+	fm.rebuild()
 	EditHistory.commit("paint")
 	_check("after paint: quad (0,0) present", _has_quad(main, Vector2i(0, 0)))
 	_check("after paint: can undo", EditHistory.can_undo())
@@ -72,8 +62,8 @@ func _ready() -> void:
 
 	# a fresh edit after undo must clear the redo trail
 	EditHistory.undo() # back before the grow
-	fm._quad_mat[Vector2i(5, 5)] = "wood"
-	fm._rebuild()
+	fm.write_quad(Vector2i(5, 5), "wood")
+	fm.rebuild()
 	EditHistory.commit("paint")
 	_check("fresh edit clears redo", not EditHistory.can_redo())
 
@@ -84,5 +74,4 @@ func _ready() -> void:
 	EditHistory.undo()
 	_check("undo leaves the player where they stand", player.position == Vector2(123, 456))
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

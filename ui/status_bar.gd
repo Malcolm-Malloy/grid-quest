@@ -1,3 +1,4 @@
+class_name StatusBar
 extends CanvasLayer
 
 # The editor status bar (ROADMAP "Editor layout" -> "A thin status bar"): a strip along the bottom
@@ -19,21 +20,19 @@ extends CanvasLayer
 # below is the truth, and the tool strip asks for it.
 const HEIGHT := 24
 
-# authoring modes, mirrored from FloorManager.Mode (the M_* order MUST match that enum), the same
-# way ui/tool_strip.gd mirrors it.
-enum { M_WAND, M_CELL, M_FINE, M_ERASE, M_WALL, M_DOOR, M_SELECT, M_BOX, M_BRIDGE, M_MOVE, M_EYEDROP,
-	M_SPAWN, M_ITEM, M_CREATURE }
+# the authoring modes are FloorManager's own enum (no local mirror to keep in step)
+const Mode := EditorState.Mode
 
 # What each mode is CALLED, in the merged four-tool vocabulary the strip now speaks (Select / Paint /
 # Place / Move, see tool_strip.gd): the bar must name the tool the user picked, not the internal mode
 # it resolved to, or the readout and the strip would disagree. Erase and Eyedropper have no strip
 # button but are still modes you can be in (E / I), so they name themselves.
 const TOOL_NAMES := {
-	M_WAND: "Select", M_BOX: "Select", M_SELECT: "Select",
-	M_CELL: "Paint", M_FINE: "Paint (Fine)",
-	M_WALL: "Place: Wall", M_DOOR: "Place: Door", M_BRIDGE: "Place: Bridge",
-	M_ITEM: "Place: Item", M_SPAWN: "Place: Spawn", M_CREATURE: "Place: Creature",
-	M_MOVE: "Move", M_ERASE: "Erase", M_EYEDROP: "Eyedropper",
+	Mode.WAND: "Select", Mode.BOX: "Select", Mode.SELECT: "Select",
+	Mode.CELL: "Paint", Mode.FINE: "Paint (Fine)",
+	Mode.WALL: "Place: Wall", Mode.DOOR: "Place: Door", Mode.BRIDGE: "Place: Bridge",
+	Mode.ITEM: "Place: Item", Mode.SPAWN: "Place: Spawn", Mode.CREATURE: "Place: Creature",
+	Mode.MOVE: "Move", Mode.ERASE: "Erase", Mode.EYEDROP: "Eyedropper",
 }
 
 const SEP := "   ·   "
@@ -88,14 +87,14 @@ func _ready() -> void:
 	_right.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	row.add_child(_right)
 
-	var fm = _floor_manager()
+	var fm := _floor_manager()
 	if fm != null:
-		fm.selection_changed.connect(_on_selection_changed)
+		EditorState.selection_changed.connect(_on_selection_changed)
 	_refresh()
 
 func _on_selection_changed() -> void:
-	var fm = _floor_manager()
-	_sel_text = fm.selection_summary() if fm != null else ""
+	var fm := _floor_manager()
+	_sel_text = fm.selection.summary() if fm != null else ""
 
 # How much room the bar actually takes along the bottom, for whoever has to stay clear of it (the
 # tool strip). The COMBINED MINIMUM is what drives the panel's height and, unlike its laid-out size,
@@ -128,7 +127,7 @@ func _refresh() -> void:
 # hovered cell + active tool + selection size. The selection field is omitted entirely when nothing
 # is selected, so the common case stays short rather than reading "Sel: none".
 func _compose_left() -> String:
-	var fm = _floor_manager()
+	var fm := _floor_manager()
 	if fm == null:
 		return ""
 	var parts := []
@@ -146,7 +145,7 @@ func _compose_left() -> String:
 # the box overstates it, so the true cell count is appended in that case and only that case.
 func _compose_right() -> String:
 	var parts := []
-	var gb = get_node_or_null("../World/GridBackground")
+	var gb := get_node_or_null("../World/GridBackground") as GridBackground
 	if gb != null:
 		var dims := "%d × %d" % [gb.grid_width, gb.grid_height]
 		if not gb.absent_cells.is_empty():
@@ -157,5 +156,5 @@ func _compose_right() -> String:
 		parts.append("%d%%" % roundi(cam.zoom.x * 100.0))
 	return SEP.join(parts)
 
-func _floor_manager():
+func _floor_manager() -> FloorManager:
 	return get_node_or_null("../World/FloorManager")

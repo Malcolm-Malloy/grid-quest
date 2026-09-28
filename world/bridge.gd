@@ -9,12 +9,12 @@ extends Node2D
 # Directional like a gate: one node per placed record, positioned at the cell centre, drawing relative
 # to it. Both orientations (and the lifted preview) share this _draw, so they stay in sync.
 #
-# orientation "horizontal": you cross EAST-WEST (over a river running north-south). Boards are
+# orientation HORIZONTAL: you cross EAST-WEST (over a river running north-south). Boards are
 #   vertical slats; the two rails run along the TOP and BOTTOM edges (parallel to travel).
-# orientation "vertical": you cross NORTH-SOUTH (over a river running east-west). Boards are
+# orientation VERTICAL: you cross NORTH-SOUTH (over a river running east-west). Boards are
 #   horizontal; the rails run along the LEFT and RIGHT edges.
 
-const CELL_SIZE := 32
+const CELL_SIZE := Grid.CELL
 
 # wooden deck palette (warmer/lighter than the brown river bank so the two read as different things).
 # High-contrast plank shading + rails so the planking reads at native 32px, not just as a dirt patch.
@@ -27,7 +27,7 @@ const RAIL_HI := Color(0.76, 0.58, 0.36) # rail top highlight
 const NAIL := Color(0.22, 0.14, 0.08)    # nail heads at the plank ends, by the rails
 const POST := Color(0.25, 0.16, 0.09)    # corner posts (rail ends)
 
-var orientation := "horizontal"
+var orientation: Grid.Orient = Grid.Orient.HORIZONTAL
 var cell: Vector2i
 # preview mode: the same deck art floated above the cursor by the BRIDGE tool (see FloorManager
 # _update_bridge_hover). A preview must NOT join the "bridges" group (clear_world would free it) and
@@ -54,7 +54,7 @@ func _draw() -> void:
 	var h := CELL_SIZE / 2.0
 	draw_rect(Rect2(-h, -h, CELL_SIZE, CELL_SIZE), DECK)
 	var i := 0
-	if orientation == "vertical":
+	if orientation == Grid.Orient.VERTICAL:
 		# cross N-S: horizontal planks (step down y), rails on LEFT + RIGHT
 		var y := -h
 		while y < h:

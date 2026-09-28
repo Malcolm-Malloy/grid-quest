@@ -1,37 +1,28 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for SEE-THROUGH fences (ROADMAP item 7 fence roster): Wood Fence / Metal Bars /
 # Chainlink are wall materials that render short + gappy (procedurally in wall_segment) and cast NO solid
-# wall shadow, while still blocking + enclosing like any wall. Checks registration, the fence set is in
-# sync (wall_segment.FENCE == obstacles.FENCE_MATERIALS), _is_fence, collision is unchanged, the segment
+# wall shadow, while still blocking + enclosing like any wall. Checks registration, the one fence set
+# (WallSegment.FENCE), _is_fence, collision is unchanged, the segment
 # reports the fence material, and a fully-fenced map casts no wall shadow. Text-only.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_fence.tscn
 
-var _fails := 0
 const FENCES := ["wood_fence", "metal_bars", "chainlink"]
 
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var obs = main.get_node("World/Obstacles")
 	var fm = main.get_node("World/FloorManager")
 	EditHistory.reset()
 
 	# --- registration + set sync ---
 	var menu := {}
-	for e in fm.WALL_MATERIALS:
+	for e in WallSegment.MATERIAL_NAMES:
 		menu[e[1]] = true
 	for f in FENCES:
 		_check("%s in the wall-material menu" % f, menu.has(f))
-		_check("%s has a preview icon" % f, fm.WALL_TEX.has(f))
-	_check("obstacles.FENCE_MATERIALS matches the 3 fences", obs.FENCE_MATERIALS.size() == 3 and obs.FENCE_MATERIALS.has("chainlink"))
+		_check("%s has a preview icon" % f, WallSegment.swatch_texture(f) == WallSegment.FENCE_ICONS[f])
+	_check("WallSegment.FENCE holds the 3 fences", WallSegment.FENCE.size() == 3 and WallSegment.FENCE.has("chainlink"))
 
 	# --- _is_fence + collision unchanged ---
 	var wall := Vector2i(6, 3)
@@ -39,7 +30,7 @@ func _ready() -> void:
 	obs.set_wall_material(wall, "wood_fence")
 	_check("a fenced cell reports _is_fence", obs._is_fence(wall))
 	_check("a fenced cell STILL blocks movement", obs.is_blocked(wall))
-	await get_tree().process_frame # let _apply_wall_materials push onto the segments
+	await get_tree().process_frame # let _push_wall_props push onto the segments
 	var seg_ok := false
 	for w in get_tree().get_nodes_in_group("walls"):
 		var idx: int = w.cells().find(wall)
@@ -61,5 +52,4 @@ func _ready() -> void:
 	# fences still block after the material change
 	_check("fenced cells still block", obs.is_blocked(wall))
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

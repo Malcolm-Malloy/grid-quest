@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for CREATURE PLACEMENT in the editor (ROADMAP "Creature placement in the
 # editor": spawn point + fixed instance now, spawn zone later). Covers the definition registry, both
@@ -6,18 +6,8 @@ extends Node
 # passability, save/load (v13), resize, copy/paste and undo. Text-only, no render.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_creatures.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var fm = main.get_node("World/FloorManager")
 	var cr = main.get_node("World/Creatures")
 	var pk = main.get_node("World/Pickups")
@@ -41,7 +31,7 @@ func _ready() -> void:
 	fm.arm_creature("dragon")
 	_check("...leaving the previous one armed", fm.armed_creature() == "frost_frog")
 	_check("spawn point is the default kind", fm.armed_creature_kind() == Bestiary.SPAWN_POINT)
-	fm._place_creature_at(Vector2(a.x * 32 + 16, a.y * 32 + 16))
+	fm.place_creature_at(Vector2(a.x * 32 + 16, a.y * 32 + 16))
 	_check("a click places a creature", cr.has_creature(a))
 	var rec: Dictionary = cr.creature_at(a)
 	_check("...of the armed type", rec["creature"] == "frost_frog")
@@ -50,23 +40,23 @@ func _ready() -> void:
 	_check("...blocking by default (monster blocks while alive)", bool(rec["blocks"]))
 	fm.arm_creature("fire_horse")
 	fm.arm_creature_kind(Bestiary.INSTANCE)
-	fm._place_creature_at(Vector2(b.x * 32 + 16, b.y * 32 + 16))
+	fm.place_creature_at(Vector2(b.x * 32 + 16, b.y * 32 + 16))
 	_check("a fixed instance places too", cr.creature_at(b)["kind"] == Bestiary.INSTANCE)
 	_check("two placements get different ids", cr.creature_at(a)["id"] != cr.creature_at(b)["id"])
 
 	# --- one object per cell (ROADMAP "Cell occupancy model") ---
-	_check("a second creature on the same cell is refused", not fm._place_creature_at(Vector2(a.x * 32 + 16, a.y * 32 + 16)))
+	_check("a second creature on the same cell is refused", not fm.place_creature_at(Vector2(a.x * 32 + 16, a.y * 32 + 16)))
 	var itc := Vector2i(23, 14)
 	fm.arm_item("coin")
-	fm._place_item_at(Vector2(itc.x * 32 + 16, itc.y * 32 + 16))
+	fm.place_item_at(Vector2(itc.x * 32 + 16, itc.y * 32 + 16))
 	fm.arm_creature("frost_frog")
 	_check("a creature is refused where an ITEM already holds the object layer",
-		not fm._place_creature_at(Vector2(itc.x * 32 + 16, itc.y * 32 + 16)))
+		not fm.place_creature_at(Vector2(itc.x * 32 + 16, itc.y * 32 + 16)))
 	# a wall owns the structure layer; creature placement refuses it, matching the item tool
 	var wc := Vector2i(25, 14)
 	obs.add_wall(wc)
 	MapIO.apply_serialized(MapIO.serialize(), true)
-	_check("a creature is refused on a wall cell", not fm._place_creature_at(Vector2(wc.x * 32 + 16, wc.y * 32 + 16)))
+	_check("a creature is refused on a wall cell", not fm.place_creature_at(Vector2(wc.x * 32 + 16, wc.y * 32 + 16)))
 
 	# --- nodes: one marker per record, and a spawn point reads differently either side of Play ---
 	# a rebuild queue_frees the old markers and spawns the new ones in the same frame, so the group
@@ -109,8 +99,8 @@ func _ready() -> void:
 
 	# --- the Select tool routes a click on a creature to the inspector, object layer first ---
 	var insp = get_tree().get_first_node_in_group("inspector")
-	fm.set_mode(fm.Mode.SELECT)
-	fm._select_at(Vector2(a.x * 32 + 16, a.y * 32 + 16))
+	fm.set_mode(EditorState.Mode.SELECT)
+	fm.select_at(Vector2(a.x * 32 + 16, a.y * 32 + 16))
 	_check("clicking a creature inspects the CREATURE", insp._kind == "creature")
 	_check("...at its cell", insp._cell == a)
 
@@ -147,7 +137,7 @@ func _ready() -> void:
 	# --- undo covers a placement (EditHistory) ---
 	var c := Vector2i(28, 18)
 	fm.arm_creature("frost_frog")
-	fm._place_creature_at(Vector2(c.x * 32 + 16, c.y * 32 + 16))
+	fm.place_creature_at(Vector2(c.x * 32 + 16, c.y * 32 + 16))
 	_check("a third creature is placed", cr.has_creature(c))
 	EditHistory.undo()
 	await get_tree().process_frame
@@ -157,11 +147,11 @@ func _ready() -> void:
 	_check("redo puts it back", cr.has_creature(c))
 
 	# --- erase takes the creature before the ground beneath it ---
-	fm._erase_single(c)
+	fm.erase_single(c)
 	_check("erase removes the creature", not cr.has_creature(c))
 
 	# ================= SPAWN ZONES (the third placement kind) =================
-	fm.set_mode(fm.Mode.CREATURE)
+	fm.set_mode(EditorState.Mode.CREATURE)
 	fm.arm_creature("frost_frog")
 	fm.arm_creature_kind(Bestiary.ZONE)
 	_check("Zone is a brush kind but NOT a cell-record kind",
@@ -169,12 +159,10 @@ func _ready() -> void:
 	_check("the tool can be armed with it", fm.armed_creature_kind() == Bestiary.ZONE)
 
 	# a zone is DRAGGED out, not clicked: press, move, release
-	fm._zone_active = true
-	fm._zone_start = Vector2i(30, 24)
-	fm._update_zone_drag(Vector2i(33, 26))
+	fm.begin_zone(Vector2i(30, 24))
+	fm.update_zone_drag(Vector2i(33, 26))
 	_check("dragging shows a live preview rectangle", cr._preview_zone != null and cr._preview_zone.visible)
-	fm._zone_active = false
-	fm._commit_zone(Vector2i(33, 26))
+	fm.end_zone(Vector2i(33, 26))
 	_check("releasing commits a zone", cr.zones.size() == 1)
 	_check("...the preview goes with it", not cr._preview_zone.visible)
 	var z: Dictionary = cr.zones[0]
@@ -186,8 +174,8 @@ func _ready() -> void:
 	_check("a zero-size zone is refused", cr.add_zone(Rect2i(5, 5, 0, 3), "frost_frog").is_empty())
 
 	# the inspector's type / rate / cap (ROADMAP "Editor layout": a spawn zone shows more)
-	fm.set_mode(fm.Mode.SELECT)
-	fm._select_at(Vector2(31 * 32 + 16, 25 * 32 + 16))
+	fm.set_mode(EditorState.Mode.SELECT)
+	fm.select_at(Vector2(31 * 32 + 16, 25 * 32 + 16))
 	_check("clicking inside a zone inspects the ZONE", insp._kind == "zone")
 	cr.set_zone_type(Vector2i(31, 25), "fire_horse")
 	_check("its type is editable", cr.zone_at(Vector2i(31, 25))["creature"] == "fire_horse")
@@ -199,12 +187,12 @@ func _ready() -> void:
 	cr.set_zone_cap(Vector2i(31, 25), 2)
 
 	# a creature standing IN a zone still inspects as the creature: the zone is under it
-	fm.set_mode(fm.Mode.CREATURE)
+	fm.set_mode(EditorState.Mode.CREATURE)
 	fm.arm_creature_kind(Bestiary.SPAWN_POINT)
 	fm.arm_creature("frost_frog")
-	fm._place_creature_at(Vector2(31 * 32 + 16, 25 * 32 + 16))
-	fm.set_mode(fm.Mode.SELECT)
-	fm._select_at(Vector2(31 * 32 + 16, 25 * 32 + 16))
+	fm.place_creature_at(Vector2(31 * 32 + 16, 25 * 32 + 16))
+	fm.set_mode(EditorState.Mode.SELECT)
+	fm.select_at(Vector2(31 * 32 + 16, 25 * 32 + 16))
 	_check("a creature inside a zone still inspects as the creature", insp._kind == "creature")
 
 	# --- SPAWNING: the zone tops itself up toward its cap while playing ---
@@ -246,12 +234,11 @@ func _ready() -> void:
 	MapEdit.shrink("left")
 	# erase: the zone is the LAST thing a cell can give up, so the creature standing in it goes first
 	var inzone := Vector2i(31, 25)
-	fm._erase_single(inzone)
+	fm.erase_single(inzone)
 	_check("erase takes the creature standing in the zone first", not cr.has_creature(inzone))
 	_check("...leaving the zone", cr.has_zone(inzone))
-	fm._erase_single(inzone)
+	fm.erase_single(inzone)
 	_check("erasing again takes the zone", not cr.has_zone(inzone))
 
 	MapIO.delete_map(map_name)
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the Exit button (top-right chrome, beside the EDIT/PLAY toggle). The game
 # launches fullscreen with no title bar, so this is the on-screen way out -- and quitting must never
@@ -6,16 +6,8 @@ extends Node
 # prompt Save / Discard / Cancel). Text-only, no rendering; nothing here actually quits.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_exit_button.tscn
 
-var _fails := 0
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond: _fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var chrome = main.get_node("ModeToggle")
 	var menu = get_tree().get_first_node_in_group("save_load_menu")
 
@@ -64,5 +56,4 @@ func _ready() -> void:
 	_check("saving cleared the dirty flag", not MapIO.dirty)
 	DirAccess.remove_absolute("user://maps/__exit_test.json")
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

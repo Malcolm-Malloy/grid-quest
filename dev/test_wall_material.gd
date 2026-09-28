@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for Wall materials (ROADMAP item 7 -> "Terrain patterns and material
 # variants" -> wall materials): a per-cell face/cap texture pair (Stone/Wood/Slate) stored parallel
@@ -7,18 +7,8 @@ extends Node
 # Text-only, no rendering (renders hang headless on this machine).
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_wall_material.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var obs = main.get_node("World/Obstacles")
 	EditHistory.reset()
 
@@ -37,7 +27,7 @@ func _ready() -> void:
 
 	# --- the spawned wall_segment picks the right texture pair for its cell ---
 	obs.set_wall_material(wall, "slate")
-	await get_tree().process_frame # let _apply_wall_materials push onto the segments
+	await get_tree().process_frame # let _push_wall_props push onto the segments
 	var seg_ok := false
 	var pair_ok := false
 	for w in get_tree().get_nodes_in_group("walls"):
@@ -52,10 +42,10 @@ func _ready() -> void:
 	# --- new materials Brick + Hedge are registered and render through the same path ---
 	var fm = main.get_node("World/FloorManager")
 	var menu_mats := {}
-	for e in fm.WALL_MATERIALS:
+	for e in WallSegment.MATERIAL_NAMES:
 		menu_mats[e[1]] = true
 	_check("Brick + Hedge in the wall-material menu", menu_mats.has("brick") and menu_mats.has("hedge"))
-	_check("Brick + Hedge have a cap texture (Brush panel)", fm.WALL_TEX.has("brick") and fm.WALL_TEX.has("hedge"))
+	_check("Brick + Hedge have a cap texture (Brush panel)", WallSegment.swatch_texture("brick") == WallSegment.MATERIALS["brick"][1] and WallSegment.swatch_texture("hedge") == WallSegment.MATERIALS["hedge"][1])
 	for m in ["brick", "hedge"]:
 		obs.set_wall_material(wall, m)
 		await get_tree().process_frame
@@ -110,8 +100,7 @@ func _ready() -> void:
 	EditHistory.redo()
 	_check("redo: the material is back", obs.get_wall_material(wall) == "wood")
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()
 
 # a copy of `data` with no wall materials, for a clean undo baseline
 func _stone_state(data: Dictionary) -> Dictionary:

@@ -1,4 +1,4 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for the tool-strip ACCORDION (ROADMAP "Editor UX revisions" -> accordion left
 # menu + Map Size -> Advanced). Checks the strip builds two collapsible sections ("Tools" expanded,
@@ -8,18 +8,8 @@ extends Node
 # own constants so adding a mode does not break this. Text-only, no render.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_tool_strip.tscn
 
-var _fails := 0
-
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond:
-		_fails += 1
-
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var ts = get_tree().get_first_node_in_group("tool_strip")
 	_check("tool strip exists (grouped)", ts != null)
 
@@ -36,16 +26,16 @@ func _ready() -> void:
 	# each tool resolves to a real FloorManager mode, and the sub-choices steer it
 	var fmts = main.get_node("World/FloorManager")
 	ts._apply_tool(ts.T_PAINT)
-	_check("Paint means Cell mode by default", fmts.mode() == ts.M_CELL)
+	_check("Paint means Cell mode by default", fmts.mode() == EditorState.Mode.CELL)
 	ts._fine_check.button_pressed = true
 	ts._apply_tool(ts.T_PAINT)
-	_check("Paint with Fine on means Fine mode", fmts.mode() == ts.M_FINE)
+	_check("Paint with Fine on means Fine mode", fmts.mode() == EditorState.Mode.FINE)
 	ts._fine_check.set_pressed_no_signal(false)
 	ts._on_place_kind(1) # Door
 	_check("picking a Place kind selects the Place tool", ts._current_tool() == ts.T_PLACE)
-	_check("...and switches to that kind's mode", fmts.mode() == ts.M_DOOR)
+	_check("...and switches to that kind's mode", fmts.mode() == EditorState.Mode.DOOR)
 	ts._apply_tool(ts.T_SELECT)
-	_check("Select means Wand mode (click grows, drag boxes)", fmts.mode() == ts.M_WAND)
+	_check("Select means Wand mode (click grows, drag boxes)", fmts.mode() == EditorState.Mode.WAND)
 
 	# EVERY pre-merge shortcut still works, which is the point of the merge: fewer buttons, same muscle
 	# memory. Each entry names the tool it now picks and the sub-choice it sets.
@@ -70,13 +60,13 @@ func _ready() -> void:
 	ev2.keycode = KEY_F
 	ev2.pressed = true
 	ts._unhandled_key_input(ev2)
-	_check("F still means fine-grain paint", fmts.mode() == ts.M_FINE and ts._current_tool() == ts.T_PAINT)
+	_check("F still means fine-grain paint", fmts.mode() == EditorState.Mode.FINE and ts._current_tool() == ts.T_PAINT)
 	ev2.keycode = KEY_G
 	ts._unhandled_key_input(ev2)
-	_check("G still means place a bridge", fmts.mode() == ts.M_BRIDGE and ts._current_tool() == ts.T_PLACE)
+	_check("G still means place a bridge", fmts.mode() == EditorState.Mode.BRIDGE and ts._current_tool() == ts.T_PLACE)
 	ev2.keycode = KEY_W
 	ts._unhandled_key_input(ev2)
-	_check("W still means select", fmts.mode() == ts.M_WAND and ts._current_tool() == ts.T_SELECT)
+	_check("W still means select", fmts.mode() == EditorState.Mode.WAND and ts._current_tool() == ts.T_SELECT)
 
 	# the body is wrapped in a ScrollContainer so a growing roster scrolls instead of overflowing the
 	# window; horizontal scroll is off so the strip width still hugs the widest button.
@@ -149,5 +139,4 @@ func _ready() -> void:
 	MapIO.delete_map(m1)
 	MapIO.delete_map(m2)
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()

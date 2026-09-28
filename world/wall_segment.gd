@@ -1,6 +1,7 @@
+class_name WallSegment
 extends Node2D
 
-const CELL_SIZE := 32
+const CELL_SIZE := Grid.CELL
 const WALL_HEIGHT := 7
 const CAP_HEIGHT := WALL_HEIGHT + 4 # thickness used for a horizontal wall's top face
 const FACE_SHADE := 0.62 # the front face is in shadow, so its colour is darkened by this
@@ -42,9 +43,39 @@ var cap_texture := preload("res://world/stone_cap.png")
 # walls (a tall cap+face body), a fence cell draws a SHORT, gappy motif procedurally (no texture pair), so
 # the floor shows through the gaps. Greyscale + tinted by the wall colour like the solid materials. They
 # still block movement and enclose (they are ordinary blocked_cells); only the render + shadow differ.
-# Keep this set in sync with obstacles.gd FENCE_MATERIALS. FENCE_H = how far a fence rises above a cell.
+# The one fence set: Obstacles reads it for the fence shadow rule. FENCE_H = how far a fence rises above a cell.
 const FENCE := {"wood_fence": true, "metal_bars": true, "chainlink": true}
 const FENCE_H := 16.0
+
+# --- the wall palette every editor surface offers (right-click menu, Brush panel, inspector) ---
+
+# material choices as [label, material]; the order is the menu/panel order
+const MATERIAL_NAMES := [
+	["Stone", "stone"], ["Wood", "wood"], ["Slate", "slate"], ["Brick", "brick"], ["Hedge", "hedge"],
+	["Wood Fence", "wood_fence"], ["Metal Bars", "metal_bars"], ["Chainlink", "chainlink"],
+]
+# colour tints as [label, colour]; Natural = white = reset
+const COLORS := [
+	["Natural", Color.WHITE],
+	["Red", Color(0.85, 0.3, 0.28)],
+	["Green", Color(0.42, 0.72, 0.42)],
+	["Blue", Color(0.4, 0.55, 0.85)],
+	["Yellow", Color(0.9, 0.82, 0.35)],
+	["Orange", Color(0.9, 0.58, 0.3)],
+	["Purple", Color(0.66, 0.45, 0.8)],
+]
+# fences have no cap texture (drawn procedurally); these icons stand in for it in swatches
+const FENCE_ICONS := {
+	"wood_fence": preload("res://floors/wood_fence_icon.png"),
+	"metal_bars": preload("res://floors/metal_bars_icon.png"),
+	"chainlink": preload("res://floors/chainlink_icon.png"),
+}
+
+# the swatch texture for a wall material: its cap, or a fence's icon (unknown -> stone)
+static func swatch_texture(material: String) -> Texture2D:
+	if FENCE_ICONS.has(material):
+		return FENCE_ICONS[material]
+	return MATERIALS.get(material, MATERIALS["stone"])[1]
 
 # preview mode: a lifted, translucent GHOST of the wall a click would place (see FloorManager's Wall-mode
 # hover). Reuses the exact render (so the ghost shows the real corner/T/cross shape + colour + material,

@@ -1,3 +1,4 @@
+class_name Creatures
 extends Node2D
 
 # Creatures: the placed creature records on the current map, and the nodes drawn from them. The
@@ -22,7 +23,7 @@ extends Node2D
 # each). A creature IS an object, so it cannot share a cell with a pickup, and vice versa -- the
 # refusal is enforced here and in Pickups' placement path.
 
-const CELL := 32
+const CELL := Grid.CELL
 
 var creatures: Array[Dictionary] = [] # [{cell, creature, kind, id, blocks}]
 # SPAWN ZONES: regions that periodically produce a creature (ROADMAP: "an area authored with
@@ -39,6 +40,9 @@ var _timers := {}   # zone id -> seconds accumulated toward its next spawn attem
 var marker_script: Script
 var zone_script: Script
 var _preview_zone: Node2D # the live drag rectangle, before the zone is committed
+@onready var _fm: FloorManager = get_node_or_null("../FloorManager")
+@onready var _obs: Obstacles = get_node_or_null("../Obstacles")
+@onready var _pickups: Pickups = get_node_or_null("../Pickups")
 
 func _ready() -> void:
 	marker_script = load("res://world/creature_marker.gd")
@@ -55,11 +59,18 @@ func _on_mode_changed(_m: int) -> void:
 
 # --- model ---
 
-func creature_at(cell: Vector2i) -> Dictionary:
+# cell -> authored `creatures` record / zone-spawned `_spawned` record, rebuilt after every change to
+# those lists (all in this file), so placement checks and the per-step blocking test are O(1)
+var _by_cell := {}
+var _spawned_by_cell := {}
+
+func _reindex() -> void:
+	_by_cell.clear()
 	for c in creatures:
-		if c["cell"] == cell:
-			return c
-	return {}
+		_by_cell[c["cell"]] = c
+
+func creature_at(cell: Vector2i) -> Dictionary:
+	return _by_cell.get(cell, {})
 
 func has_creature(cell: Vector2i) -> bool:
 	return not creature_at(cell).is_empty()
@@ -75,14 +86,15 @@ func add_creature(cell: Vector2i, creature: String, kind := Bestiary.SPAWN_POINT
 		"blocks": Bestiary.blocks_by_default(creature),
 	}
 	creatures.append(rec)
+	_reindex()
 	return rec
 
 func remove_creature(cell: Vector2i) -> bool:
-	for i in creatures.size():
-		if creatures[i]["cell"] == cell:
-			creatures.remove_at(i)
-			return true
-	return false
+	if not _by_cell.has(cell):
+		return false
+	creatures.erase(_by_cell[cell])
+	_reindex()
+	return true
 
 # --- per-instance edits (the inspector's authoring surface) ---
 
@@ -222,38 +234,29 @@ func _spawn_one(z: Dictionary) -> void:
 		node.blocks = Bestiary.blocks_by_default(String(z["creature"]))
 		node.place(cell)
 		add_child(node)
-		_spawned.append({"cell": cell, "creature": z["creature"], "zone_id": z["id"], "node": node})
+		var sp := {"cell": cell, "creature": z["creature"], "zone_id": z["id"], "node": node}
+		_spawned.append(sp)
+		_spawned_by_cell[cell] = sp
 		return
 
 # a cell a zone may put a creature on: it must exist, be free of walls/doors, of impassable floor,
 # and of anything already occupying the object layer (an item, an authored creature, or one of ours)
 func _spawnable(cell: Vector2i) -> bool:
-	var w := get_parent()
-	var gb = w.get_node_or_null("GridBackground")
-	if gb == null or not gb.cell_present(cell.x, cell.y):
+	if _fm == null or not _fm.is_walkable(cell): # exists, no wall, passable (or bridged) floor
 		return false
-	var obs = w.get_node_or_null("Obstacles")
-	if obs != null and (obs.is_blocked(cell) or not obs.door_at(cell).is_empty()):
+	if _obs != null and not _obs.door_at(cell).is_empty():
 		return false
-	var fm = w.get_node_or_null("FloorManager")
-	if fm != null and fm.is_cell_impassable(cell) and (obs == null or not obs.is_bridge(cell)):
+	if _pickups != null and _pickups.has_pickup(cell):
 		return false
-	var pk = w.get_node_or_null("Pickups")
-	if pk != null and pk.has_pickup(cell):
-		return false
-	if has_creature(cell):
-		return false
-	for sp in _spawned:
-		if sp["cell"] == cell:
-			return false
-	return true
+	return not has_creature(cell) and not _spawned_by_cell.has(cell)
 
 func _despawn_all() -> void:
 	for sp in _spawned:
-		var n = sp["node"]
+		var n: Node = sp["node"]
 		if is_instance_valid(n):
 			n.queue_free()
 	_spawned.clear()
+	_spawned_by_cell.clear()
 	_timers.clear()
 
 # what the zones have produced right now, for tests and for the status of a running map
@@ -273,9 +276,8 @@ func blocks_movement(cell: Vector2i) -> bool:
 	if not rec.is_empty():
 		return bool(rec.get("blocks", true))
 	# a creature a zone produced blocks exactly like an authored one: it is just as much standing there
-	for sp in _spawned:
-		if sp["cell"] == cell:
-			return Bestiary.blocks_by_default(String(sp["creature"]))
+	if _spawned_by_cell.has(cell):
+		return Bestiary.blocks_by_default(String(_spawned_by_cell[cell]["creature"]))
 	return false
 
 # --- rebuild (MapIO load / resize / undo path) ---
@@ -284,10 +286,15 @@ func apply_map(list: Array, zone_list := []) -> void:
 	creatures.clear()
 	for c in list:
 		creatures.append(c)
+	_reindex()
 	zones.clear()
 	for z in zone_list:
 		zones.append(z)
 	_despawn_all() # the new map's zones start from nothing; the old map's output does not carry over
+	rebuild()
+
+# respawn the authored creature + zone nodes from `creatures` / `zones` (after an in-place edit)
+func rebuild() -> void:
 	clear_world()
 	build_world()
 
@@ -317,3 +324,34 @@ func build_world() -> void:
 		zn.set_script(zone_script)
 		zn.configure(z["rect"], String(z["creature"]), float(z["rate"]), int(z["cap"]), String(z["id"]))
 		add_child(zn)
+
+# --- persistence: authored creatures as {cell, creature, kind, id, blocks} and spawn zones as
+# {rect: [x, y, w, h], creature, rate, cap, id}. What a character captured, or what a zone has spawned,
+# belongs to the playthrough and is never here. ---
+
+func to_data() -> Dictionary:
+	var crs: Array = []
+	for r in creatures:
+		crs.append({"cell": [r["cell"].x, r["cell"].y], "creature": r["creature"],
+			"kind": r["kind"], "id": r["id"], "blocks": bool(r.get("blocks", true))})
+	var zs: Array = []
+	for z in zones:
+		var zr: Rect2i = z["rect"]
+		zs.append({"rect": [zr.position.x, zr.position.y, zr.size.x, zr.size.y],
+			"creature": z["creature"], "rate": float(z["rate"]), "cap": int(z["cap"]), "id": z["id"]})
+	return {"creatures": crs, "creature_zones": zs}
+
+# replace every authored creature and zone (pre-v13/v14 maps have no keys -> none)
+func load_data(data: Dictionary) -> void:
+	var crs: Array = []
+	for r in data.get("creatures", []):
+		crs.append({"cell": Vector2i(int(r["cell"][0]), int(r["cell"][1])),
+			"creature": String(r["creature"]), "kind": String(r.get("kind", Bestiary.SPAWN_POINT)),
+			"id": String(r.get("id", "")), "blocks": bool(r.get("blocks", true))})
+	var zs: Array = []
+	for z in data.get("creature_zones", []):
+		var a: Array = z["rect"]
+		zs.append({"rect": Rect2i(int(a[0]), int(a[1]), int(a[2]), int(a[3])),
+			"creature": String(z["creature"]), "rate": float(z.get("rate", Bestiary.ZONE_RATE)),
+			"cap": int(z.get("cap", Bestiary.ZONE_CAP)), "id": String(z.get("id", ""))})
+	apply_map(crs, zs)

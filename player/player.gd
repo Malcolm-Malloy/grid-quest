@@ -1,10 +1,10 @@
+class_name Player
 extends CharacterBody2D
 
-const CELL_SIZE := 32
+const CELL_SIZE := Grid.CELL
 const MOVE_SPEED := 6.0 # cells per second
-# Movement bounds come from GridBackground (the single source of grid size), not local
-# consts, so the walkable range always matches the current map's edge even after a resize
-# or map load. See grid_bg.min_walkable_position() / max_walkable_position().
+# Where the player may step is FloorManager.is_walkable (the map's live extent, walls, floors),
+# so the range always matches the current map even after a resize or map load.
 
 const IN_SHADOW_TINT := Color(0.65, 0.65, 0.65, 1.0)
 
@@ -23,7 +23,11 @@ const SIDE_FRAMES := [
 
 var is_moving := false
 var target_position := Vector2.ZERO
-var facing := "down"
+# which way the character faces (picks the sprite, and which way a door swings). The character save spells
+# it "down" / "up" / "left" / "right" (facing_name / facing_from convert at that boundary).
+enum Facing { DOWN, UP, LEFT, RIGHT }
+const _FACING_NAMES := ["down", "up", "left", "right"] # indexed by Facing
+var facing: Facing = Facing.DOWN
 # What the character carries, persisted by CharacterIO. TWO entry kinds, because keys force both
 # (ROADMAP "Items and pickups" -> inventory model): `stacks` holds stackable items as {item id: count}
 # (coins and the like, carry many, later consume one per use), and `uniques` holds one entry per
@@ -33,12 +37,14 @@ var frame_index := 0
 var in_shadow := false
 var shadow_scale := 1.0 # 1 outdoors; shrinks to a third indoors (softer indoor light)
 
-@onready var obstacles := get_node("../Obstacles")
-@onready var floor_manager := get_node("../FloorManager") # for impassable floors (water)
-@onready var grid_bg := get_node("../GridBackground")
-@onready var room_light := get_node_or_null("../RoomLight")
+@onready var obstacles: Obstacles = get_node("../Obstacles")
+@onready var floor_manager: FloorManager = get_node("../FloorManager") # for impassable floors (water)
+@onready var _rooms: RoomTopology = get_node_or_null("../RoomTopology")
 @onready var sprite := $Sprite2D
 @onready var shadow_sprite := $Shadow
+@onready var _creatures: Creatures = get_node_or_null("../Creatures")
+@onready var _pickups: Pickups = get_node_or_null("../Pickups")
+@onready var _shadows: ShadowManager = get_node_or_null("../ShadowGroup")
 
 func _ready() -> void:
 	target_position = position
@@ -116,19 +122,19 @@ func update_shadow_shape() -> void:
 	# stays welded to the character, so it shortens toward the feet without detaching at
 	# the corners. The shape builders take the cast factor directly.
 	match facing:
-		"left", "right":
+		Facing.LEFT, Facing.RIGHT:
 			# the shadow's cast direction is a fixed world-space property (the
 			# sun doesn't move when the character turns), so unlike the sprite
 			# this never mirrors, both directions use the same shape
 			points = get_shadow_points_side(shadow_scale)
 		_:
 			points = get_shadow_points_frontback(shadow_scale)
-	shadow_sprite.setup(points, false)
+	shadow_sprite.setup(points)
 
 # picks the shadow size from where the player is: a third indoors, full outside
 func _update_shadow_scale() -> void:
-	var cell := Vector2i(floori(position.x / CELL_SIZE), floori(position.y / CELL_SIZE))
-	var indoor: bool = room_light != null and room_light.is_indoor(cell)
+	var cell := Grid.cell_of(position)
+	var indoor: bool = _rooms != null and _rooms.is_indoor(cell)
 	var target := 1.0 / 3.0 if indoor else 1.0
 	if not is_equal_approx(target, shadow_scale):
 		shadow_scale = target
@@ -146,10 +152,9 @@ func _physics_process(delta: float) -> void:
 			position = target_position
 			is_moving = false
 			# the step landed: STACKABLE items on this cell are collected automatically, with no input
-			# at all (ROADMAP "Items and pickups"). Unique items ignore this and wait to be clicked.
-			var pickups := get_node_or_null("../Pickups")
-			if pickups != null:
-				pickups.try_auto_collect(Vector2i(floori(position.x / CELL_SIZE), floori(position.y / CELL_SIZE)))
+			# at all (ROADMAP "Items and _pickups"). Unique items ignore this and wait to be clicked.
+			if _pickups != null:
+				_pickups.try_auto_collect(Grid.cell_of(position))
 	else:
 		var input_dir := Vector2.ZERO
 		if Input.is_action_pressed("ui_right"):
@@ -168,17 +173,10 @@ func _physics_process(delta: float) -> void:
 				update_sprite()
 
 			var new_target := position + input_dir * CELL_SIZE
-			var min_pos: Vector2 = grid_bg.min_walkable_position()
-			var max_pos: Vector2 = grid_bg.max_walkable_position()
-			var in_bounds := new_target.x >= min_pos.x and new_target.x <= max_pos.x and new_target.y >= min_pos.y and new_target.y <= max_pos.y
-			var cell := Vector2i(floori(new_target.x / CELL_SIZE), floori(new_target.y / CELL_SIZE))
-			# a jagged map has holes: the target cell must actually exist (in-box and not absent), else the
-			# coarse box clamp above would let the player step onto void where a single edge cell was removed.
-			if in_bounds and grid_bg.cell_present(cell.x, cell.y):
-				# blocked by a wall/gate (is_blocked) OR by an impassable floor (water). Kept as two
-				# separate checks so is_blocked stays "is a wall" for the editor; floors block here.
-				# A bridge re-enables crossing on the water cell it covers (passable-over-impassable).
-				var floor_blocks: bool = floor_manager.is_cell_impassable(cell) and not obstacles.is_bridge(cell)
+			var cell := Grid.cell_of(new_target)
+			# the terrain rule (the cell exists -- a jagged map has holes -- holds no wall, and its floor is
+			# passable or bridged) is shared with zone spawning; see FloorManager.is_walkable
+			if floor_manager.is_walkable(cell):
 				# a LOCKED door blocks like a wall until the right key opens it. Walking into it IS the
 				# attempt: a coloured lock spends one matching key and is gone for good, a unique lock
 				# just checks the bound key is in hand (ROADMAP "Locked doors and keys"). Kept out of
@@ -186,10 +184,9 @@ func _physics_process(delta: float) -> void:
 				var locked: bool = obstacles.is_locked(cell, self) and not obstacles.try_unlock(cell, self)
 				# a creature standing there stops you (ROADMAP "Passability": monster blocks while
 				# alive, with a per-object override the inspector exposes). Kept out of is_blocked for
-				# the same reason as the two checks above: that stays "is a wall" for the editor.
-				var creatures = get_node_or_null("../Creatures")
-				var creature_blocks: bool = creatures != null and creatures.blocks_movement(cell)
-				if not obstacles.is_blocked(cell) and not floor_blocks and not locked and not creature_blocks:
+				# the same reason as the lock check above: that stays "is a wall" for the editor.
+				var creature_blocks: bool = _creatures != null and _creatures.blocks_movement(cell)
+				if not locked and not creature_blocks:
 					target_position = new_target
 					is_moving = true
 					frame_index = 1 - frame_index
@@ -202,7 +199,7 @@ func _physics_process(delta: float) -> void:
 func update_gate_state() -> void:
 	if is_moving:
 		return # wait until fully settled on a cell before re-checking, not mid-slide
-	var occupied_cell := Vector2i(floori(position.x / CELL_SIZE), floori(position.y / CELL_SIZE))
+	var occupied_cell := Grid.cell_of(position)
 	for gate in get_tree().get_nodes_in_group("gates"):
 		# a still-locked door never swings open on approach: it reads as shut until a key opens it
 		if obstacles.is_locked(gate.cell, self):
@@ -215,60 +212,59 @@ func update_gate_state() -> void:
 		# now facing away. Standing in the doorway itself keeps it open so the
 		# closed door never draws through the player mid-crossing.
 		var should_open := on_gate_cell
-		if gate.orientation == "vertical":
+		if gate.orientation == Grid.Orient.VERTICAL:
 			# walked through left-to-right: same row, adjacent column
 			var dx: int = occupied_cell.x - gate.cell.x
-			if occupied_cell.y == gate.cell.y and ((dx == -1 and facing == "right") or (dx == 1 and facing == "left")):
+			if occupied_cell.y == gate.cell.y and ((dx == -1 and facing == Facing.RIGHT) or (dx == 1 and facing == Facing.LEFT)):
 				should_open = true
 			# the door always swings the way the player is facing. Set it whenever
 			# the door is open (adjacent OR standing in the doorway), so it never
 			# keeps a stale swing from an earlier approach. A perpendicular facing
 			# isn't on this gate's axis, so it leaves the swing as-is.
 			if should_open:
-				if facing == "right":
+				if facing == Facing.RIGHT:
 					gate.set_swing_right(true)
-				elif facing == "left":
+				elif facing == Facing.LEFT:
 					gate.set_swing_right(false)
 		else:
 			# walked through top-to-bottom: same column, adjacent row
 			var dy: int = occupied_cell.y - gate.cell.y
-			if occupied_cell.x == gate.cell.x and ((dy == -1 and facing == "down") or (dy == 1 and facing == "up")):
+			if occupied_cell.x == gate.cell.x and ((dy == -1 and facing == Facing.DOWN) or (dy == 1 and facing == Facing.UP)):
 				should_open = true
 			if should_open:
-				if facing == "down":
+				if facing == Facing.DOWN:
 					gate.set_swing_up(false)
-				elif facing == "up":
+				elif facing == Facing.UP:
 					gate.set_swing_up(true)
 		gate.set_open(should_open)
 		gate.set_player_here(on_gate_cell)
 
-func direction_to_facing(dir: Vector2) -> String:
+func direction_to_facing(dir: Vector2) -> Facing:
 	if dir == Vector2.RIGHT:
-		return "right"
+		return Facing.RIGHT
 	elif dir == Vector2.LEFT:
-		return "left"
+		return Facing.LEFT
 	elif dir == Vector2.UP:
-		return "up"
+		return Facing.UP
 	else:
-		return "down"
+		return Facing.DOWN
 
 func update_sprite() -> void:
-	sprite.flip_h = facing == "right"
+	sprite.flip_h = facing == Facing.RIGHT
 	match facing:
-		"down":
+		Facing.DOWN:
 			sprite.texture = DOWN_FRAMES[frame_index]
-		"up":
+		Facing.UP:
 			sprite.texture = UP_FRAMES[frame_index]
-		"left", "right":
+		Facing.LEFT, Facing.RIGHT:
 			sprite.texture = SIDE_FRAMES[frame_index]
 	update_shadow_shape()
 
 func update_shadow_state() -> void:
 	var was_in_shadow := in_shadow
 	in_shadow = false
-	var shadows := get_node_or_null("../ShadowGroup")
-	if shadows:
-		in_shadow = shadows.point_in_shadow(global_position)
+	if _shadows:
+		in_shadow = _shadows.point_in_shadow(global_position)
 	if in_shadow != was_in_shadow:
 		# approximation: tints the whole sprite rather than only the covered
 		# portion, true per-pixel masking would need a shader
@@ -314,8 +310,10 @@ func uniques_of(item: String) -> Array:
 			out.append(u)
 	return out
 
-func inventory_count() -> int:
-	var n: int = inventory["uniques"].size()
-	for k in inventory["stacks"]:
-		n += int(inventory["stacks"][k])
-	return n
+static func facing_name(f: Facing) -> String:
+	return _FACING_NAMES[f]
+
+# an unknown name (a hand-edited or future save) falls back to facing down
+static func facing_from(name: String) -> Facing:
+	var i := _FACING_NAMES.find(name)
+	return Facing.DOWN if i == -1 else i as Facing

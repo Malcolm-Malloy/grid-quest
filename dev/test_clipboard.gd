@@ -1,15 +1,10 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for copy / paste / duplicate / move (ROADMAP "Copy, paste, and duplicate",
 # "Move tool"). Covers the clip format (MapClipboard.build_clip), the stamp transforms
 # (MapEdit.stamp_clip / move_clip), edge clipping, the rotate/flip orientation remap, undo, the
 # cross-map + on-disk clipboard, and FloorManager's selection -> clipboard path. Text-only.
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_clipboard.tscn
-
-var _fails := 0
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond: _fails += 1
 
 func _cells(list: Array) -> Dictionary:
 	var out := {}
@@ -40,10 +35,7 @@ func _setup(fm) -> void:
 	await get_tree().process_frame
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var obs = main.get_node("World/Obstacles")
 	var fm = main.get_node("World/FloorManager")
 	await _setup(fm)
@@ -119,7 +111,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	# rotating (x,y) -> (h-1-y, x) puts the run in the box's right column, so it lands one cell east
 	_check("a rotated paste lands as a vertical run", _has_wall(obs, Vector2i(7, 6)) and _has_wall(obs, Vector2i(7, 7)))
-	_check("the rotated door is vertical on the map", _door(obs, Vector2i(7, 8)).get("orientation", "") == "vertical")
+	_check("the rotated door is vertical on the map", _door(obs, Vector2i(7, 8)).get("orientation", "") == Grid.Orient.VERTICAL)
 
 	# --- 7. move: the region leaves its source and arrives whole, in ONE undo entry ---
 	await _setup(fm)
@@ -148,48 +140,70 @@ func _ready() -> void:
 	_check("clip() hands out a copy, not the stored clip", MapClipboard.clip_cell_count() == 4)
 
 	# --- 9. FloorManager: a selection is what gets copied ---
-	fm._select_cells(src)
-	_check("selection -> footprint cells", fm._selection_cells().size() == 4)
+	fm.selection.select_cells(src)
+	_check("selection -> footprint cells", fm.selection.cells().size() == 4)
 	MapClipboard.clear()
-	_check("Ctrl+C with a selection fills the clipboard", fm._copy_selection() and MapClipboard.has_clip())
-	fm._clear_selection()
-	_check("Ctrl+C with no selection copies nothing", not fm._copy_selection())
-	fm._arm_paste(MapClipboard.clip())
-	_check("Ctrl+V arms a paste", fm._pending_kind == "paste" and not fm._pending_clip.is_empty())
-	var id_before: int = fm._pending_id
-	fm._transform_pending(MapClipboard.rotate_cw(fm._pending_clip))
-	_check("R rotates the armed clip (and bumps the ghost id)", int(fm._pending_clip["w"]) == 2 and fm._pending_id > id_before)
-	fm._cancel_pending()
-	_check("Esc / right-click drops the armed paste", fm._pending_clip.is_empty() and fm._pending_kind == "")
+	_check("Ctrl+C with a selection fills the clipboard", fm.copy_selection() and MapClipboard.has_clip())
+	fm.selection.clear()
+	_check("Ctrl+C with no selection copies nothing", not fm.copy_selection())
+	fm.arm_paste(MapClipboard.clip())
+	_check("Ctrl+V arms a paste", EditorState.pending_kind == EditorState.Pending.PASTE and not EditorState.pending_clip.is_empty())
+	var id_before: int = EditorState.pending_id
+	fm.transform_pending(MapClipboard.rotate_cw(EditorState.pending_clip))
+	_check("R rotates the armed clip (and bumps the ghost id)", int(EditorState.pending_clip["w"]) == 2 and EditorState.pending_id > id_before)
+	fm.cancel_pending()
+	_check("Esc / right-click drops the armed paste", EditorState.pending_clip.is_empty() and EditorState.pending_kind == EditorState.Pending.NONE)
 	_check("a stampable cell reads in-bounds, an off-map one does not",
-		fm._stampable(Vector2i(3, 3)) and not fm._stampable(Vector2i(99, 3)))
+		fm.in_bounds(Vector2i(3, 3)) and not fm.in_bounds(Vector2i(99, 3)))
 
 	# --- 10. the FloorManager gestures end to end: a drag-move, then a paste click ---
 	await _setup(fm)
 	EditHistory.reset()
-	fm._select_cells(src)
-	fm._begin_move(Vector2i(2, 2)) # grab the run's left end
-	_check("MOVE press inside the selection arms a move", fm._pending_kind == "move" and fm._move_src.size() == 4)
-	fm._ghost_origin_pin = Vector2i(5, 6) # stands in for the cursor (see _pending_origin)
-	fm._drop_pending()
+	fm.selection.select_cells(src)
+	fm.begin_move(Vector2i(2, 2)) # grab the run's left end
+	_check("MOVE press inside the selection arms a move", EditorState.pending_kind == EditorState.Pending.MOVE and EditorState.move_src.size() == 4)
+	fm.ghost_origin_pin = Vector2i(5, 6) # stands in for the cursor (see _pending_origin)
+	fm.drop_pending()
 	await get_tree().process_frame
 	_check("the move drag landed the region", _has_wall(obs, Vector2i(5, 6)) and not _has_wall(obs, Vector2i(2, 2)))
-	_check("the moved region stays selected (so it can be moved again)", fm._selection_cells().has(Vector2i(5, 6)))
-	_check("the gesture cleared itself", fm._pending_clip.is_empty() and fm._move_src.is_empty())
+	_check("the moved region stays selected (so it can be moved again)", fm.selection.cells().has(Vector2i(5, 6)))
+	_check("the gesture cleared itself", EditorState.pending_clip.is_empty() and EditorState.move_src.is_empty())
 	EditHistory.undo()
 	await get_tree().process_frame
 	_check("one undo reverses the whole drag-move", _has_wall(obs, Vector2i(2, 2)) and not _has_wall(obs, Vector2i(5, 6)))
 
-	fm._select_cells(src)
-	fm._copy_selection()
-	fm._arm_paste(MapClipboard.clip())
-	fm._ghost_origin_pin = Vector2i(6, 6)
-	fm._drop_pending()
+	fm.selection.select_cells(src)
+	fm.copy_selection()
+	fm.arm_paste(MapClipboard.clip())
+	fm.ghost_origin_pin = Vector2i(6, 6)
+	fm.drop_pending()
 	await get_tree().process_frame
 	_check("a paste click stamps at the ghost", _has_wall(obs, Vector2i(6, 6)) and _has_wall(obs, Vector2i(7, 6)))
 	_check("the paste left the source alone", _has_wall(obs, Vector2i(2, 2)))
-	_check("the pasted region becomes the selection", fm._selection_cells().size() == 4)
-	fm._ghost_origin_pin = fm.INVALID_CELL
+	_check("the pasted region becomes the selection", fm.selection.cells().size() == 4)
+	fm.ghost_origin_pin = fm.INVALID_CELL
 
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	# --- spawn zones through copy / rotate / paste (pure data, no world) ---
+	var zd := {"creature_zones": [
+		{"rect": [2, 2, 3, 1], "creature": "frost_frog", "rate": 7.5, "cap": 5, "id": "zin"},
+		{"rect": [4, 3, 3, 3], "creature": "frost_frog", "rate": 4.0, "cap": 3, "id": "zpart"}]}
+	var zcells := {}
+	for x in range(1, 6):
+		for y in range(1, 5):
+			zcells[Vector2i(x, y)] = true
+	var zclip := MapClipboard.build_clip(zd, zcells)
+	var zs: Array = zclip["creature_zones"]
+	_check("copy takes a zone fully inside the footprint, not one poking out",
+		zs.size() == 1 and zs[0]["id"] == "zin" and zs[0]["rate"] == 7.5)
+	_check("the copied zone is rebased to the clip origin", zs.size() == 1 and zs[0]["rect"] == [1, 1, 3, 1])
+	var zrot := MapClipboard.rotate_cw(zclip)
+	_check("rotate turns a wide zone tall, about the box", zrot["creature_zones"][0]["rect"] == [2, 1, 1, 3])
+	var zmap := {"grid": {"width": 20, "height": 20}}
+	MapEdit._apply_clip(zmap, zclip, Vector2i(10, 10), true)
+	_check("a pasted zone lands at the origin with a fresh id",
+		zmap["creature_zones"][0]["rect"] == [11, 11, 3, 1] and zmap["creature_zones"][0]["id"] != "zin")
+	var zmap2 := {"grid": {"width": 20, "height": 20}}
+	MapEdit._apply_clip(zmap2, zclip, Vector2i(18, 0), false)
+	_check("a moved zone keeps its id and clips at the map edge",
+		zmap2["creature_zones"][0]["id"] == "zin" and zmap2["creature_zones"][0]["rect"] == [19, 1, 1, 1])
+	finish()

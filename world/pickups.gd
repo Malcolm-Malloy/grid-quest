@@ -1,3 +1,4 @@
+class_name Pickups
 extends Node2D
 
 # Pickups: the placed item INSTANCES on the current map, and the rules for collecting them.
@@ -22,7 +23,6 @@ extends Node2D
 # key is there when you open the map in the editor; whether THIS character already took it is
 # character data, held by CharacterIO. So build_world() skips instances CharacterIO reports collected.
 
-const CELL := 32
 
 var pickups: Array[Dictionary] = [] # [{cell: Vector2i, item: String, id: String}]
 var pickup_script: Script
@@ -33,11 +33,17 @@ func _ready() -> void:
 
 # --- model ---
 
-func pickup_at(cell: Vector2i) -> Dictionary:
+# cell -> its `pickups` record, rebuilt by _reindex() after every change to `pickups` (all in this file),
+# so the per-step auto-collect and the placement checks are O(1)
+var _by_cell := {}
+
+func _reindex() -> void:
+	_by_cell.clear()
 	for p in pickups:
-		if p["cell"] == cell:
-			return p
-	return {}
+		_by_cell[p["cell"]] = p
+
+func pickup_at(cell: Vector2i) -> Dictionary:
+	return _by_cell.get(cell, {})
 
 func has_pickup(cell: Vector2i) -> bool:
 	return not pickup_at(cell).is_empty()
@@ -50,24 +56,30 @@ func add_pickup(cell: Vector2i, item: String, data := {}) -> Dictionary:
 	# `data` is per-instance extra: a Unique key carries {door_id, name}, binding it to one door
 	var rec := {"cell": cell, "item": item, "id": Items.new_id(), "data": data.duplicate(true)}
 	pickups.append(rec)
+	_reindex()
 	return rec
 
 func remove_pickup(cell: Vector2i) -> bool:
-	for i in pickups.size():
-		if pickups[i]["cell"] == cell:
-			pickups.remove_at(i)
-			return true
-	return false
+	if not _by_cell.has(cell):
+		return false
+	pickups.erase(_by_cell[cell])
+	_reindex()
+	return true
 
 # replace the whole model and rebuild the nodes (MapIO load / resize / undo path)
 func apply_map(list: Array) -> void:
 	pickups.clear()
 	for p in list:
 		pickups.append(p)
-	clear_world()
-	build_world()
+	_reindex()
+	rebuild()
 
 # --- nodes ---
+
+# respawn the pickup nodes from `pickups` (after an in-place edit)
+func rebuild() -> void:
+	clear_world()
+	build_world()
 
 func clear_world() -> void:
 	for n in get_tree().get_nodes_in_group("pickups"):
@@ -141,7 +153,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventMouseButton) or event.button_index != MOUSE_BUTTON_LEFT or not event.pressed:
 		return
 	var local := get_local_mouse_position()
-	var cell := Vector2i(floori(local.x / CELL), floori(local.y / CELL))
+	var cell := Grid.cell_of(local)
 	var rec := pickup_at(cell)
 	if rec.is_empty() or Items.is_stackable(String(rec["item"])):
 		return
@@ -155,5 +167,26 @@ func _within_reach(cell: Vector2i) -> bool:
 	var player := get_tree().get_first_node_in_group("player")
 	if player == null:
 		return false
-	var pc := Vector2i(floori(player.position.x / CELL), floori(player.position.y / CELL))
+	var pc := Grid.cell_of(player.position)
 	return absi(pc.x - cell.x) <= 1 and absi(pc.y - cell.y) <= 1
+
+# --- persistence: placed items as {cell, item, id, data?}. Whether a character already TOOK one is not
+# here -- that is character data (CharacterIO), so the map keeps its items for the editor. ---
+
+func to_data() -> Dictionary:
+	var out: Array = []
+	for r in pickups:
+		var rec := {"cell": [r["cell"].x, r["cell"].y], "item": r["item"], "id": r["id"]}
+		if not r.get("data", {}).is_empty():
+			rec["data"] = r["data"] # a unique key's binding: {door_id, name}
+		out.append(rec)
+	return {"pickups": out}
+
+# replace every placed item (pre-v11 maps have no key -> none)
+func load_data(data: Dictionary) -> void:
+	var list: Array = []
+	for r in data.get("pickups", []):
+		list.append({"cell": Vector2i(int(r["cell"][0]), int(r["cell"][1])),
+			"item": String(r["item"]), "id": String(r.get("id", "")),
+			"data": (r.get("data", {}) as Dictionary).duplicate(true)})
+	apply_map(list)

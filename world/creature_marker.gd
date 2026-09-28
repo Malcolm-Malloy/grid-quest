@@ -22,7 +22,7 @@ extends Node2D
 # Per the standing convention it sets the floor-highlight mask bit and y-sorts like other ground
 # objects, so the room highlight is excluded from it and walls occlude it correctly.
 
-const CELL := 32
+const CELL := Grid.CELL
 const R := 9.0           # body radius; the rarity ring sits just outside it
 const RING_R := 12.5
 const PAD_R := 14.5      # the spawn-point ground pad: wider than the body, so it rings the FEET
@@ -46,7 +46,7 @@ func _ready() -> void:
 
 func place(c: Vector2i) -> void:
 	cell = c
-	position = Vector2(c.x * CELL + CELL / 2.0, c.y * CELL + CELL / 2.0)
+	position = Grid.cell_center(c)
 	queue_redraw()
 
 func _process(delta: float) -> void:

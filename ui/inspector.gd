@@ -1,3 +1,4 @@
+class_name Inspector
 extends CanvasLayer
 
 # The properties inspector: a right-side panel that shows the selected object's authored settings and
@@ -9,15 +10,6 @@ extends CanvasLayer
 # entry. Doors expose the new authored open/swing/orientation; walls expose colour (the same palette
 # as the right-click menu). More object types (spawns, objects) slot in as the roster grows.
 
-# wall colour palette, mirrored from floor_manager.WALL_COLORS (kept in sync by hand; small list)
-const WALL_COLORS := [
-	["Natural", Color.WHITE], ["Red", Color(0.85, 0.3, 0.28)], ["Green", Color(0.42, 0.72, 0.42)],
-	["Blue", Color(0.4, 0.55, 0.85)], ["Yellow", Color(0.9, 0.82, 0.35)],
-	["Orange", Color(0.9, 0.58, 0.3)], ["Purple", Color(0.66, 0.45, 0.8)],
-]
-
-# wall material list, mirrored from floor_manager.WALL_MATERIALS (kept in sync by hand)
-const WALL_MATERIALS := [["Stone", "stone"], ["Wood", "wood"], ["Slate", "slate"], ["Brick", "brick"], ["Hedge", "hedge"], ["Wood Fence", "wood_fence"], ["Metal Bars", "metal_bars"], ["Chainlink", "chainlink"]]
 
 var _kind := ""            # "", "door" or "wall"
 var _cell := Vector2i.ZERO
@@ -67,13 +59,13 @@ func clear() -> void:
 
 # --- panel construction ---
 
-func _obs():
+func _obs() -> Obstacles:
 	return get_tree().get_first_node_in_group("obstacles")
 
 # the Unique keys already placed for the inspected door, so the button can say so
 func _keys_bound_here() -> Array:
-	var obs = _obs()
-	var pk = obs.get_parent().get_node_or_null("Pickups") if obs else null
+	var obs := _obs()
+	var pk: Pickups = obs.get_parent().get_node_or_null("Pickups") if obs else null
 	return pk.keys_for_door(obs.door_id_at(_cell)) if pk else []
 
 func _refresh_visibility() -> void:
@@ -99,8 +91,8 @@ func _title(text: String) -> void:
 	_box.add_child(l)
 
 # the placed-creature layer (world/creatures.gd), a sibling of Obstacles under World
-func _creature_layer():
-	var obs = _obs()
+func _creature_layer() -> Creatures:
+	var obs := _obs()
 	return obs.get_parent().get_node_or_null("Creatures") if obs else null
 
 # A placed creature: its TYPE, which KIND of placement it is, and the per-object passability override
@@ -108,7 +100,7 @@ func _creature_layer():
 # Retyping and re-kinding both keep the record's durable id, so this edits the creature that is here
 # rather than replacing it with a new one.
 func _build_creature() -> void:
-	var cr = _creature_layer()
+	var cr := _creature_layer()
 	var rec: Dictionary = cr.creature_at(_cell) if cr else {}
 	if rec.is_empty():
 		clear()
@@ -183,7 +175,7 @@ func _build_creature() -> void:
 # gets. Rate and cap are SPINBOXES rather than buttons because they are continuous quantities with a
 # sensible range, not a small fixed roster like a creature type.
 func _build_zone() -> void:
-	var cr = _creature_layer()
+	var cr := _creature_layer()
 	var rec: Dictionary = cr.zone_at(_cell) if cr else {}
 	if rec.is_empty():
 		clear()
@@ -257,14 +249,14 @@ func _build_zone() -> void:
 			clear())
 	_box.add_child(del)
 
-# rebuild through the one MapIO path (so the nodes match exactly what a load would build) and record
-# a single undo entry, the same contract every other inspector edit keeps
+# respawn the object layer (the same build_world a load runs, so the nodes match) and record a single
+# undo entry, the same contract every other inspector edit keeps
 func _reapply() -> void:
-	MapIO.apply_serialized(MapIO.serialize(), true)
+	MapIO.rebuild_live(MapIO.REBUILD_OBJECTS)
 	EditHistory.commit("creature")
 
 func _build_door() -> void:
-	var obs = _obs()
+	var obs := _obs()
 	var d: Dictionary = obs.door_at(_cell) if obs else {}
 	if d.is_empty():
 		clear()
@@ -272,13 +264,13 @@ func _build_door() -> void:
 	_title("Door  (%d, %d)" % [_cell.x, _cell.y])
 
 	# orientation flip (structural: rebuild through MapIO so the gate respawns)
-	var orient: String = d["orientation"]
+	var orient: Grid.Orient = d["orientation"]
 	var ob := Button.new()
-	ob.text = "Orientation: %s" % orient.capitalize()
+	ob.text = "Orientation: %s" % Grid.orient_name(orient).capitalize()
 	ob.pressed.connect(func():
-		var flipped := "vertical" if orient == "horizontal" else "horizontal"
+		var flipped := Grid.flip(orient)
 		obs.set_door_orientation(_cell, flipped)
-		MapIO.apply_serialized(MapIO.serialize(), true)
+		MapIO.rebuild_live(MapIO.REBUILD_STRUCTURES)
 		EditHistory.commit("door orientation")
 		inspect_door(_cell)) # re-read the rebuilt door
 	_box.add_child(ob)
@@ -315,7 +307,7 @@ func _build_door() -> void:
 		lb.flat = lock_kind != opt[1]
 		lb.pressed.connect(func():
 			obs.set_door_lock(_cell, opt[1], String(d.get("lock_color", "red")), String(d.get("lock_name", "")))
-			MapIO.apply_serialized(MapIO.serialize(), true)
+			MapIO.rebuild_live(MapIO.REBUILD_STRUCTURES)
 			EditHistory.commit("door lock")
 			inspect_door(_cell))
 		lock_row.add_child(lb)
@@ -340,7 +332,7 @@ func _build_door() -> void:
 			cb.add_theme_stylebox_override("normal", sb)
 			cb.pressed.connect(func():
 				obs.set_door_lock(_cell, "colour", cname, "")
-				MapIO.apply_serialized(MapIO.serialize(), true)
+				MapIO.rebuild_live(MapIO.REBUILD_STRUCTURES)
 				EditHistory.commit("lock colour")
 				inspect_door(_cell))
 			col_row.add_child(cb)
@@ -359,7 +351,7 @@ func _build_door() -> void:
 		var bound: int = _keys_bound_here().size()
 		place.text = "Place its key" if bound == 0 else "Place another key (%d placed)" % bound
 		place.pressed.connect(func():
-			var fm = get_node_or_null("../World/FloorManager")
+			var fm := get_node_or_null("../World/FloorManager") as FloorManager
 			if fm != null:
 				fm.arm_bound_key(obs.door_id_at(_cell), name_edit.text))
 		_box.add_child(place)
@@ -371,13 +363,13 @@ func _build_door() -> void:
 	to_wall.pressed.connect(func():
 		obs.remove_structure(_cell) # drop the door
 		obs.add_wall(_cell)         # put a wall on the cell
-		MapIO.apply_serialized(MapIO.serialize(), true)
+		MapIO.rebuild_live(MapIO.REBUILD_STRUCTURES)
 		EditHistory.commit("door to wall")
 		inspect_wall(_cell))
 	_box.add_child(to_wall)
 
 func _build_wall() -> void:
-	var obs = _obs()
+	var obs := _obs()
 	if obs == null or not obs.is_blocked(_cell):
 		clear()
 		return
@@ -385,7 +377,7 @@ func _build_wall() -> void:
 	var current: Color = obs.get_wall_color(_cell)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 2)
-	for entry in WALL_COLORS:
+	for entry in WallSegment.COLORS:
 		var name: String = entry[0]
 		var col: Color = entry[1]
 		var b := Button.new()
@@ -405,7 +397,7 @@ func _build_wall() -> void:
 	var current_mat: String = obs.get_wall_material(_cell)
 	var mat_row := HBoxContainer.new()
 	mat_row.add_theme_constant_override("separation", 2)
-	for entry in WALL_MATERIALS:
+	for entry in WallSegment.MATERIAL_NAMES:
 		var mname: String = entry[0]
 		var mat: String = entry[1]
 		var mb := Button.new()
@@ -426,7 +418,7 @@ func _build_wall() -> void:
 	to_door.text = "Convert to Door"
 	to_door.pressed.connect(func():
 		obs.add_door(_cell, obs.wall_run_orientation(_cell))
-		MapIO.apply_serialized(MapIO.serialize(), true)
+		MapIO.rebuild_live(MapIO.REBUILD_STRUCTURES)
 		EditHistory.commit("wall to door")
 		inspect_door(_cell))
 	_box.add_child(to_door)

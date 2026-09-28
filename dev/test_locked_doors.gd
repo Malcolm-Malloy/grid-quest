@@ -1,23 +1,15 @@
-extends Node
+extends "res://dev/test_case.gd"
 
 # Dev-only headless test for locked doors and keys (ROADMAP Phase B item 11, the terminal item of the
 # 2026-08-13 chain): the two lock types, what each does to the key, how a locked door blocks, where
 # the opened state lives, and the editor rules (authoring, durable door ids, deleting a bound door).
 #   /Applications/Godot.app/Contents/MacOS/Godot --headless --path . res://dev/test_locked_doors.tscn
 
-var _fails := 0
-func _check(label: String, cond: bool) -> void:
-	print(("PASS " if cond else "FAIL ") + label)
-	if not cond: _fails += 1
-
 func _mid(cell: Vector2i) -> Vector2:
 	return Vector2(cell.x * 32 + 16, cell.y * 32 + 16)
 
 func _ready() -> void:
-	MapIO.auto_load = false
-	var main: Node = load("res://main.tscn").instantiate()
-	add_child(main)
-	await get_tree().process_frame
+	var main: Node = await boot_main()
 	var obs = main.get_node("World/Obstacles")
 	var fm = main.get_node("World/FloorManager")
 	var pk = main.get_node("World/Pickups")
@@ -87,7 +79,7 @@ func _ready() -> void:
 	obs.set_door_lock(door, "unique", "red", "Malcolm's Door Key")
 	fm.arm_bound_key(obs.door_id_at(door), "Malcolm's Door Key")
 	_check("the Item tool armed the bound key", fm.armed_item() == "key" and fm.armed_item_binding()["door_id"] == door_id)
-	_check("placed the key", fm._place_item_at(_mid(Vector2i(20, 14))))
+	_check("placed the key", fm.place_item_at(_mid(Vector2i(20, 14))))
 	await get_tree().process_frame
 	var placed: Dictionary = pk.pickup_at(Vector2i(20, 14))
 	_check("the placed key is bound to the door", String(placed["data"]["door_id"]) == door_id)
@@ -95,8 +87,8 @@ func _ready() -> void:
 	_check("the binding is spent: the next key is unbound", fm.armed_item_binding().is_empty())
 	_check("the door can find its keys", pk.keys_for_door(door_id).size() == 1)
 	_check("erasing that door WARNS first (it would take the key with it)",
-		fm._warn_bound_keys([door], func(): pass))
-	fm._delete_structure_with_keys(door)
+		fm.warn_bound_keys([door], func(): pass))
+	fm.delete_structure_with_keys(door)
 	await get_tree().process_frame
 	_check("confirming removed the door", obs.door_at(door).is_empty())
 	_check("...and its now-useless key", not pk.has_pickup(Vector2i(20, 14)))
@@ -118,5 +110,4 @@ func _ready() -> void:
 	_check("the moved door kept its lock", obs.door_at(Vector2i(8, 12)).get("lock", "") == "unique")
 
 	DirAccess.remove_absolute("user://maps/__lock_test.json")
-	print("RESULT: %s (%d failures)" % ["OK" if _fails == 0 else "FAILURES", _fails])
-	get_tree().quit(_fails)
+	finish()
