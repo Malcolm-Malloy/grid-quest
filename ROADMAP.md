@@ -641,6 +641,17 @@ roadmap's outdoor naturals) plus water.
   UNDERLAY (`_edge_underlay_mat` = the highest-ranked lower neighbour, so snow reveals sand beneath its
   feather; the grass base needs none) then the feathered atlas cell via `_shore_src(mask)`. Reuses the
   `base_fills` 4th-element src-override the shoreline added.
+- **Smooth liquid edges (2026-09-29, the user: the water's edge was "extra ripply").** The shore atlas
+  (`water_shore.png` / `lava_shore.png`) paints its own busier ripple, and each 32px atlas cell is squeezed
+  into a 16px quarter, so the edge ripple was twice as dense as the open water. Now only the atlas's ALPHA
+  (the feather shape) is used: `water_shimmer.gdshader` gained a shore mode (`use_body`) that colours a
+  shore quarter from the liquid's own open-water tile sampled by World position, exactly as open water
+  tiles it. `GridBackground` gives each liquid a shore canvas item with that material. The edge is now the
+  same smooth, seamless surface as the body, with the same shimmer; lava gets the same fix.
+  **Lava's own tile was also busy** (a high-contrast crosshatch), so `floors/lava_still.png` was regenerated
+  in the water tile's style: seamless 128x128 tileable value noise (3 octaves, soft blotches) on a crust ->
+  orange ramp, plus a few small glowing hot spots (procedural PIL; generator in the session scratchpad,
+  like the water's).
 - **Interactions.** Sand never feathers toward water (water outranks it); water still feathers over sand
   via its own shoreline (bank revealed). The river-bank ring still draws on naturals adjacent to water.
   Purely visual: a quarter's stored material is unchanged, so collision (sand/snow passable) and save are
@@ -1285,17 +1296,6 @@ The core game loop, folded in from a Notes batch and resolved with the user. Thi
 creature-collector RPG pillar the north star describes; infrastructure (dev-order steps 1 to 7)
 still comes first. See [[grid-quest-game-vision]].
 
-### Creature / minion states and lifecycle
-Canonical glossary + a fill-in form now live in `Design/creature-states.md`; keep this in sync with it.
-- **Entity vs control:** a **Creature** is the entity (what you call one while **wild / free**); a
-  **Minion** is a creature **under your control**.
-- **States:** **Wild** (roaming, hostile), **Subdued** (beaten, capture window open, transient),
-  **Entranced Minion** (mind forced by an **Enchantment Stone the player HOLDS**; obeys), **Contained**
-  / Paddocked (released from the stone into an appropriate paddock; roams the pen peacefully but is wild
-  at heart, turning hostile if the pen is broken or entered, until domesticated), **Loyal Minion**
-  (domesticated to loyalty; obeys willingly, needs no stone and no cage, never reverts). **Companion** =
-  a minion currently out walking with you (fills a carry slot; a deployment role).
-- **Enchantment Stone:** a held item (one of your slots) that controls one creature's mind remotely; it
 ### Combat direction (decided with the user 2026-09-29)
 - **Real-time on the map** (Zelda-style), not turn-based and not a separate battle screen: fights
   happen in the world, and you dodge by moving.
@@ -1326,6 +1326,17 @@ PLAY never mutates the map: records keep their authored cells, so EDIT puts ever
 **Open / later:** creatures entering houses (door-breaking abilities, e.g. Breaker Monkey on fences);
 per-species sight/leash; group behaviour; zone creatures respawning after defeat.
 
+### Creature / minion states and lifecycle
+Canonical glossary + a fill-in form now live in `Design/creature-states.md`; keep this in sync with it.
+- **Entity vs control:** a **Creature** is the entity (what you call one while **wild / free**); a
+  **Minion** is a creature **under your control**.
+- **States:** **Wild** (roaming, hostile), **Subdued** (beaten, capture window open, transient),
+  **Entranced Minion** (mind forced by an **Enchantment Stone the player HOLDS**; obeys), **Contained**
+  / Paddocked (released from the stone into an appropriate paddock; roams the pen peacefully but is wild
+  at heart, turning hostile if the pen is broken or entered, until domesticated), **Loyal Minion**
+  (domesticated to loyalty; obeys willingly, needs no stone and no cage, never reverts). **Companion** =
+  a minion currently out walking with you (fills a carry slot; a deployment role).
+- **Enchantment Stone:** a held item (one of your slots) that controls one creature's mind remotely; it
   is **never attached to the creature**. Releasing it, or moving it to storage, ends control: safe only
   when the creature is in appropriate containment (becomes Contained), otherwise it runs / turns Wild.
 - **Domestication:** an **experience-based** progression that rises **ONLY while a creature is Entranced**.
@@ -3608,6 +3619,23 @@ same system roofs and weather reuse.
     shared service; the minimap is another consumer).
 - Radius-based creature rendering needs a spatial query of nearby creatures; distant.
 
+**As built (2026-09-29): slice 1.** Decisions (confirmed with the user): a **~180px square, top-right**
+under the Play/Exit buttons; a **local window** (30x30 cells, 6px per cell) that scrolls smoothly with
+the player; **PLAY only** (the editor has pan/zoom); creature dots **coloured by state**. `ui/minimap.gd`
+(`Minimap`, CanvasLayer 8). "Building" and "inside" are exactly the roofs' (`Roofs.piece_at` /
+`buildings()`), so the view flips to the interior as the roof fades, and a fenced pen keeps the outdoor
+view. Outdoors: ground, liquids (water blue, lava orange), free-standing walls/fences, the map edge
+(off-map dark), buildings as one tan block. Indoors: that building's floors, walls and doors; everything
+else greyed, and only creatures inside with you are shown. The terrain is baked one pixel per cell (a
+32x32 image) on a cell change or a layout change and drawn scaled; only the dots draw per frame.
+`Bestiary.State` + `STATE_COLORS` now exist, using the canonical states from
+`Design/creature-states.md` (Wild / Subdued / Entranced / Contained / Loyal; reconciled 2026-09-29, the
+minimap bullet's "Wild Monster / Wild Animal" split is a species axis, not a state); `CreatureMarker.state`
+defaults to Wild (not saved; nothing changes it
+until Phase C capture). Covered by `dev/test_minimap` (18 checks).
+**Not built yet:** a whole-map view (e.g. a key to expand), room/paddock name labels, zoom, and
+rotating the window or a facing arrow beyond the small nub.
+
 ## Map-to-map travel (reach the edge, logged 2026-08-15)
 The world is **multiple linked maps**: reaching the **right edge** of the home map (e.g. following a
 path to the edge) moves the character to an **adjacent map** (e.g. a forest map to the right). This
@@ -3661,23 +3689,6 @@ confirmed Beastlord):
 - **Druid:** uses slots for Loyal Companions so the character carries **extra spells**; nature-
   positive, releases animals, avoids meat (eats vegetables, which heal less). *Buff:* an extra spell
   slot per companion. *Balance read:* overlaps Sorcerer's "extra slots", so **differentiate
-**As built (2026-09-29): slice 1.** Decisions (confirmed with the user): a **~180px square, top-right**
-under the Play/Exit buttons; a **local window** (30x30 cells, 6px per cell) that scrolls smoothly with
-the player; **PLAY only** (the editor has pan/zoom); creature dots **coloured by state**. `ui/minimap.gd`
-(`Minimap`, CanvasLayer 8). "Building" and "inside" are exactly the roofs' (`Roofs.piece_at` /
-`buildings()`), so the view flips to the interior as the roof fades, and a fenced pen keeps the outdoor
-view. Outdoors: ground, liquids (water blue, lava orange), free-standing walls/fences, the map edge
-(off-map dark), buildings as one tan block. Indoors: that building's floors, walls and doors; everything
-else greyed, and only creatures inside with you are shown. The terrain is baked one pixel per cell (a
-32x32 image) on a cell change or a layout change and drawn scaled; only the dots draw per frame.
-`Bestiary.State` + `STATE_COLORS` now exist, using the canonical states from
-`Design/creature-states.md` (Wild / Subdued / Entranced / Contained / Loyal; reconciled 2026-09-29, the
-minimap bullet's "Wild Monster / Wild Animal" split is a species axis, not a state); `CreatureMarker.state`
-defaults to Wild (not saved; nothing changes it
-until Phase C capture). Covered by `dev/test_minimap` (18 checks).
-**Not built yet:** a whole-map view (e.g. a key to expand), room/paddock name labels, zoom, and
-rotating the window or a facing arrow beyond the small nub.
-
   clearly**: Sorcerer's slots are raw *attack* magic with no bodies; Druid's spells come **bundled
   with a companion animal's body plus inherent ability** (mount speed, gathering), skewing
   **utility/support/mobility** over raw damage. Plus positive-karma world/NPC benefits. Good contrast
