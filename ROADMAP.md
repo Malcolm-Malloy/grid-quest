@@ -3619,6 +3619,23 @@ confirmed Beastlord):
 - **Druid:** uses slots for Loyal Companions so the character carries **extra spells**; nature-
   positive, releases animals, avoids meat (eats vegetables, which heal less). *Buff:* an extra spell
   slot per companion. *Balance read:* overlaps Sorcerer's "extra slots", so **differentiate
+**As built (2026-09-29): slice 1.** Decisions (confirmed with the user): a **~180px square, top-right**
+under the Play/Exit buttons; a **local window** (30x30 cells, 6px per cell) that scrolls smoothly with
+the player; **PLAY only** (the editor has pan/zoom); creature dots **coloured by state**. `ui/minimap.gd`
+(`Minimap`, CanvasLayer 8). "Building" and "inside" are exactly the roofs' (`Roofs.piece_at` /
+`buildings()`), so the view flips to the interior as the roof fades, and a fenced pen keeps the outdoor
+view. Outdoors: ground, liquids (water blue, lava orange), free-standing walls/fences, the map edge
+(off-map dark), buildings as one tan block. Indoors: that building's floors, walls and doors; everything
+else greyed, and only creatures inside with you are shown. The terrain is baked one pixel per cell (a
+32x32 image) on a cell change or a layout change and drawn scaled; only the dots draw per frame.
+`Bestiary.State` + `STATE_COLORS` now exist, using the canonical states from
+`Design/creature-states.md` (Wild / Subdued / Entranced / Contained / Loyal; reconciled 2026-09-29, the
+minimap bullet's "Wild Monster / Wild Animal" split is a species axis, not a state); `CreatureMarker.state`
+defaults to Wild (not saved; nothing changes it
+until Phase C capture). Covered by `dev/test_minimap` (18 checks).
+**Not built yet:** a whole-map view (e.g. a key to expand), room/paddock name labels, zoom, and
+rotating the window or a facing arrow beyond the small nub.
+
   clearly**: Sorcerer's slots are raw *attack* magic with no bodies; Druid's spells come **bundled
   with a companion animal's body plus inherent ability** (mount speed, gathering), skewing
   **utility/support/mobility** over raw damage. Plus positive-karma world/NPC benefits. Good contrast

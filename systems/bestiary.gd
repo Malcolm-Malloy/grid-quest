@@ -41,6 +41,20 @@ const DEFS := {
 
 # How a creature is authored onto the map (ROADMAP "Creature placement in the editor": all three).
 # SPAWN_POINT and INSTANCE are single-cell records and are built; ZONE needs region storage plus a
+# A creature's lifecycle state (Design/creature-states.md, the canonical glossary): Wild -> Subdued ->
+# Entranced (a held stone forces it) <-> Contained (parked in a paddock) -> ... Loyal (domesticated). Each
+# has the colour the minimap marks it with. Only WILD is live: fighting, capture and domestication are
+# still ahead in Phase C, so every creature starts (and for now stays) wild. The minimap already colours
+# by state, so the others show correctly the day they exist.
+enum State { WILD, SUBDUED, ENTRANCED, CONTAINED, LOYAL }
+const STATE_COLORS := {
+	State.WILD: Color(0.93, 0.26, 0.22),
+	State.SUBDUED: Color(0.96, 0.62, 0.20),
+	State.ENTRANCED: Color(0.72, 0.42, 0.95),
+	State.CONTAINED: Color(0.95, 0.85, 0.30),
+	State.LOYAL: Color(0.30, 0.85, 0.40),
+}
+
 # spawn timer/cap and is deliberately left for later, per that section's own build-order note.
 const SPAWN_POINT := "spawn"   # a spot that spawns this creature at play start, then it roams (AI: Phase C)
 const INSTANCE := "instance"   # this exact creature, exactly here: scripted / boss / unique / quest

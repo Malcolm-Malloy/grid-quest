@@ -36,6 +36,7 @@ var creature := "frost_frog"
 var kind := "spawn"
 var id := ""
 var blocks := true
+var state := Bestiary.State.WILD # not saved yet: nothing changes it until capture (Phase C)
 
 var _t := 0.0
 
