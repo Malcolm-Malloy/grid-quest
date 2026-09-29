@@ -21,26 +21,26 @@ extends Node
 # roster carries the design intent rather than leaving it in the doc only.
 # `body` is the procedural glyph creature_marker.gd draws: no creature art exists yet, matching how
 # walls, water, lava and pickups are all drawn procedurally until art arrives.
+# `speed` is how fast it chases, in cells per second (the player walks 6, so every starter can be outrun);
+# it wanders at a fraction of that (CreatureBrain.WANDER_PACE).
 const DEFS := {
 	"frost_frog": {
 		"name": "Frost Frog", "rarity": Items.Rarity.COMMON,
-		"body": "frog", "tint": Color(0.45, 0.72, 0.95),
+		"body": "frog", "tint": Color(0.45, 0.72, 0.95), "speed": 3.0,
 		"ability": "Shoots a ball of ice at the player.",
 	},
 	"fire_horse": {
 		"name": "Fire Horse", "rarity": Items.Rarity.RARE,
-		"body": "horse", "tint": Color(0.95, 0.45, 0.18),
+		"body": "horse", "tint": Color(0.95, 0.45, 0.18), "speed": 5.0,
 		"ability": "Breathes fire at the player.",
 	},
 	"breaker_monkey": {
 		"name": "Breaker Monkey", "rarity": Items.Rarity.UNCOMMON,
-		"body": "monkey", "tint": Color(0.62, 0.44, 0.28),
+		"body": "monkey", "tint": Color(0.62, 0.44, 0.28), "speed": 4.0,
 		"ability": "Knocks down wood fences (higher-tier walls as its ability levels).",
 	},
 }
 
-# How a creature is authored onto the map (ROADMAP "Creature placement in the editor": all three).
-# SPAWN_POINT and INSTANCE are single-cell records and are built; ZONE needs region storage plus a
 # A creature's lifecycle state (Design/creature-states.md, the canonical glossary): Wild -> Subdued ->
 # Entranced (a held stone forces it) <-> Contained (parked in a paddock) -> ... Loyal (domesticated). Each
 # has the colour the minimap marks it with. Only WILD is live: fighting, capture and domestication are
@@ -55,6 +55,8 @@ const STATE_COLORS := {
 	State.LOYAL: Color(0.30, 0.85, 0.40),
 }
 
+# How a creature is authored onto the map (ROADMAP "Creature placement in the editor": all three).
+# SPAWN_POINT and INSTANCE are single-cell records and are built; ZONE needs region storage plus a
 # spawn timer/cap and is deliberately left for later, per that section's own build-order note.
 const SPAWN_POINT := "spawn"   # a spot that spawns this creature at play start, then it roams (AI: Phase C)
 const INSTANCE := "instance"   # this exact creature, exactly here: scripted / boss / unique / quest
@@ -93,6 +95,10 @@ func display_name(creature: String) -> String:
 
 func ability(creature: String) -> String:
 	return String(DEFS.get(creature, {}).get("ability", ""))
+
+# chase speed in cells per second (see DEFS); an unknown creature gets a middling pace
+func speed_of(creature: String) -> float:
+	return float(def(creature).get("speed", 4.0))
 
 func rarity_of(creature: String) -> int:
 	return int(DEFS.get(creature, {}).get("rarity", Items.Rarity.COMMON))

@@ -39,6 +39,9 @@ var blocks := true
 var state := Bestiary.State.WILD # not saved yet: nothing changes it until capture (Phase C)
 
 var _t := 0.0
+var _alert := ""     # a glyph popped over its head ("!" spotted you, "?" lost you), fading after ALERT_TIME
+var _alert_t := 0.0
+const ALERT_TIME := 1.0
 
 func _ready() -> void:
 	add_to_group("creatures")
@@ -52,7 +55,13 @@ func place(c: Vector2i) -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	_alert_t = maxf(_alert_t - delta, 0.0)
 	queue_redraw()
+
+# pop `glyph` over its head for a moment (CreatureBrain: "!" when it spots the player, "?" when it gives up)
+func alert(glyph: String) -> void:
+	_alert = glyph
+	_alert_t = ALERT_TIME
 
 # a spawn point shows its authored marker only while authoring; in PLAY the creature has hatched
 func _is_marker() -> bool:
@@ -86,6 +95,8 @@ func _draw() -> void:
 	# a small hollow diamond over it says "the player walks through this one".
 	if not blocks and EditorMode.is_edit():
 		_draw_passable_pip(c)
+	if _alert_t > 0.0:
+		_draw_alert(c)
 
 # the spawn-point ground ring: dashed, to read as "a spot" rather than a solid thing standing here.
 # Green is the editor's ADD colour, which is what a spawn point is -- a place something comes from.
@@ -168,6 +179,18 @@ func _blob(c: Vector2, radii: Vector2, tint: Color) -> void:
 func _eye(c: Vector2, scale := 1.0) -> void:
 	draw_circle(c, 2.0 * scale, Color(0.97, 0.97, 1.0))
 	draw_circle(c, 1.0 * scale, DARK)
+
+# the alert glyph over its head, fading out over its last third. The brain mirrors the body (scale.x) to
+# face left; the glyph is drawn un-mirrored so "?" never reads backwards.
+func _draw_alert(c: Vector2) -> void:
+	var font := ThemeDB.fallback_font
+	var a := clampf(_alert_t / (ALERT_TIME / 3.0), 0.0, 1.0)
+	var col := Color(1.0, 0.85, 0.2, a) if _alert == "!" else Color(0.85, 0.9, 1.0, a)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(signf(scale.x), 1.0))
+	var at := Vector2(-4.0, c.y - RING_R - 6.0) # the transform above cancels the mirror, so plain coords
+	draw_string_outline(font, at, _alert, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, 4, Color(0, 0, 0, a))
+	draw_string(font, at, _alert, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, col)
+	draw_set_transform(Vector2.ZERO)
 
 # the "walks through this one" cue for a per-instance passability override
 func _draw_passable_pip(c: Vector2) -> void:

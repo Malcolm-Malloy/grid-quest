@@ -26,7 +26,8 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
    and coordinate conventions before more is baked in. Steps 1 to 8 partly done (see findings
    inline). **The room-topology extraction (Q2) is DONE 2026-09-28**, so roofs, minimap and
    paddock-override can build on `RoomTopology` rather than the light node. **Roofs slice 1 BUILT 2026-09-28** on
-   it (see "Roofs" under Future terrain and world objects).
+   it (see "Roofs" under Future terrain and world objects). **Minimap slice 1 BUILT 2026-09-29** (see "Minimap"). **Phase C slice 1 (creatures roam, notice, chase)
+   BUILT 2026-09-29** (see "Creature and gameplay systems").
 1. **Ground layer storage plus save v2. DONE 2026-08-15.** Foundation for everything below; see
    "Ground layer" and the As-built notes.
 2. **Show the map edge (hide out-of-range ground) and a bigger default map. DONE 2026-08-16.** The
@@ -1279,7 +1280,7 @@ Option behaviour:
     Grid Lines (Toggle ON/OFF)
     Block/Ground (Toggle)
 
-## Creature and gameplay systems (game pillar, specced with the user 2026-08-14, not built)
+## Creature and gameplay systems (game pillar, specced with the user 2026-08-14; slice 1 BUILT 2026-09-29)
 The core game loop, folded in from a Notes batch and resolved with the user. This is the
 creature-collector RPG pillar the north star describes; infrastructure (dev-order steps 1 to 7)
 still comes first. See [[grid-quest-game-vision]].
@@ -1295,6 +1296,36 @@ Canonical glossary + a fill-in form now live in `Design/creature-states.md`; kee
   (domesticated to loyalty; obeys willingly, needs no stone and no cage, never reverts). **Companion** =
   a minion currently out walking with you (fills a carry slot; a deployment role).
 - **Enchantment Stone:** a held item (one of your slots) that controls one creature's mind remotely; it
+### Combat direction (decided with the user 2026-09-29)
+- **Real-time on the map** (Zelda-style), not turn-based and not a separate battle screen: fights
+  happen in the world, and you dodge by moving.
+- **Player attack: a swing key** (e.g. Space) that hits whatever is in the cell you FACE, on a short
+  cooldown. Gems/magic add ranged attacks later.
+- **Creatures move cell by cell** like the player (same walkability rule).
+- **Build order:** slice 1 = wander + notice + chase (BUILT); slice 2 = health on both sides, the
+  swing, creature attacks (contact + each starter's one ability), defeat -> Subdued; slice 3 =
+  Entrancement with an Enchantment Stone and the weighted fail branch.
+
+### As built: slice 1, wander + notice + chase (2026-09-29)
+`world/creature_brain.gd` (`CreatureBrain`), a child Node Creatures adds to every **Wild** creature when
+PLAY builds the world (EDIT's rebuild discards it). Modes: **ROAM** (short walks with pauses inside its
+area: a spawn point's creature within `WANDER_R` 4 cells of home, a zone's inside its zone rect; a
+**fixed instance holds its post** and only moves to chase), **CHASE** (spotted the player within `SIGHT`
+5 cells with line of sight -- walls and CLOSED doors block it, see-through fences don't -- and paths
+(BFS, capped at `SEARCH` cells, falls back to the nearest reachable cell) to alongside the player at its
+species speed, then stands facing them: the attack slot for slice 2), **RETURN** (gave up: player over
+`LOSE` 8 cells away, out of sight `FORGET` 2s, or `LEASH` 10 cells from home; walks home at half pace and
+ignores the player for `CALM` 2s). A "!" pops over it on spotting, a "?" on giving up; it mirrors to face
+left. **Speeds** in `Bestiary.DEFS` (`speed_of`): Frost Frog 3, Breaker Monkey 4, Fire Horse 5 cells/s
+(the player walks 6, so all can be outrun). **Live occupancy:** `Creatures._occupied` (cell -> node, PLAY
+only) replaces the record-cell lookup for blocking and zone spawning; a stepping creature holds both
+cells until it lands. `Creatures.can_enter` = the player's walkability rule minus **doors** (a closed
+house keeps wild creatures out, for now), items, other creatures, and the player's cell + step target.
+PLAY never mutates the map: records keep their authored cells, so EDIT puts everyone back. Covered by
+`dev/test_creature_ai` (22 checks); `dev/capture` gained `GQ_CREATURE="x,y,id"`.
+**Open / later:** creatures entering houses (door-breaking abilities, e.g. Breaker Monkey on fences);
+per-species sight/leash; group behaviour; zone creatures respawning after defeat.
+
   is **never attached to the creature**. Releasing it, or moving it to storage, ends control: safe only
   when the creature is in appropriate containment (becomes Contained), otherwise it runs / turns Wild.
 - **Domestication:** an **experience-based** progression that rises **ONLY while a creature is Entranced**.

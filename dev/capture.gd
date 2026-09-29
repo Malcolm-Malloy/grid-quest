@@ -26,6 +26,11 @@ func _ready() -> void:
 	# GQ_ROOFS=1 turns Show Roofs on (roofs are off in EDIT by default); GQ_PLAY=1 enters PLAY instead
 	if OS.get_environment("GQ_ROOFS") == "1":
 		main.get_node("World/Roofs").show_in_edit = true
+	# GQ_CREATURE="x,y,id" places a spawn-point creature (before GQ_PLAY, so it hatches alive)
+	var gqc := OS.get_environment("GQ_CREATURE").split(",")
+	if gqc.size() == 3:
+		main.get_node("World/Creatures").add_creature(Vector2i(int(gqc[0]), int(gqc[1])), gqc[2])
+		main.get_node("World/Creatures").rebuild()
 	if OS.get_environment("GQ_PLAY") == "1":
 		EditorMode.set_mode(EditorMode.Mode.PLAY)
 
