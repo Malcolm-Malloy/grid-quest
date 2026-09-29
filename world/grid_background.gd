@@ -57,6 +57,8 @@ const WATER_SHIMMER := preload("res://world/water_shimmer.gdshader")
 var _water_ci: RID
 var _lines_ci: RID
 var _water_mat: ShaderMaterial
+var _shore_ci := {} # a liquid's shore atlas -> its canvas item, shading the atlas's feather with the liquid's own tile
+var _shore_mats: Array[ShaderMaterial] = [] # kept alive for their canvas items
 
 func _ready() -> void:
 	texture_filter = TEXTURE_FILTER_NEAREST
@@ -65,6 +67,16 @@ func _ready() -> void:
 	_water_mat.shader = WATER_SHIMMER
 	_water_ci = _child_canvas_item(0)
 	RenderingServer.canvas_item_set_material(_water_ci, _water_mat.get_rid())
+	for mat: String in FloorMaterials.LIQUID_SHORE:
+		var sm := ShaderMaterial.new()
+		sm.shader = WATER_SHIMMER
+		sm.set_shader_parameter("use_body", true)
+		sm.set_shader_parameter("body", FloorMaterials.texture(mat, 0))
+		sm.set_shader_parameter("body_size", float(FLOOR_TEX))
+		var ci := _child_canvas_item(0)
+		RenderingServer.canvas_item_set_material(ci, sm.get_rid())
+		_shore_mats.append(sm)
+		_shore_ci[FloorMaterials.LIQUID_SHORE[mat]] = ci
 	_lines_ci = _child_canvas_item(1)
 	queue_redraw()
 
@@ -78,7 +90,7 @@ func _child_canvas_item(order: int) -> RID:
 	return ci
 
 func _exit_tree() -> void:
-	for ci in [_water_ci, _lines_ci]:
+	for ci in [_water_ci, _lines_ci] + _shore_ci.values():
 		if ci.is_valid():
 			RenderingServer.free_rid(ci)
 
@@ -119,6 +131,8 @@ func _draw() -> void:
 	# wall/door quadrants) with that texture, so no grass shows between floor and walls.
 	# FloorManager supplies the [dst_rect, texture] pieces; they tile by world position.
 	RenderingServer.canvas_item_clear(_water_ci)
+	for ci: RID in _shore_ci.values():
+		RenderingServer.canvas_item_clear(ci)
 	RenderingServer.canvas_item_clear(_lines_ci)
 	if _fm:
 		# f = [dst_rect, texture, tint] with an OPTIONAL 4th element = a source-rect override (in
@@ -129,7 +143,10 @@ func _draw() -> void:
 		for f in _fm.base_fills():
 			var src: Rect2 = f[3] if f.size() > 3 else tiled_src(f[0])
 			if f.size() > 4 and f[4]:
-				RenderingServer.canvas_item_add_texture_rect_region(_water_ci, f[0], f[1].get_rid(), src, f[2])
+				# a shoreline quarter goes to its liquid's shore item (feather from the atlas, colour from the
+				# open-water tile); open water to the plain shimmer item
+				var ci: RID = _shore_ci.get(f[1], _water_ci)
+				RenderingServer.canvas_item_add_texture_rect_region(ci, f[0], f[1].get_rid(), src, f[2])
 			else:
 				draw_texture_rect_region(f[1], f[0], src, f[2])
 	# the reference grid draws only when toggled on from the floor menu (off by default so

@@ -25,7 +25,9 @@ wraps its edits in an undo entry as it is added, so history is never retrofitted
 0. **Architecture review (do first, see Architecture review section).** Read pass to set data-model
    and coordinate conventions before more is baked in. Steps 1 to 8 partly done (see findings
    inline). **The room-topology extraction (Q2) is DONE 2026-09-28**, so roofs, minimap and
-   paddock-override can build on `RoomTopology` rather than the light node.
+   paddock-override can build on `RoomTopology` rather than the light node. **Roofs slice 1 BUILT 2026-09-28** on
+   it (see "Roofs" under Future terrain and world objects). **Minimap slice 1 BUILT 2026-09-29** (see "Minimap"). **Phase C slice 1 (creatures roam, notice, chase)
+   BUILT 2026-09-29** (see "Creature and gameplay systems").
 1. **Ground layer storage plus save v2. DONE 2026-08-15.** Foundation for everything below; see
    "Ground layer" and the As-built notes.
 2. **Show the map edge (hide out-of-range ground) and a bigger default map. DONE 2026-08-16.** The
@@ -639,6 +641,17 @@ roadmap's outdoor naturals) plus water.
   UNDERLAY (`_edge_underlay_mat` = the highest-ranked lower neighbour, so snow reveals sand beneath its
   feather; the grass base needs none) then the feathered atlas cell via `_shore_src(mask)`. Reuses the
   `base_fills` 4th-element src-override the shoreline added.
+- **Smooth liquid edges (2026-09-29, the user: the water's edge was "extra ripply").** The shore atlas
+  (`water_shore.png` / `lava_shore.png`) paints its own busier ripple, and each 32px atlas cell is squeezed
+  into a 16px quarter, so the edge ripple was twice as dense as the open water. Now only the atlas's ALPHA
+  (the feather shape) is used: `water_shimmer.gdshader` gained a shore mode (`use_body`) that colours a
+  shore quarter from the liquid's own open-water tile sampled by World position, exactly as open water
+  tiles it. `GridBackground` gives each liquid a shore canvas item with that material. The edge is now the
+  same smooth, seamless surface as the body, with the same shimmer; lava gets the same fix.
+  **Lava's own tile was also busy** (a high-contrast crosshatch), so `floors/lava_still.png` was regenerated
+  in the water tile's style: seamless 128x128 tileable value noise (3 octaves, soft blotches) on a crust ->
+  orange ramp, plus a few small glowing hot spots (procedural PIL; generator in the session scratchpad,
+  like the water's).
 - **Interactions.** Sand never feathers toward water (water outranks it); water still feathers over sand
   via its own shoreline (bank revealed). The river-bank ring still draws on naturals adjacent to water.
   Purely visual: a quarter's stored material is unchanged, so collision (sand/snow passable) and save are
@@ -1278,10 +1291,40 @@ Option behaviour:
     Grid Lines (Toggle ON/OFF)
     Block/Ground (Toggle)
 
-## Creature and gameplay systems (game pillar, specced with the user 2026-08-14, not built)
+## Creature and gameplay systems (game pillar, specced with the user 2026-08-14; slice 1 BUILT 2026-09-29)
 The core game loop, folded in from a Notes batch and resolved with the user. This is the
 creature-collector RPG pillar the north star describes; infrastructure (dev-order steps 1 to 7)
 still comes first. See [[grid-quest-game-vision]].
+
+### Combat direction (decided with the user 2026-09-29)
+- **Real-time on the map** (Zelda-style), not turn-based and not a separate battle screen: fights
+  happen in the world, and you dodge by moving.
+- **Player attack: a swing key** (e.g. Space) that hits whatever is in the cell you FACE, on a short
+  cooldown. Gems/magic add ranged attacks later.
+- **Creatures move cell by cell** like the player (same walkability rule).
+- **Build order:** slice 1 = wander + notice + chase (BUILT); slice 2 = health on both sides, the
+  swing, creature attacks (contact + each starter's one ability), defeat -> Subdued; slice 3 =
+  Entrancement with an Enchantment Stone and the weighted fail branch.
+
+### As built: slice 1, wander + notice + chase (2026-09-29)
+`world/creature_brain.gd` (`CreatureBrain`), a child Node Creatures adds to every **Wild** creature when
+PLAY builds the world (EDIT's rebuild discards it). Modes: **ROAM** (short walks with pauses inside its
+area: a spawn point's creature within `WANDER_R` 4 cells of home, a zone's inside its zone rect; a
+**fixed instance holds its post** and only moves to chase), **CHASE** (spotted the player within `SIGHT`
+5 cells with line of sight -- walls and CLOSED doors block it, see-through fences don't -- and paths
+(BFS, capped at `SEARCH` cells, falls back to the nearest reachable cell) to alongside the player at its
+species speed, then stands facing them: the attack slot for slice 2), **RETURN** (gave up: player over
+`LOSE` 8 cells away, out of sight `FORGET` 2s, or `LEASH` 10 cells from home; walks home at half pace and
+ignores the player for `CALM` 2s). A "!" pops over it on spotting, a "?" on giving up; it mirrors to face
+left. **Speeds** in `Bestiary.DEFS` (`speed_of`): Frost Frog 3, Breaker Monkey 4, Fire Horse 5 cells/s
+(the player walks 6, so all can be outrun). **Live occupancy:** `Creatures._occupied` (cell -> node, PLAY
+only) replaces the record-cell lookup for blocking and zone spawning; a stepping creature holds both
+cells until it lands. `Creatures.can_enter` = the player's walkability rule minus **doors** (a closed
+house keeps wild creatures out, for now), items, other creatures, and the player's cell + step target.
+PLAY never mutates the map: records keep their authored cells, so EDIT puts everyone back. Covered by
+`dev/test_creature_ai` (22 checks); `dev/capture` gained `GQ_CREATURE="x,y,id"`.
+**Open / later:** creatures entering houses (door-breaking abilities, e.g. Breaker Monkey on fences);
+per-species sight/leash; group behaviour; zone creatures respawning after defeat.
 
 ### Creature / minion states and lifecycle
 Canonical glossary + a fill-in form now live in `Design/creature-states.md`; keep this in sync with it.
@@ -1641,6 +1684,33 @@ where each lands. Universal rule: **every graphic follows the top/front perspect
   how shadows cover a structure (footprint from room cells plus walls, see
   [[grid-quest-shadows-in-room-scope]], [[grid-quest-floors-fill-whole-room]]). New work is the
   roof z-layer and generating the roof shape per style from the building footprint.
+  **As built (2026-09-28): slice 1, the tiled slate roof.** Decisions (confirmed with the user): **one
+  roof per BUILDING** (rooms joined by a shared wall or door hide together), a **quick 0.2s fade**, a
+  **tiled slate** first style, and roofs **always on in PLAY** but **off in EDIT** unless the tool
+  strip's **Show Roofs** switch (hotkey **O**) is on, so interiors stay visible while building.
+  `world/roofs.gd` (`Roofs`, z 800: above the world, below the editor overlays) is a derived layer, not
+  saved: it rebuilds from `RoomTopology.rebuilt` and the new `Obstacles.materials_changed`. A building
+  = the rooms from RoomTopology (union-find over shared ring cells) + their 8-way wall/door ring; a
+  room ringed by ANY see-through fence is a pen/paddock and gets no roof. Perspective: every footprint
+  cell is lifted by `WallSegment.WALL_HEIGHT` to sit on the wall caps; a south-edge cell stops at the cap
+  bottom and hangs a 5px shaded eave, so the south walls' front faces and doors stay visible. The roof
+  hides while the player's cell (floor or doorway) is in its building. Shingles are one procedural
+  repeating tile (one draw per cell). A solid roof occludes the floor-highlight mask; a fading one
+  doesn't. Covered by `dev/test_roofs` (18 checks); `dev/capture` gained `GQ_ROOFS=1` / `GQ_PLAY=1`.
+  **Gable shape (2026-09-29, the user: "roofs come to a point", following the perspective).** The flat
+  slab became a **gable with its ridge running NORTH-SOUTH**, so the point faces the camera. Each footprint
+  row rises from its west/east ends to a ridge down its middle (`PITCH` 0.25 rise per px, drawn as an
+  upward shift like a wall cap's); the slopes are TOP faces (west lit, east shaded: the world is lit from
+  the upper left) with shingle courses laid in slope space; the **gable end** is a south-facing FRONT face,
+  the building's own wall texture + colour at `FACE_SHADE`, trimmed to the front wall's real extent (the
+  side rails are thin) with a dark barge board. Rows draw north to south, so irregular (L/U) buildings get
+  a ridge per row run and show a gable face wherever a row stands taller than the one in front. PITCH 0.45
+  was tried first and read as a tower, since height projects strongly in this view. `dev/capture` gained
+  `GQ_ZOOM` and `GQ_NODIALOG` (hides a real autosave-recovery prompt that otherwise covers shots).
+  **Not built yet:** more styles (thatch, hip, E-W ridge) and a per-building roof colour/style (needs a
+  stored per-building setting, i.e. a building identity); enclosed courtyards currently get roofed like
+  any room; a player standing directly behind (north of) a house is hidden by its roof peak (the "see the
+  player under cover" reveal is the logged canopy-reveal idea).
 - **Outdoor canopy reveal (walk under large tree foliage).** The same visual goal as roofs, seeing
   the player underneath a large cover, but **outdoors**, which is the key difference: it **cannot
   reuse the inside/outside detection** roofs rely on, since the player is outside the whole time.
@@ -3548,6 +3618,23 @@ same system roofs and weather reuse.
     rather than re-deriving topology (aligns with Architecture review Q2: extract room topology as a
     shared service; the minimap is another consumer).
 - Radius-based creature rendering needs a spatial query of nearby creatures; distant.
+
+**As built (2026-09-29): slice 1.** Decisions (confirmed with the user): a **~180px square, top-right**
+under the Play/Exit buttons; a **local window** (30x30 cells, 6px per cell) that scrolls smoothly with
+the player; **PLAY only** (the editor has pan/zoom); creature dots **coloured by state**. `ui/minimap.gd`
+(`Minimap`, CanvasLayer 8). "Building" and "inside" are exactly the roofs' (`Roofs.piece_at` /
+`buildings()`), so the view flips to the interior as the roof fades, and a fenced pen keeps the outdoor
+view. Outdoors: ground, liquids (water blue, lava orange), free-standing walls/fences, the map edge
+(off-map dark), buildings as one tan block. Indoors: that building's floors, walls and doors; everything
+else greyed, and only creatures inside with you are shown. The terrain is baked one pixel per cell (a
+32x32 image) on a cell change or a layout change and drawn scaled; only the dots draw per frame.
+`Bestiary.State` + `STATE_COLORS` now exist, using the canonical states from
+`Design/creature-states.md` (Wild / Subdued / Entranced / Contained / Loyal; reconciled 2026-09-29, the
+minimap bullet's "Wild Monster / Wild Animal" split is a species axis, not a state); `CreatureMarker.state`
+defaults to Wild (not saved; nothing changes it
+until Phase C capture). Covered by `dev/test_minimap` (18 checks).
+**Not built yet:** a whole-map view (e.g. a key to expand), room/paddock name labels, zoom, and
+rotating the window or a facing arrow beyond the small nub.
 
 ## Map-to-map travel (reach the edge, logged 2026-08-15)
 The world is **multiple linked maps**: reaching the **right edge** of the home map (e.g. following a

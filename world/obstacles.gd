@@ -51,6 +51,10 @@ var wall_colors := {} # Vector2i cell -> Color
 # the default); MapIO persists it. Parallel to and independent of wall_colors.
 var wall_materials := {} # Vector2i cell -> String ("wood" / "slate"; "stone" = default = unstored)
 
+# a material edit changed wall_materials without a structure rebuild. Roofs listen: a fence ring means a
+# pen, not a building, so a wall turning into a fence (or back) adds or removes a roof.
+signal materials_changed
+
 # cell-keyed indexes over the three stores above, for O(1) lookups (is_blocked runs per step, per flood
 # cell and per build). The arrays stay the ordered source of truth MapIO saves; _reindex() rebuilds these
 # after every mutation, and every mutation lives in this file.
@@ -584,6 +588,7 @@ func color_cells(cells, color: Color) -> void:
 
 func material_cells(cells, material: String) -> void:
 	_set_cells(wall_materials, "stone", cells, material)
+	materials_changed.emit()
 
 # write `value` into the sparse `store` for each cell (the `default` value erases the entry), then repaint
 func _set_cells(store: Dictionary, default, cells, value) -> void:

@@ -13,11 +13,15 @@ extends Node2D
 #   blocks = the per-object passability override (ROADMAP "Passability": monster blocks while alive,
 #           any individual object can have the flag toggled).
 #
-# THE AI IS NOT HERE. Roaming, fighting, capture and domestication are Phase C. What a placed
-# creature does today is stand where it was authored and block the player, which is enough to author
-# and play a map around. The spawn-point/instance distinction is REAL now (a spawn point draws as a
-# marker pad in EDIT and hatches its creature in PLAY, an instance is simply always the creature), so
-# the AI has the right two hooks waiting rather than one retrofitted later.
+# IN PLAY THEY ARE ALIVE (Phase C, slice 1): every Wild creature gets a CreatureBrain that roams, spots
+# the player, chases and gives up (see world/creature_brain.gd). A spawn point's creature and a zone's
+# roam; a fixed instance holds its post (it chases, then walks back). Fighting and capture come next.
+# PLAY never changes the map: creatures move as NODES, and the records keep their authored cells, so
+# flipping back to EDIT rebuilds every creature where it was placed.
+#
+# LIVE OCCUPANCY. In PLAY a creature is wherever its node is, not where its record says, so blocking and
+# spawning read `_occupied` (cell -> node), which the brains keep current: a stepping creature holds both
+# the cell it left and the one it is entering until it lands, exactly as the player's target cell counts.
 #
 # ONE OBJECT PER CELL (ROADMAP "Cell occupancy model": terrain / structure / object, at most one of
 # each). A creature IS an object, so it cannot share a cell with a pickup, and vice versa -- the
@@ -36,6 +40,7 @@ var zones: Array[Dictionary] = []
 # serialized, cleared on leaving PLAY and on any map apply, so a zone's output is a property of the
 # playthrough and the MAP only ever holds the rule that made it.
 var _spawned: Array[Dictionary] = []
+var _occupied := {} # PLAY only: cell -> the live creature node standing on (or stepping into) it
 var _timers := {}   # zone id -> seconds accumulated toward its next spawn attempt
 var marker_script: Script
 var zone_script: Script
@@ -43,6 +48,7 @@ var _preview_zone: Node2D # the live drag rectangle, before the zone is committe
 @onready var _fm: FloorManager = get_node_or_null("../FloorManager")
 @onready var _obs: Obstacles = get_node_or_null("../Obstacles")
 @onready var _pickups: Pickups = get_node_or_null("../Pickups")
+@onready var _player: Player = get_node_or_null("../Player")
 
 func _ready() -> void:
 	marker_script = load("res://world/creature_marker.gd")
@@ -59,10 +65,9 @@ func _on_mode_changed(_m: int) -> void:
 
 # --- model ---
 
-# cell -> authored `creatures` record / zone-spawned `_spawned` record, rebuilt after every change to
-# those lists (all in this file), so placement checks and the per-step blocking test are O(1)
+# cell -> authored `creatures` record, rebuilt after every change to that list (all in this file), so
+# placement checks are O(1)
 var _by_cell := {}
-var _spawned_by_cell := {}
 
 func _reindex() -> void:
 	_by_cell.clear()
@@ -119,6 +124,10 @@ func set_blocks(cell: Vector2i, blocks: bool) -> bool:
 	if rec.is_empty() or bool(rec["blocks"]) == blocks:
 		return false
 	rec["blocks"] = blocks
+	# in PLAY the live creature (wherever it has wandered) blocks by its own flag: keep it in step
+	for n in get_tree().get_nodes_in_group("creatures"):
+		if n.id == rec["id"]:
+			n.blocks = blocks
 	return true
 
 # --- spawn zones (ROADMAP "Creature placement in the editor" -> spawn zone/region) ---
@@ -234,9 +243,8 @@ func _spawn_one(z: Dictionary) -> void:
 		node.blocks = Bestiary.blocks_by_default(String(z["creature"]))
 		node.place(cell)
 		add_child(node)
-		var sp := {"cell": cell, "creature": z["creature"], "zone_id": z["id"], "node": node}
-		_spawned.append(sp)
-		_spawned_by_cell[cell] = sp
+		_bring_to_life(node, cell, rect, true) # it roams the zone it came from
+		_spawned.append({"cell": cell, "creature": z["creature"], "zone_id": z["id"], "node": node})
 		return
 
 # a cell a zone may put a creature on: it must exist, be free of walls/doors, of impassable floor,
@@ -248,15 +256,19 @@ func _spawnable(cell: Vector2i) -> bool:
 		return false
 	if _pickups != null and _pickups.has_pickup(cell):
 		return false
-	return not has_creature(cell) and not _spawned_by_cell.has(cell)
+	if _player != null and cell == Grid.cell_of(_player.position):
+		return false
+	return not has_creature(cell) and not _occupied.has(cell)
 
 func _despawn_all() -> void:
 	for sp in _spawned:
 		var n: Node = sp["node"]
+		for c in _occupied.keys():
+			if _occupied[c] == n:
+				_occupied.erase(c)
 		if is_instance_valid(n):
 			n.queue_free()
 	_spawned.clear()
-	_spawned_by_cell.clear()
 	_timers.clear()
 
 # what the zones have produced right now, for tests and for the status of a running map
@@ -272,13 +284,48 @@ func spawned_count() -> int:
 func blocks_movement(cell: Vector2i) -> bool:
 	if EditorMode.is_edit():
 		return false
-	var rec := creature_at(cell)
-	if not rec.is_empty():
-		return bool(rec.get("blocks", true))
-	# a creature a zone produced blocks exactly like an authored one: it is just as much standing there
-	if _spawned_by_cell.has(cell):
-		return Bestiary.blocks_by_default(String(_spawned_by_cell[cell]["creature"]))
-	return false
+	var n: Node2D = _occupied.get(cell)
+	return n != null and bool(n.blocks)
+
+# the live creature on `cell` in PLAY (standing or stepping in), or null
+func occupant(cell: Vector2i) -> Node2D:
+	return _occupied.get(cell)
+
+# --- live movement (PLAY): what CreatureBrain asks before and during a step ---
+
+# may `mover` step onto `cell`? The player's walkability rule, plus what keeps a wild creature out:
+# doors (a closed house stays safe; creatures that break in are a later ability), items (one object per
+# cell), other creatures, and the player's cell and the cell the player is stepping into.
+func can_enter(cell: Vector2i, mover: Node2D) -> bool:
+	if _fm == null or not _fm.is_walkable(cell):
+		return false
+	if _obs != null and not _obs.door_at(cell).is_empty():
+		return false
+	if _pickups != null and _pickups.has_pickup(cell):
+		return false
+	var occ: Node2D = _occupied.get(cell)
+	if occ != null and occ != mover:
+		return false
+	if _player != null and (cell == Grid.cell_of(_player.position) or cell == Grid.cell_of(_player.target_position)):
+		return false
+	return true
+
+func occupy(cell: Vector2i, mover: Node2D) -> void:
+	_occupied[cell] = mover
+
+# let go of `cell`, but only if `mover` still holds it
+func release(cell: Vector2i, mover: Node2D) -> void:
+	if _occupied.get(cell) == mover:
+		_occupied.erase(cell)
+
+# give a PLAY-mode creature node its occupancy and, if it is Wild, a brain. `area` is where it roams.
+func _bring_to_life(node: Node2D, cell: Vector2i, area: Rect2i, roams: bool) -> void:
+	occupy(cell, node)
+	if node.state != Bestiary.State.WILD or _player == null:
+		return
+	var brain := CreatureBrain.new()
+	brain.setup(self, _player, cell, area, roams)
+	node.add_child(brain)
 
 # --- rebuild (MapIO load / resize / undo path) ---
 
@@ -299,6 +346,7 @@ func rebuild() -> void:
 	build_world()
 
 func clear_world() -> void:
+	_occupied.clear()
 	for n in get_tree().get_nodes_in_group("creatures"):
 		n.queue_free()
 	for n in get_tree().get_nodes_in_group("creature_zones"):
@@ -317,6 +365,11 @@ func build_world() -> void:
 		node.blocks = bool(rec.get("blocks", true))
 		node.place(rec["cell"])
 		add_child(node)
+		if EditorMode.is_play():
+			var home: Vector2i = rec["cell"]
+			var r := CreatureBrain.WANDER_R
+			_bring_to_life(node, home, Rect2i(home - Vector2i(r, r), Vector2i(r, r) * 2 + Vector2i.ONE),
+					String(rec["kind"]) != Bestiary.INSTANCE)
 	if zone_script == null:
 		return
 	for z in zones:

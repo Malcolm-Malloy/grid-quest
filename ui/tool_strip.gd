@@ -86,10 +86,12 @@ var _wall_preview: TextureRect    # wall brush swatch: the armed wall cap textur
 var _item_buttons := {}           # item id -> Button (radio-ish); the armed one is highlighted
 var _creature_buttons := {}       # creature id -> Button (radio-ish); the armed one is highlighted
 var _kind_buttons := {}           # Bestiary kind -> Button: spawn point vs fixed instance
+var _roofs_check: CheckButton     # Show Roofs: preview the roofs while editing (they always show in PLAY)
 
 @onready var _fm: FloorManager = get_node_or_null("../World/FloorManager")
 @onready var _edge_highlight: EdgeHighlight = get_node_or_null("../World/EdgeHighlight")
 @onready var _map_size_tool: MapSizeTool = get_node_or_null("../World/MapSizeTool")
+@onready var _roofs: Roofs = get_node_or_null("../World/Roofs")
 
 func _ready() -> void:
 	# the tool strip is editor-only chrome: show it in EDIT, hide it in PLAY (see EditorMode)
@@ -294,6 +296,16 @@ func _ready() -> void:
 	recenter.tooltip_text = Hotkeys.tip("recenter")
 	recenter.pressed.connect(_recenter)
 	vb.add_child(recenter)
+
+	# --- Show Roofs (standalone): off by default so the interiors being built stay visible ---
+	if _roofs:
+		_roofs_check = CheckButton.new()
+		_roofs_check.text = Hotkeys.labelled("Show Roofs", "show_roofs")
+		_roofs_check.tooltip_text = Hotkeys.tip("show_roofs")
+		_roofs_check.button_pressed = _roofs.show_in_edit
+		_roofs_check.toggled.connect(func(on: bool): _roofs.show_in_edit = on)
+		_roofs.show_in_edit_changed.connect(func(on: bool): _roofs_check.set_pressed_no_signal(on))
+		vb.add_child(_roofs_check)
 
 # add a collapsible accordion section to `parent`: a header button that folds its content VBox. Returns
 # the content VBox for the caller to fill. `expanded` sets the initial state. A ▾/▸ arrow shows state.
@@ -733,6 +745,10 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return
 	if event.ctrl_pressed or event.meta_pressed or event.alt_pressed:
+		return
+	if event.keycode == KEY_O and _roofs:
+		_roofs.show_in_edit = not _roofs.show_in_edit
+		get_viewport().set_input_as_handled()
 		return
 	for sc in SHORTCUTS:
 		if event.keycode != sc[0]:

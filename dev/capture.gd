@@ -23,6 +23,17 @@ func _ready() -> void:
 	add_child(main)
 	await get_tree().process_frame
 
+	# GQ_ROOFS=1 turns Show Roofs on (roofs are off in EDIT by default); GQ_PLAY=1 enters PLAY instead
+	if OS.get_environment("GQ_ROOFS") == "1":
+		main.get_node("World/Roofs").show_in_edit = true
+	# GQ_CREATURE="x,y,id" places a spawn-point creature (before GQ_PLAY, so it hatches alive)
+	var gqc := OS.get_environment("GQ_CREATURE").split(",")
+	if gqc.size() == 3:
+		main.get_node("World/Creatures").add_creature(Vector2i(int(gqc[0]), int(gqc[1])), gqc[2])
+		main.get_node("World/Creatures").rebuild()
+	if OS.get_environment("GQ_PLAY") == "1":
+		EditorMode.set_mode(EditorMode.Mode.PLAY)
+
 	# GQ_LOAD="name" loads a saved map before anything else, so GQ_POS/GQ_FLOOR below act on it
 	var load_name := OS.get_environment("GQ_LOAD")
 	if load_name != "":
@@ -578,6 +589,16 @@ func _ready() -> void:
 	if delay <= 0.0:
 		delay = 0.8
 	await get_tree().create_timer(delay).timeout
+	# GQ_ZOOM="1.0" sets the camera zoom (the default is 2x), to frame a whole building. Applied last, as
+	# entering PLAY re-frames the camera.
+	if OS.get_environment("GQ_ZOOM") != "":
+		var z := float(OS.get_environment("GQ_ZOOM"))
+		main.get_node("Camera2D").zoom = Vector2(z, z)
+	# GQ_NODIALOG=1 hides any open dialog (e.g. a real autosave-recovery prompt) so it can't cover the shot
+	if OS.get_environment("GQ_NODIALOG") == "1":
+		for win in main.find_children("*", "AcceptDialog", true, false):
+			(win as Window).hide()
+		await get_tree().process_frame
 	await RenderingServer.frame_post_draw
 
 	var out := OS.get_environment("GQ_OUT")
