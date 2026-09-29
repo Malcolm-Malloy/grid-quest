@@ -589,6 +589,16 @@ func _ready() -> void:
 	if delay <= 0.0:
 		delay = 0.8
 	await get_tree().create_timer(delay).timeout
+	# GQ_ZOOM="1.0" sets the camera zoom (the default is 2x), to frame a whole building. Applied last, as
+	# entering PLAY re-frames the camera.
+	if OS.get_environment("GQ_ZOOM") != "":
+		var z := float(OS.get_environment("GQ_ZOOM"))
+		main.get_node("Camera2D").zoom = Vector2(z, z)
+	# GQ_NODIALOG=1 hides any open dialog (e.g. a real autosave-recovery prompt) so it can't cover the shot
+	if OS.get_environment("GQ_NODIALOG") == "1":
+		for win in main.find_children("*", "AcceptDialog", true, false):
+			(win as Window).hide()
+		await get_tree().process_frame
 	await RenderingServer.frame_post_draw
 
 	var out := OS.get_environment("GQ_OUT")

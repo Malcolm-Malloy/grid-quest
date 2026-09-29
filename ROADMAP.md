@@ -1686,9 +1686,20 @@ where each lands. Universal rule: **every graphic follows the top/front perspect
   hides while the player's cell (floor or doorway) is in its building. Shingles are one procedural
   repeating tile (one draw per cell). A solid roof occludes the floor-highlight mask; a fading one
   doesn't. Covered by `dev/test_roofs` (18 checks); `dev/capture` gained `GQ_ROOFS=1` / `GQ_PLAY=1`.
-  **Not built yet:** more styles (thatch, etc.) and a per-building roof colour/style (needs a stored
-  per-building setting, i.e. a building identity); a ridge line / pitched shading; enclosed courtyards
-  currently get roofed like any room.
+  **Gable shape (2026-09-29, the user: "roofs come to a point", following the perspective).** The flat
+  slab became a **gable with its ridge running NORTH-SOUTH**, so the point faces the camera. Each footprint
+  row rises from its west/east ends to a ridge down its middle (`PITCH` 0.25 rise per px, drawn as an
+  upward shift like a wall cap's); the slopes are TOP faces (west lit, east shaded: the world is lit from
+  the upper left) with shingle courses laid in slope space; the **gable end** is a south-facing FRONT face,
+  the building's own wall texture + colour at `FACE_SHADE`, trimmed to the front wall's real extent (the
+  side rails are thin) with a dark barge board. Rows draw north to south, so irregular (L/U) buildings get
+  a ridge per row run and show a gable face wherever a row stands taller than the one in front. PITCH 0.45
+  was tried first and read as a tower, since height projects strongly in this view. `dev/capture` gained
+  `GQ_ZOOM` and `GQ_NODIALOG` (hides a real autosave-recovery prompt that otherwise covers shots).
+  **Not built yet:** more styles (thatch, hip, E-W ridge) and a per-building roof colour/style (needs a
+  stored per-building setting, i.e. a building identity); enclosed courtyards currently get roofed like
+  any room; a player standing directly behind (north of) a house is hidden by its roof peak (the "see the
+  player under cover" reveal is the logged canopy-reveal idea).
 - **Outdoor canopy reveal (walk under large tree foliage).** The same visual goal as roofs, seeing
   the player underneath a large cover, but **outdoors**, which is the key difference: it **cannot
   reuse the inside/outside detection** roofs rely on, since the player is outside the whole time.
