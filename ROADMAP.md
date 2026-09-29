@@ -1306,6 +1306,21 @@ still comes first. See [[grid-quest-game-vision]].
   swing, creature attacks (contact + each starter's one ability), defeat -> Subdued; slice 3 =
   Entrancement with an Enchantment Stone and the weighted fail branch.
 
+### Slice 2 decisions (asked one by one with the user 2026-09-29; build from these)
+- **Player defeat:** respawn at the map's spawn marker with full health; creatures reset; no items lost.
+- **Health display:** the player has **hearts** top-left (Zelda-style, half hearts); a creature shows a
+  small **health bar over its head only once it has been hit**.
+- **Player toughness:** start with **5 hearts**. Creature contact = half a heart, an ability hit = a full
+  heart (so roughly 5-10 hits to go down; grows with progression later).
+- **Attack input:** **left click** = basic attack. The player turns to face the **cursor's direction**
+  (up/down/left/right) and hits the adjacent cell that way, on a short cooldown. (EDIT's left-click tools
+  are EDIT-only, so no clash.) **Right click in PLAY opens a menu of magic and special attacks** --
+  logged as a future feature; it ties into the gems/runes/orbs magic system and is not part of slice 2.
+- **Subdued window: per species**, stored per creature definition, **all 10s for now** (balance later).
+- **When the window runs out: per species temperament.** **Frost Frog flees** (gets up at low health and
+  runs home); **Breaker Monkey and Fire Horse fight** (get up at low health and resume the fight). A
+  recovered creature can be beaten down again.
+
 ### As built: slice 1, wander + notice + chase (2026-09-29)
 `world/creature_brain.gd` (`CreatureBrain`), a child Node Creatures adds to every **Wild** creature when
 PLAY builds the world (EDIT's rebuild discards it). Modes: **ROAM** (short walks with pauses inside its
